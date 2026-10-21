@@ -1,0 +1,29 @@
+{
+  "name": "combotrader",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ComboTrader 2.0 — Harvest Champions platform by Kitovu Technology Company Limited",
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node --disable-warning=ExperimentalWarning dist/server.mjs",
+    "dev": "node build.mjs && node --disable-warning=ExperimentalWarning dist/server.mjs",
+    "seed": "node --disable-warning=ExperimentalWarning dist/cli.mjs seed",
+    "job": "node --disable-warning=ExperimentalWarning dist/cli.mjs job",
+    "backup": "node --disable-warning=ExperimentalWarning dist/cli.mjs backup",
+    "make-admin": "node --disable-warning=ExperimentalWarning dist/cli.mjs make-admin",
+    "test": "node build.mjs && node --disable-warning=ExperimentalWarning dist/tests.mjs"
+  },
+  "dependencies": {
+    "marked": "^18.0.0",
+    "pdf-lib": "^1.17.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-icons": "^5.7.0",
+    "sharp": "^0.35.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}

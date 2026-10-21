@@ -1,0 +1,7 @@
+node_modules/
+dist/
+public/app.js
+data/
+.env
+*.db
+*.db-*
