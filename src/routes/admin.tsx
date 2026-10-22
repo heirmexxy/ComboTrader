@@ -149,8 +149,8 @@ get('/admin/lots/:id', 'admin:operations', (c) => {
       </div>
     </Box>
     {['filled', 'active', 'completed', 'open'].includes(l.status) && trades.some((t) => ['active', 'matured'].includes(t.status)) && (
-      <Box title="Buyer paying late? Move the payout date">
-        <p className="muted small">Policy (FAQ): tell Champions before the payout date; delay up to 30 days; earnings keep accruing at the same rate for the extra days. Every Champion in this lot is notified by app, email and SMS.</p>
+      <Box title="Exceptional delay: move the payout date">
+        <p className="muted small">Do not use this because a buyer is late or has not paid: Kitovu pays Champions on the payout date from its own balance sheet (Terms 7.1). Use it only for causes outside Kitovu&apos;s control, such as a payment-system outage or a court order (Terms 7.4). Tell Champions before the payout date; earnings keep accruing at the same rate for the extra days. Every Champion in this lot is notified by app, email and SMS.</p>
         <Form action={`/admin/lots/${l.id}/delay`} submit="Move payout date and notify Champions">
           <F label="New payout date" name="date" type="date" required value={new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10)} />
           <F label="Reason (shown to Champions)" name="reason" required value="The buyer has asked for more time to pay" />

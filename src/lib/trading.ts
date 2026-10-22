@@ -158,7 +158,7 @@ export function lateEarnings(t: { amount: number; rate_bps: number; original_mat
   return Math.round((t.amount * t.rate_bps * days) / (10000 * 365));
 }
 
-/** Moves the payout date of every open trade in a lot (buyer paying late). Champions are told why and when. */
+/** Moves the payout date of every open trade in a lot (exceptional causes outside Kitovu's control only; buyer delays are covered by Kitovu). Champions are told why and when. */
 export function delayLotPayouts(lotId: number, newDateIso: string, reason: string, by: number) {
   return tx(() => {
     const lot = getLot(lotId)!;

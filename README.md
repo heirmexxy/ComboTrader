@@ -5,7 +5,7 @@ The Harvest Champions platform by Kitovu Technology Company Limited. Champions b
 - **Stack:** Node.js 22 (no framework), server-rendered React views, SQLite (WAL), a small progressive-enhancement script.
 - **Runtime packages:** `react`, `react-dom`, `react-icons`, `marked`, `pdf-lib`, `sharp`. Build tool: `esbuild`.
 - **Languages:** English, French, Swahili, Portuguese and Arabic (right-to-left).
-- **Tests:** `npm test` runs 34 automated checks covering the ledger, payouts, withdrawals, Harvest Circles, referrals, two-step codes, push encryption, price parsers and translations.
+- **Tests:** `npm test` runs 35 automated checks covering the ledger, payouts, withdrawals, Harvest Circles, referrals, two-step codes, push encryption, price parsers and translations.
 
 ---
 
@@ -111,7 +111,8 @@ Authorization: Bearer <CRON_SECRET>
 
 ## 3. Before launch checklist
 - [ ] Draft Terms, Privacy, Risk and Cookie notices reviewed by Kitovu's lawyer, and the [bracketed] items filled in (Admin → FAQs & page text → Legal pages). Drafts follow the NDPA 2023, the NDPC GAID and the FCCPA 2018.
-- [ ] Late-payment policy in the FAQs confirmed: notice at least 7 days ahead, up to 30 days' delay, earnings continue for the extra days (Admin → Trade Lots → lot → "Buyer paying late?").
+- [ ] Buyer-payment policy confirmed by Kitovu's lawyer and finance team: if a buyer pays late or defaults, Kitovu pays Champions on the payout date from its own balance sheet (FAQs, Terms §7, Risk Statement). Keep enough funds or a credit line to cover this. The "Exceptional delay" form on each lot is only for causes outside Kitovu's control (Terms §7.4).
+- [ ] Price sources checked (Admin → Prices): NCX (per kg) and commodity.ng (per 50 kg bag, converted to per kg) are on, alongside manual entry. AFEX is off because its prices load by script.
 - [ ] French, Swahili, Portuguese and Arabic money and legal wording reviewed by native speakers (Admin → FAQs & page text lets you fix any line without a developer).
 - [ ] Exchange rates set (Admin → Settings) for Champions outside Nigeria.
 - [ ] Public baselines confirmed (Admin → Settings → Public figures): 1,000 Champions, 5,000 t, ₦50M payouts, 25,000 farmers.

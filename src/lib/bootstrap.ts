@@ -18,9 +18,9 @@ export function bootstrap() {
         aliases: { Rice: 'rice', Maize: 'maize', 'Soya Beans': 'soybean', Millet: 'millet', Sorghum: 'sorghum' } }),
     });
     q.insert('price_sources', {
-      name: 'NCX', kind: 'pattern_all', url: 'https://ncx.com.ng/', enabled: 0,
+      name: 'NCX', kind: 'pattern_all', url: 'https://ncx.com.ng/', enabled: 1,
       config: JSON.stringify({
-        note: 'NCX does not state the unit of its prices. Confirm (per kg?) and set unit_kg before enabling.',
+        note: 'NCX prices are per kg (confirmed by Kitovu).',
         regex: '(?<name>Cocoa|Maize White|Maize Yellow|Millet Gero|Paddy|Sesame|Sorghum|Soya)\\s*\\((?<code>[A-Z]{5,7})\\)\\s*₦\\s*(?<price>[\\d,]+(?:\\.\\d+)?)',
         unit_kg: 1,
         aliases: { Cocoa: 'cocoa', 'Maize White': 'maize', 'Maize Yellow': 'maize', 'Millet Gero': 'millet', Paddy: 'paddy_rice', Sesame: 'sesame', Sorghum: 'sorghum', Soya: 'soybean' },

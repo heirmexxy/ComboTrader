@@ -50,9 +50,13 @@ The Platform is operated by **Kitovu Technology Company Limited**, a company reg
 We post updates on each trade's progress. Updates are provided in good faith to keep you informed and do not change the terms of your trade.
 
 ## 7. Late payment and default
-7.1 If a buyer pays late, we will tell you as soon as we know, and in any case before your payout date, with a revised expected date. Our policy on late payments is set out in the FAQs and forms part of these Terms.
+7.1 Your payout does not depend on when, or whether, the buyer pays. On the payout date shown on your Trade Certificate, Kitovu will credit your principal and earnings to your wallet from its own balance sheet, even if the buyer has paid late or has not paid at all.
 
-7.2 If a buyer fails to pay, Kitovu will take reasonable steps to recover the money, including enforcing the buyer contract and reselling the commodity, and will distribute what is recovered to the Champions in that Lot in proportion to their amounts. **You may receive less than you committed.**
+7.2 If a buyer pays late or fails to pay, recovering the money is Kitovu's responsibility. Kitovu may enforce the buyer contract, resell the commodity or take any other lawful step, at its own cost. Any shortfall is borne by Kitovu, not by Champions, and anything recovered belongs to Kitovu.
+
+7.3 Your payout is Kitovu's own commitment. It is not a bank deposit and is not insured by the NDIC or any government body, so it depends on Kitovu remaining able to meet its obligations (see the Risk Statement).
+
+7.4 In exceptional circumstances outside Kitovu's control (for example a banking or payment-system outage, or a court or regulatory order), a payout may be credited later than the payout date. If that happens we will tell you before the payout date, with the reason and a new date, and earnings will continue at the same rate for the extra days.
 
 ## 8. Referrals and rewards
 Referral rewards are paid when a friend you invite funds their first trade. We may withhold or reverse rewards obtained through self-referral, duplicate accounts or other abuse.
@@ -160,15 +164,13 @@ We will post any changes here and tell you of material changes by email or in th
 Please read this before you commit money to a trade.
 
 ## Trades are not deposits
-ComboTrader trades are commercial transactions in physical agricultural commodities. They are **not bank deposits**, are **not insured** by the Nigeria Deposit Insurance Corporation, and are **not guaranteed**.
+ComboTrader trades are commercial transactions in physical agricultural commodities. They are **not bank deposits**, are **not insured** by the Nigeria Deposit Insurance Corporation, and are **not guaranteed by any bank or government body**. Your payout is a commitment by Kitovu, backed by Kitovu's own balance sheet.
 
 ## The main risks
-- **Buyer risk.** Earnings depend on buyers taking delivery and paying. A buyer may pay late, pay less, or fail to pay.
-- **Supply and quality risk.** Weather, pests, disease, poor quality or contamination can reduce the amount or value of the commodity.
-- **Storage and transport risk.** Commodities can be lost or damaged in storage or transit, or delayed by insecurity, road conditions or strikes.
-- **Price risk.** If a buyer defaults and the commodity must be resold, market prices may have fallen.
-- **Operator risk.** Your trade depends on Kitovu continuing to operate and meeting its obligations.
-- **Timing risk.** Payouts can be delayed. See "What happens if a buyer pays late?" in the FAQs.
+- **Buyer risk (borne by Kitovu).** A buyer may pay late, pay less, or fail to pay. Kitovu still pays you on your payout date from its own balance sheet and recovers from the buyer itself, so this risk falls on Kitovu, not on you.
+- **Supply, storage and price risk (borne by Kitovu).** Weather, pests, poor quality, losses in storage or transit, or falling market prices can reduce what a trade earns. These are Kitovu's operating risks and do not change the amount you are owed.
+- **Operator risk (the main risk to you).** Because Kitovu pays you from its own balance sheet, your payout depends on Kitovu continuing to operate and remaining able to pay. If Kitovu itself became unable to pay, you could receive less than you are owed, or receive it late.
+- **Timing risk.** Buyer delays do not delay your payout. In exceptional cases outside Kitovu's control (such as a payment-system outage or a court order) a payout may be credited late; see section 7 of the Terms.
 - **Liquidity risk.** Your money is locked for the full period. Early exit is not available.
 - **Currency risk.** Wallets are held in naira. If you live outside Nigeria, the value in your currency may change.
 - **Regulatory risk.** Changes in law or regulation may affect how trades can be offered.
@@ -176,7 +178,7 @@ ComboTrader trades are commercial transactions in physical agricultural commodit
 ## What we do to reduce risk
 Every Trade Lot is tied to a buyer order on file; we buy from farmers Kitovu works with directly and check quality; we post Harvest Trail updates at each stage; we keep money records in a double-entry ledger that is reconciled daily.
 
-These steps reduce risk but cannot remove it. **You could receive less than you put in.**
+These steps, together with Kitovu paying you from its own balance sheet, reduce the risk to you but cannot remove it. **If Kitovu itself were unable to pay, you could receive less than you put in.**
 
 ## Before you commit
 - Only commit money you can leave in a trade for its whole period.
