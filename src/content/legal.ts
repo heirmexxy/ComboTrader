@@ -46,6 +46,14 @@ The Platform is operated by **Kitovu Technology Company Limited**, a company reg
 
 5.5 Harvest Circles, where available, let several Champions fill part of a Lot together. Your slots are reserved in your wallet until the circle fills; if it does not fill by its deadline, the reservation is released back to your wallet automatically.
 
+5.6 **Payouts.** On the payout date we credit your principal and earnings to your wallet automatically.
+
+5.7 **Keep Growing.** If you choose Keep Growing for a trade, on its payout date we use the amount you chose (principal, or principal and earnings) to join the next open Trade Lot that can accept it, preferring the same commodity. The new trade has its own rate, period and Trade Certificate, shown to you before the payout date where possible and in your notifications. If no suitable Lot opens within 14 days, the money stays in your wallet. You can change or switch off Keep Growing at any time before the payout date.
+
+5.8 **Harvest Plan.** A Harvest Plan saves a fixed amount each month toward a target you set. Saved money is held for you and is yours: you may move it to your wallet at any time. If you pay by card, you authorise us, through Paystack, to charge that card on your chosen day each month until the plan reaches its target, you pause it, or you stop it. When the plan reaches its target, we join the next suitable Trade Lot for you on its terms at that time. Plan savings do not earn anything until they are in a trade.
+
+5.9 **Gift a Harvest.** You may fund a trade as a gift. The trade stays yours until the recipient claims it with the private link; on claiming, the trade and its payout belong to the recipient, who is bound by these Terms. If the gift is never claimed, or you cancel it, the trade and its payout remain yours. Gifts cannot be reversed once claimed.
+
 ## 6. Harvest Trail and information
 We post updates on each trade's progress. Updates are provided in good faith to keep you informed and do not change the terms of your trade.
 
@@ -65,7 +73,10 @@ Referral rewards are paid when a friend you invite funds their first trade. We m
 You must not use the Platform for fraud, money laundering or any unlawful purpose; use another person's identity or payment details; interfere with the Platform's security; or scrape or copy it without permission.
 
 ## 10. Suspension and closure
-We may suspend or close an account where we reasonably suspect fraud, a breach of these Terms or a legal requirement. You may close your account at any time once no trades are open and your wallet is withdrawn. Funds in open trades remain subject to their terms.
+We may suspend or close an account where we reasonably suspect fraud, a breach of these Terms or a legal requirement. You may close your account at any time from your profile once no trades or Harvest Plans are open and your wallet is withdrawn. Funds in open trades remain subject to their terms.
+
+## 10A. WhatsApp and automated assistance
+You can check your account on WhatsApp from your verified phone number. Money never moves on WhatsApp. Some replies on WhatsApp and in support are drafted by an automated assistant (AI) using our FAQs and your account information; anything about money movement, complaints or account access is handed to a person. Automated assistance does not make decisions about your money or your account.
 
 ## 11. Fees
 We do not charge a fee to join a Trade Lot. Any other fee will be shown before you agree to it.
@@ -126,6 +137,8 @@ We do not make decisions about you based solely on automated processing that hav
 - **Paystack** — payments, transfers and identity checks
 - **Email and SMS providers** — [Resend/Brevo, Termii] — to send you messages
 - **tawk.to** — live chat, only if you accept chat cookies
+- **Meta (WhatsApp)** — if you message us on WhatsApp or turn on WhatsApp updates
+- **Anthropic** — an AI service that drafts support replies and internal reports; it receives only the question and the account details needed to answer it, under a data processing agreement, and does not use them to train its models [confirm in the signed terms]
 - **Hosting provider** — [name and location]
 - **Professional advisers and auditors**, under confidentiality
 - **Regulators, law enforcement and courts**, where the law requires
@@ -148,7 +161,8 @@ Under the NDPA you can:
 - ask us to delete data we no longer need;
 - object to processing based on legitimate interest, or to marketing;
 - withdraw consent at any time (this does not affect processing before withdrawal);
-- not be subject to decisions based solely on automated processing;
+- not be subject to decisions based solely on automated processing (no decision about your money or account is made by AI alone);
+- download your data yourself (Profile → Your data and statements), and close your account from your profile;
 - complain to the **Nigeria Data Protection Commission** (ndpc.gov.ng).
 
 Email privacy@combotrader.com.ng. We will respond without undue delay and in any case within [30] days. Some data must be kept by law even if you ask us to delete it; we will tell you if that applies.

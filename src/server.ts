@@ -13,10 +13,13 @@ import { ErrorPage } from './views/public/pages';
 import { startScheduler } from './lib/jobs';
 import { audit } from './lib/audit';
 import { bootstrap } from './lib/bootstrap';
+import { reportError, health } from './lib/alerts';
 import './routes/public';
 import './routes/auth';
 import './routes/pay';
 import './routes/app';
+import './routes/more';
+import './routes/admin-more'; // before admin: /admin/champions/import must match before /admin/champions/:id
 import './routes/admin';
 
 const MIME: Record<string, string> = {
@@ -68,6 +71,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       const cache = p === '/sw.js' || p === '/manifest.webmanifest' ? 'no-cache' : /\?v=/.test(c.url.search) || p.startsWith('/icons/') || p.startsWith('/img/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600';
       if (p.startsWith('/uploads/') ? serveFile(c, UPLOADS_DIR, p.slice('/uploads/'.length), 'public, max-age=604800') : serveFile(c, PUBLIC_DIR, p, cache)) return;
     }
+    if (p === '/healthz') { const h0 = health(); return c.json(h0, h0.ok ? 200 : 503); }
     res.setHeader('Content-Security-Policy', CSP);
     loadSession(c);
     const cookieLang = c.cookies.lang;
@@ -104,6 +108,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     if (status >= 500) {
       console.error(e);
       try { audit(c.user?.id, 'error', `${c.method} ${c.path}`, String(e?.stack || e).slice(0, 1500), c.ip); } catch {}
+      reportError(`${c.method} ${c.path}`, e);
     }
     if (!c.t) { c.lang = 'en'; c.t = (k, v) => translate('en', k, v); }
     if (c.path.startsWith('/api/') || c.path.startsWith('/webhooks/') || String(c.req.headers.accept || '').includes('application/json')) return c.json({ error: e.message }, status);

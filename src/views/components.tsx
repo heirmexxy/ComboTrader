@@ -66,7 +66,7 @@ export function Tag({ tone = 'grey', children }: { tone?: 'green' | 'gold' | 're
   return <span className={`tag tag-${tone}`}>{children}</span>;
 }
 export const toneFor = (status: string) =>
-  (({ open: 'green', paid: 'green', success: 'green', verified: 'green', published: 'green', filled: 'gold', active: 'gold', matured: 'terra', requested: 'gold', approved: 'gold', processing: 'gold', filling: 'gold', pending: 'gold', held: 'terra', manual: 'terra', failed: 'red', rejected: 'red', cancelled: 'red', expired: 'grey', completed: 'green', draft: 'grey', scheduled: 'gold', confirmed: 'green' } as Record<string, any>)[status] || 'grey');
+  (({ open: 'green', paid: 'green', success: 'green', verified: 'green', published: 'green', filled: 'gold', active: 'gold', matured: 'terra', requested: 'gold', approved: 'gold', processing: 'gold', filling: 'gold', pending: 'gold', held: 'terra', manual: 'terra', failed: 'red', rejected: 'red', cancelled: 'red', expired: 'grey', completed: 'green', draft: 'grey', scheduled: 'gold', confirmed: 'green', overdue: 'red', proposed: 'gold', auto: 'green', claimed: 'green', sent: 'gold', ready: 'gold', closed: 'grey' } as Record<string, any>)[status] || 'grey');
 
 export function Progress({ pct, label }: { pct: number; label?: string }) {
   return <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={label}><span style={{ width: `${pct}%` }} /></div>;

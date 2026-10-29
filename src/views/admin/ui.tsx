@@ -32,16 +32,16 @@ export function Act({ action, label, tone = 'ghost', confirm, fields }: { action
   );
 }
 export function F({ label, name, value, type = 'text', required, hint, options, step, rows }: {
-  label: string; name: string; value?: string | number | null; type?: string; required?: boolean; hint?: string; options?: [string, string][]; step?: string; rows?: number;
+  label: string; name: string; value?: string | number | boolean | null; type?: string; required?: boolean; hint?: string; options?: [string, string][]; step?: string; rows?: number;
 }) {
   const id = `a-${name}`;
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
       {options ? <select id={id} name={name} defaultValue={value == null ? undefined : String(value)}>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        : type === 'textarea' ? <textarea id={id} name={name} defaultValue={value ?? ''} required={required} rows={rows || 6} />
+        : type === 'textarea' ? <textarea id={id} name={name} defaultValue={value == null ? '' : String(value)} required={required} rows={rows || 6} />
         : type === 'checkbox' ? <input id={id} type="checkbox" name={name} defaultChecked={!!value} />
-        : <input id={id} name={name} type={type} defaultValue={value ?? undefined} required={required} step={step} />}
+        : <input id={id} name={name} type={type} defaultValue={value == null ? undefined : String(value)} required={required} step={step} />}
       {hint && <p className="hint">{hint}</p>}
     </div>
   );

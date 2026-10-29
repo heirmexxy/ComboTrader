@@ -465,8 +465,8 @@ main > .flash { margin: 16px auto; max-width: 1140px; }
   .steps { grid-template-columns: 1fr; }
   .app-shell, .admin-shell { grid-template-columns: 1fr; }
   .app-side { display: none; }
-  .tabbar { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; inset-inline: 0; bottom: var(--ticker-h); background: #fff; border-top: 1px solid var(--line); z-index: 48; padding-bottom: env(safe-area-inset-bottom); }
-  .tabbar a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; font-size: 11px; color: var(--muted); text-decoration: none; font-weight: 600; text-align: center; }
+  .tabbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; inset-inline: 0; bottom: var(--ticker-h); background: #fff; border-top: 1px solid var(--line); z-index: 48; padding-bottom: env(safe-area-inset-bottom); }
+  .tabbar a { min-width: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; font-size: 11px; line-height: 1.2; overflow-wrap: anywhere; color: var(--muted); text-decoration: none; font-weight: 600; text-align: center; }
   .tabbar a svg { width: 21px; height: 21px; }
   .tabbar a[aria-current] { color: var(--green); }
   .tabbar a[aria-current] svg { color: var(--terra); }
@@ -518,3 +518,21 @@ main > .flash { margin: 16px auto; max-width: 1140px; }
 .app-body .cookie-banner { bottom: calc(var(--ticker-h) + 16px); }
 @media (max-width: 900px) { .app-body .cookie-banner { bottom: calc(var(--ticker-h) + 76px); } }
 .site-footer .footer-link { color: #EAF1EA; font-size: 14.5px; }
+
+/* Harvest Plan, gifts, receipts, agents */
+.btn-col { display: grid; gap: 8px; }
+.mb { margin-bottom: 16px; }
+.quote { border-inline-start: 3px solid var(--gold); margin: 12px 0; padding: 4px 14px; font-style: italic; color: var(--muted); }
+.center-row { justify-content: center; }
+.rollover-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
+.rollover-form .field { margin: 0; min-width: 220px; flex: 1; }
+.agent-card { border-inline-start: 4px solid var(--gold); }
+.agent-card.risk-high { border-inline-start-color: #B3261E; }
+.agent-card.risk-medium { border-inline-start-color: var(--terra, #C0603A); }
+.agent-card.risk-low, .agent-card.risk-info { border-inline-start-color: var(--green-2, #2E6B3D); }
+.agent-card pre, .pre { white-space: pre-wrap; font-family: inherit; background: var(--cream); padding: 10px 12px; border-radius: 8px; font-size: 14px; margin: 8px 0; max-height: 360px; overflow: auto; }
+.cov-ok { color: var(--green-2, #2E6B3D); } .cov-warn { color: #9A6B00; } .cov-short { color: #B3261E; font-weight: 700; } .cov-unknown { color: var(--muted); }
+.chat { display: grid; gap: 6px; max-height: 520px; overflow: auto; padding: 8px; background: #ECE5DD; border-radius: 10px; }
+.chat .msg { max-width: 80%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; font-size: 14px; }
+.chat .in { background: #fff; justify-self: start; }
+.chat .out { background: #DCF8C6; justify-self: end; }

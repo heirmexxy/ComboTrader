@@ -99,6 +99,8 @@ function LotForm({ l }: { l?: any }) {
       <F label="Buyer type (public)" name="buyer_type" value={l?.buyer_type} required hint="e.g. Rice miller, Lagos" />
       <F label="Buyer name (private, admins only)" name="buyer_name" value={l?.buyer_name} />
       <F label="Contract reference" name="contract_ref" value={l?.contract_ref} hint="A lot can only open with a contract on file." />
+      <F label="Buyer contract value (₦, private)" name="buyer_amount" value={naira(l?.buyer_amount)} hint="What the buyer owes Kitovu. Used by Treasury to check coverage." />
+      <F label="Buyer payment due (private)" name="buyer_due_at" type="date" value={l?.buyer_due_at?.slice(0, 10)} />
       <div className="field"><label htmlFor="a-contract">Contract file (PDF/JPG, private)</label><input id="a-contract" type="file" name="contract" accept="application/pdf,image/*" />{l?.contract_path && <p className="hint"><a href={`/admin/files/${l.contract_path}`}>View current contract</a></p>}</div>
       <F label="Tonnage" name="tonnage" type="number" step="0.1" value={l?.tonnage} required />
       <F label="Farmers paid (estimate)" name="farmers" type="number" value={l?.farmers ?? 0} />
@@ -123,6 +125,7 @@ function lotFields(c: Ctx) {
     contract_ref: c.str('contract_ref', 80) || null, tonnage: Number(c.body.tonnage) || 0, farmers: c.int('farmers'), target_amount: target, min_commit: min,
     period_months: [4, 6, 9, 12].includes(c.int('period_months')) ? c.int('period_months') : 12, rate_bps: rate,
     closes_at: new Date(`${c.str('closes_at', 10)}T22:59:00Z`).toISOString(), circles_enabled: c.bool('circles_enabled') ? 1 : 0, description: c.str('description', 1000),
+    buyer_amount: parseNaira(c.body.buyer_amount) || null, buyer_due_at: c.str('buyer_due_at', 10) ? new Date(`${c.str('buyer_due_at', 10)}T12:00:00Z`).toISOString() : null,
   };
 }
 post('/admin/lots/new', 'admin:operations', (c) => {
@@ -261,6 +264,7 @@ get('/admin/payouts', 'admin:finance', (c) => {
   const upcoming = upcomingPayouts(30);
   const total = due.reduce((s, t) => s + t.amount + earningsFor(t.amount, t.rate_bps, t.period_months), 0);
   page(c, 'Payouts', <>
+    <p className="muted">{settings().auto_payouts ? 'Automatic payouts are on: matured trades are credited every 10 minutes on the payout date, whether or not the buyer has paid. Anything listed below will be picked up on the next run, or you can credit it now.' : 'Automatic payouts are off (Settings → Payouts). Credit each matured trade here.'} <a href="/admin/treasury">Check coverage in Treasury</a>.</p>
     <Kpis items={[['Due now', due.length, fmtNGN(total)], ['Next 30 days', upcoming.length, fmtNGN(upcoming.reduce((s: number, t: any) => s + t.amount, 0)) + ' principal'], ['Kitovu earnings paid to date', <N k={-balance('kitovu:earnings')} />]]} />
     <Box title="Due now — credit to Champions' wallets" actions={<a className="btn btn-ghost btn-sm" href="/admin/reports/payouts-due.csv">Export CSV</a>}>
       {due.length === 0 ? <p className="muted">No payouts are due.</p> : (
@@ -393,7 +397,7 @@ get('/admin/champions', 'admin:support', (c) => {
   const like = `%${s}%`;
   const rows = q.all<any>(`SELECT u.*, (SELECT COALESCE(SUM(amount),0) FROM trades WHERE user_id=u.id AND status IN ('active','matured')) AS working FROM users u
     WHERE (? = '' OR u.email LIKE ? OR u.first_name || ' ' || u.last_name LIKE ? OR u.phone LIKE ? OR u.referral_code = ?) ORDER BY u.id DESC LIMIT 50 OFFSET ?`, s, like, like, like, s.toUpperCase(), (pageNo - 1) * 50);
-  page(c, 'Champions', <Box actions={<form method="get" className="inline-form"><input type="search" name="q" defaultValue={s} placeholder="Name, email, phone or referral code" aria-label="Search" /><button className="btn btn-ghost btn-sm">Search</button></form>}>
+  page(c, 'Champions', <Box actions={<form method="get" className="inline-form">{c.can('super') && <a className="btn btn-ghost btn-sm" href="/admin/champions/import">Import users (CSV)</a>}<input type="search" name="q" defaultValue={s} placeholder="Name, email, phone or referral code" aria-label="Search" /><button className="btn btn-ghost btn-sm">Search</button></form>}>
     <Table rows={rows} cols={[
       ['Name', (u) => <><a href={`/admin/champions/${u.id}`}><b>{u.first_name} {u.last_name}</b></a>{u.role === 'admin' && <> <S s="admin" /></>}<br /><span className="muted small">{u.email}</span></>],
       ['Country', (u) => `${u.country}${u.city ? ' · ' + u.city : ''}`], ['Verified', (u) => <><S s={u.kyc_status} /> {u.email_verified_at ? '✉' : ''}{u.phone_verified_at ? ' ☎' : ''}</>],
@@ -926,6 +930,27 @@ get('/admin/settings', 'admin:super', (c) => {
         <input type="hidden" name="_group" value="features" />
       </Form>
     </Box>
+    <Box title="Payouts, plans, gifts and WhatsApp" id="payouts">
+      <Form action="/admin/settings" submit="Save">
+        <F label="Credit matured trades automatically on the payout date" name="auto_payouts" type="checkbox" value={s.auto_payouts} hint="Kitovu pays Champions on the payout date from its balance sheet. Turn off only to pay each trade by hand in Payouts." />
+        <F label="Warn when treasury coverage falls below (e.g. 1.2 = 120%)" name="coverage_warn_ratio" type="number" step="0.05" value={s.coverage_warn_ratio} />
+        <F label="Harvest Plan (monthly saving toward a lot)" name="plans_enabled" type="checkbox" value={s.plans_enabled} />
+        <F label="Smallest monthly plan amount (₦)" name="plan_min_monthly" value={naira(s.plan_min_monthly)} />
+        <F label="Pause a plan after this many failed card charges" name="plan_max_failures" type="number" value={s.plan_max_failures} />
+        <F label="Gift a Harvest" name="gifts_enabled" type="checkbox" value={s.gifts_enabled} />
+        <F label="WhatsApp companion replies" name="whatsapp_enabled" type="checkbox" value={s.whatsapp_enabled} />
+        <input type="hidden" name="_group" value="payouts" />
+      </Form>
+    </Box>
+    <Box title="AI agents" id="agents">
+      <form method="post" action="/admin/settings" className="form-grid"><Csrf />
+        <fieldset className="field"><legend>Agents switched on</legend>{['support', 'onboarding', 'treasury', 'risk', 'growth', 'ops'].map((a) => <label key={a} className="check"><input type="checkbox" name="agents_enabled[]" value={a} defaultChecked={String(s.agents_enabled).split(',').includes(a)} /> <span>{a}</span></label>)}</fieldset>
+        <F label="Autonomy" name="agent_autonomy" value={s.agent_autonomy} options={[['review', 'Review everything — a person approves every message (recommended to start)'], ['auto_low', 'Send low-risk messages automatically (FAQ answers, onboarding nudges)']]} hint="Agents can never move money, approve withdrawals or change balances, whatever this says." />
+        <F label="Maximum model calls per 24 hours" name="agent_daily_limit" type="number" value={s.agent_daily_limit} />
+        <input type="hidden" name="_group" value="agents" />
+        <div className="form-actions"><button className="btn btn-primary" type="submit">Save agents</button></div>
+      </form>
+    </Box>
     <Box title="Money rules">
       <Form action="/admin/settings" submit="Save money rules">
         <F label="Referral reward (₦)" name="referral_reward" value={naira(s.referral_reward)} />
@@ -969,16 +994,21 @@ get('/admin/settings', 'admin:super', (c) => {
         <dt>tawk.to</dt><dd>{config.tawkPropertyId ? `Property ${config.tawkPropertyId}` : 'Not set (TAWK_PROPERTY_ID)'}</dd>
         <dt>Google sign-in</dt><dd>{config.googleClientId ? 'On' : 'Off (GOOGLE_CLIENT_ID)'}</dd>
         <dt>Push alerts</dt><dd>{config.vapidPublic ? 'On' : 'Off (run npm run job -- vapid… see README)'}</dd>
+        <dt>AI agents</dt><dd>{config.anthropicKey ? `Claude API (${config.aiModel})` : 'Demo mode (ANTHROPIC_API_KEY)'}</dd>
+        <dt>WhatsApp</dt><dd>{config.waToken && config.waPhoneId ? `Cloud API${config.waNumber ? ` · +${config.waNumber}` : ''}` : 'Not set (WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)'}</dd>
+        <dt>Uptime check URL</dt><dd><code>{config.baseUrl}/healthz</code></dd>
       </dl>
     </Box>
   </>);
 });
-const MONEY_KEYS: SettingKey[] = ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'baseline_payouts'];
+const MONEY_KEYS: SettingKey[] = ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'baseline_payouts', 'plan_min_monthly'];
 const GROUPS: Record<string, SettingKey[]> = {
   features: ['circles_mode', 'circle_deadline_days', 'circle_max_share_pct', 'feed_enabled', 'price_crawler_enabled', 'price_hold_threshold_pct'],
   money: ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'pass_card_fees'],
   figures: ['baseline_champions', 'baseline_tons', 'baseline_payouts', 'baseline_farmers', 'rank_thresholds'],
   contact: ['support_phone', 'support_whatsapp', 'support_email', 'maintenance_banner'],
+  payouts: ['auto_payouts', 'coverage_warn_ratio', 'plans_enabled', 'plan_min_monthly', 'plan_max_failures', 'gifts_enabled', 'whatsapp_enabled'],
+  agents: ['agents_enabled', 'agent_autonomy', 'agent_daily_limit'],
 };
 post('/admin/settings', 'admin:super', (c) => {
   const keys = GROUPS[c.str('_group')] || [];
@@ -991,6 +1021,8 @@ post('/admin/settings', 'admin:super', (c) => {
     else if (typeof def === 'number') v = Number(c.body[k]) || 0;
     else v = c.str(k, 500);
     if (k === 'circles_mode' && !['off', 'pilot', 'on'].includes(String(v))) continue;
+    if (k === 'agent_autonomy' && !['review', 'auto_low'].includes(String(v))) continue;
+    if (k === 'agents_enabled') v = (Array.isArray(c.body.agents_enabled) ? c.body.agents_enabled : [c.body.agents_enabled]).filter((x: unknown) => typeof x === 'string' && /^[a-z]+$/.test(x)).join(',');
     if (JSON.stringify(settings()[k]) !== JSON.stringify(v)) changed[k] = v;
     setSetting(k, v);
   }

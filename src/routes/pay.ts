@@ -23,9 +23,16 @@ import { fmtDate } from '../lib/i18n';
 get('/pay/callback', 'public', async (c) => {
   const ref = String(c.query.reference || c.query.trxref || '');
   const r = await confirmPayment(ref).catch(() => ({ ok: false as const, reason: 'error' }));
-  if (r.ok) return c.redirect('/app/wallet', ['ok', c.t('wallet.funded', { amount: fmtNGN(r.payment.amount - r.payment.fee) })]);
-  c.redirect('/app/wallet', ['error', r.reason === 'pending' || r.reason === 'error' ? c.t('wallet.payment_pending') : c.t('wallet.payment_failed')]);
+  if (r.ok) return paidRedirect(c, r.payment);
+  const pay = q.get<any>('SELECT purpose, plan_id FROM payments WHERE reference=?', ref);
+  c.redirect(pay?.purpose === 'plan' && pay.plan_id ? '/app/plans' : '/app/wallet', ['error', r.reason === 'pending' || r.reason === 'error' ? c.t('wallet.payment_pending') : c.t('wallet.payment_failed')]);
 });
+
+/** After a successful payment: plan payments go back to the plan, wallet funding to the wallet. */
+function paidRedirect(c: Ctx, p: any) {
+  if (p.purpose === 'plan' && p.plan_id) return c.redirect(`/app/plans/${p.plan_id}`, ['ok', c.t('plan.paid_ok', { amount: fmtNGN(p.amount - p.fee) })]);
+  return c.redirect('/app/wallet', ['ok', c.t('wallet.funded', { amount: fmtNGN(p.amount - p.fee) })]);
+}
 
 // Simulated checkout, only when no Paystack key is configured and demo mode is allowed.
 function DemoCheckout({ p }: { p: any }) {
@@ -51,7 +58,7 @@ post('/pay/demo/:ref', 'auth', async (c) => {
   if (!p) throw new HttpError(404, 'Not found');
   if (c.body.result === 'success') {
     await confirmPayment(p.reference, { demoSuccess: true });
-    return c.redirect('/app/wallet', ['ok', c.t('wallet.funded', { amount: fmtNGN(p.amount - p.fee) })]);
+    return paidRedirect(c, p);
   }
   q.run("UPDATE payments SET status='failed' WHERE id=? AND status='pending'", p.id);
   c.redirect('/app/wallet', ['error', c.t('wallet.payment_failed')]);

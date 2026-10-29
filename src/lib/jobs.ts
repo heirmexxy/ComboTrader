@@ -4,7 +4,11 @@ import { q, now } from './db';
 import { flushOutbox, notify, queueEmail, emailShell, escapeHtml } from './notify';
 import { crawlPrices } from './prices';
 import { expireCircles } from './circles';
-import { closeExpiredLots, markMatured, siteStats } from './trading';
+import { closeExpiredLots, markMatured, siteStats, autoPayDue, processRollovers } from './trading';
+import { runPlans } from './plans';
+import { AGENT_JOBS } from './agents';
+import { treasurySnapshot } from './treasury';
+import { reportError } from './alerts';
 import { autoSendSmallWithdrawals } from './wallet';
 import * as paystack from './paystack';
 import { walletBalance, trialBalance } from './ledger';
@@ -38,8 +42,8 @@ export const JOBS: Record<string, () => Promise<string>> = {
     return `${p} posts published, ${sent} newsletter emails queued`;
   },
   async lifecycle() {
-    const a = closeExpiredLots(), b = markMatured(), c = expireCircles(), d = await autoSendSmallWithdrawals();
-    return `${a} lots closed, ${b} trades matured, ${c} circles expired, ${d} withdrawals auto-sent`;
+    const a = closeExpiredLots(), b = markMatured(), p = autoPayDue(), r = processRollovers(), c = expireCircles(), d = await autoSendSmallWithdrawals();
+    return `${a} lots closed, ${b} trades matured, ${p} payouts credited, ${r} rolled over, ${c} circles expired, ${d} withdrawals auto-sent`;
   },
   async prices() {
     if (!settings().price_crawler_enabled) return 'crawler switched off (manual prices only)';
@@ -47,6 +51,13 @@ export const JOBS: Record<string, () => Promise<string>> = {
     return s.map((x) => `${x.source}: ${x.status}`).join('; ') || 'no sources enabled';
   },
   async nudges() { return runNudges(); },
+  async plans() { return runPlans(); },
+  async agents() {
+    const out: string[] = [];
+    for (const name of ['treasury', 'onboarding', 'risk'] as const) { try { out.push(`${name}: ${await AGENT_JOBS[name]()}`); } catch (e: any) { out.push(`${name}: error ${e.message}`); } }
+    return out.join('; ');
+  },
+  async growth() { return AGENT_JOBS.growth(); },
   async reconcile() { return reconcile(); },
   async weekly() { return weeklySummary(); },
 };
@@ -55,7 +66,7 @@ export async function runJob(name: string) {
   const fn = JOBS[name];
   if (!fn) throw new Error(`Unknown job ${name}`);
   let status: string;
-  try { status = await fn(); } catch (e: any) { status = `error: ${e?.message || e}`; }
+  try { status = await fn(); } catch (e: any) { status = `error: ${e?.message || e}`; reportError(`job ${name}`, e); }
   ran(name, status);
   return status;
 }
@@ -72,6 +83,9 @@ export function startScheduler() {
       if (!l || Date.now() - new Date(l).getTime() > 10 * 60e3) await runJob('lifecycle');
       if (dueDaily('prices', 6)) await runJob('prices');
       if (dueDaily('nudges', 9)) await runJob('nudges');
+      if (dueDaily('plans', 9)) await runJob('plans');
+      if (dueDaily('agents', 7)) await runJob('agents');
+      if (lagosNow().getUTCDay() === 1 && dueDaily('growth', 7)) await runJob('growth');
       if (dueDaily('reconcile', 2)) await runJob('reconcile');
       if (lagosNow().getUTCDay() === 1 && dueDaily('weekly', 8)) await runJob('weekly');
     } finally { busy = false; }
@@ -180,7 +194,11 @@ export function weeklySummary() {
   const funded = Number(q.val("SELECT COALESCE(SUM(amount-fee),0) FROM payments WHERE status='success' AND paid_at>=?", since));
   const traded = Number(q.val("SELECT COALESCE(SUM(amount),0) FROM trades WHERE created_at>=?", since));
   const due = Number(q.val("SELECT COALESCE(SUM(amount),0) FROM trades WHERE status IN ('active','matured') AND matures_at<=?", new Date(Date.now() + 7 * 864e5).toISOString()));
-  const html = `<ul><li>New Champions: <b>${signups}</b></li><li>Wallet funding: <b>${fmtNGN(funded)}</b></li><li>New trades: <b>${fmtNGN(traded)}</b></li><li>Principal due in the next 7 days: <b>${fmtNGN(due)}</b></li></ul>`;
+  const tr = treasurySnapshot();
+  const h30 = tr.horizons[1];
+  const html = `<ul><li>New Champions: <b>${signups}</b></li><li>Wallet funding: <b>${fmtNGN(funded)}</b></li><li>New trades: <b>${fmtNGN(traded)}</b></li><li>Principal due in the next 7 days: <b>${fmtNGN(due)}</b></li>
+<li>Owed to Champions in 30 days (principal + earnings): <b>${fmtNGN(h30.due.total)}</b>; coverage <b>${h30.ratio === null ? '—' : h30.ratio.toFixed(2)}</b> (${h30.level})</li>
+<li>Overdue buyer money (Kitovu covering): <b>${fmtNGN(tr.overdueTotal)}</b></li></ul>`;
   const admins = q.all<any>("SELECT email FROM users WHERE role='admin' AND (admin_roles LIKE '%super%' OR admin_roles LIKE '%finance%')");
   for (const a of admins) queueEmail(a.email, 'ComboTrader weekly summary', emailShell('Weekly summary', html, { label: 'Open admin', url: `${config.baseUrl}/admin` }));
   return `sent to ${admins.length}`;

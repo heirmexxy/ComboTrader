@@ -12,6 +12,7 @@ import { settings } from '../../lib/settings';
 import { estimateFee } from '../../lib/wallet';
 import { LuWallet, LuSprout, LuCalendar, LuReceipt, LuArrowRight, LuDownload, LuShare2, LuCopy, LuShieldCheck, LuCheck } from 'react-icons/lu';
 import { FaWhatsapp, FaXTwitter, FaFacebook, FaLinkedin } from 'react-icons/fa6';
+import { AccountRights, RolloverControl } from './more';
 
 function Card({ title, children, className = '' }: { title?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`card ${className}`}>{title && <h2 className="card-title">{title}</h2>}{children}</section>;
@@ -88,6 +89,7 @@ export function JoinLot({ lot, wallet, trail, error }: { lot: Lot; wallet: numbe
               <Field label={c.t('lots.amount')} name="amount" required inputMode="numeric" value={(def / 100).toLocaleString('en')} dir="ltr" hint={`${c.t('lot.min', { amount: fmtNGN(lot.min_commit) })} · ${c.t('lot.left', { amount: fmtNGN(rem) })}`} />
               <p className="calc-inline">{c.t('calc.earn')}: <b data-join-earn dir="ltr">{fmtNGN(earningsFor(def, lot.rate_bps, lot.period_months))}</b> · {c.t('lot.matures', { date: fmtDate(c.lang, new Date(Date.now() + lot.period_months * 30.44 * 864e5).toISOString()) })}</p>
               <p className="muted">{c.t('lots.from_wallet', { amount: fmtNGN(wallet) })} {wallet < def && <a href="/app/wallet#fund">{c.t('app.fund_cta')}</a>}</p>
+              <Select label={c.t('roll.at_maturity')} name="rollover" value={(c.user as any).rollover_default || 'off'} options={['off', 'principal', 'all'].map((v) => ({ value: v, label: c.t(`roll.${v}`) }))} />
               <Check name="agree" required label={<>{c.t('lots.agree_terms')} <a href="/legal/risk" target="_blank">{c.t('footer.risk')}</a></>} />
               <button className="btn btn-primary btn-block btn-lg" type="submit">{c.t('lots.confirm')}</button>
             </form>
@@ -156,7 +158,10 @@ export function TradeDetail({ t, trail, tons, farmers }: { t: TradeRow & { buyer
             </div>
           </Card>
           <Card className="mt"><a className="btn btn-green btn-block" href={`/app/trades/${t.id}/certificate.pdf`}><LuDownload aria-hidden /> {c.t('trades.cert')}</a>
-            <p className="muted small center">{config.baseUrl}/verify/{t.certificate_no}</p></Card>
+            <p className="muted small center">{config.baseUrl}/verify/{t.certificate_no}</p>
+            <a className="btn btn-ghost btn-block" href={`/receipt/${t.share_token}`}><LuShare2 aria-hidden /> {c.t('receipt.open')}</a>
+            {['active', 'matured'].includes(t.status) && <RolloverControl tradeId={t.id} value={(t as any).rollover} />}
+            {['active', 'matured'].includes(t.status) && !(t as any).gift_id && <p className="small mt"><a href="/app/gifts">{c.t('gift.cta_small')}</a></p>}</Card>
         </div>
       </div>
     </AppLayout>
@@ -274,7 +279,7 @@ export function AppWallet({ d }: { d: WalletData }) {
         <tbody>{d.withdrawals.map((w) => <tr key={w.id}><td>{fmtDate(c.lang, w.created_at)}</td><td><Money kobo={w.amount} /></td><td><Tag tone={toneFor(w.status)}>{c.t(`wallet.status.${w.status}`)}</Tag></td></tr>)}</tbody>
       </table></div></Card>}
       <Card title={c.t('wallet.history')} className="mt">
-        <p><a href="/app/wallet/statement.csv" className="small"><LuDownload aria-hidden /> {c.t('wallet.statement')}</a></p>
+        <p className="btn-row"><a href="/app/wallet/statement.csv" className="small"><LuDownload aria-hidden /> {c.t('wallet.statement')}</a> <a href={`/app/wallet/statement.pdf?year=${new Date().getUTCFullYear()}`} className="small"><LuDownload aria-hidden /> {c.t('rights.statement', { year: new Date().getUTCFullYear() })}</a></p>
         {d.statement.length === 0 ? <p className="muted">{c.t('app.none')}</p> : <div className="table-wrap"><table className="table">
           <thead><tr><th>{c.t('wallet.date')}</th><th>{c.t('wallet.desc')}</th><th className="num">{c.t('wallet.amount_col')}</th></tr></thead>
           <tbody>{d.statement.map((r, i) => <tr key={i}><td>{fmtDate(c.lang, r.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td><td>{jk(r.kind, r.memo)}</td><td className={`num ${r.amount < 0 ? 'neg' : 'pos'}`} dir="ltr">{r.amount < 0 ? '−' : '+'}{fmtNGN(Math.abs(r.amount))}</td></tr>)}</tbody>
@@ -312,7 +317,7 @@ export function AppReferrals({ friends, earned, reward }: { friends: { first_nam
   );
 }
 
-export function AppProfile({ banks, bankList, countries }: { banks: any[]; bankList: { code: string; name: string }[]; countries: { code: string; name: string }[] }) {
+export function AppProfile({ banks, bankList, countries, blockers = [] }: { banks: any[]; bankList: { code: string; name: string }[]; countries: { code: string; name: string }[]; blockers?: string[] }) {
   const c = useC();
   const u = c.user!;
   const ng = banks.find((b) => b.country === 'NG');
@@ -377,6 +382,7 @@ export function AppProfile({ banks, bankList, countries }: { banks: any[]; bankL
           </Card>
         </div>
       </div>
+      <AccountRights blockers={blockers} />
     </AppLayout>
   );
 }

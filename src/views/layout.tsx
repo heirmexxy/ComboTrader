@@ -10,11 +10,11 @@ import { walletBalance } from '../lib/ledger';
 import { q } from '../lib/db';
 import crypto from 'node:crypto';
 import { FaXTwitter, FaFacebook, FaLinkedin, FaInstagram } from 'react-icons/fa6';
-import { LuMenu, LuGlobe, LuBell, LuHouse, LuWheat, LuReceipt, LuWallet, LuGift, LuUser, LuLock, LuLifeBuoy, LuUsersRound, LuLogOut, LuSettings, LuDownload, LuPause } from 'react-icons/lu';
+import { LuMenu, LuGlobe, LuBell, LuHouse, LuWheat, LuReceipt, LuWallet, LuGift, LuUser, LuLock, LuLifeBuoy, LuUsersRound, LuLogOut, LuSettings, LuDownload, LuPause, LuPiggyBank, LuHeartHandshake } from 'react-icons/lu';
 
 export const ASSET_V = String(Date.now()).slice(-8);
 
-function Head({ title, description, noindex }: { title: string; description?: string; noindex?: boolean }) {
+function Head({ title, description, noindex, image }: { title: string; description?: string; noindex?: boolean; image?: string }) {
   const c = useC();
   const desc = description || c.t('home.sub', { rate: 20 });
   const full = title ? `${title} · ComboTrader` : 'ComboTrader · Harvest Champions';
@@ -28,7 +28,7 @@ function Head({ title, description, noindex }: { title: string; description?: st
       <meta property="og:title" content={full} />
       <meta property="og:description" content={desc} />
       <meta property="og:type" content="website" />
-      <meta property="og:image" content={`${config.baseUrl}/icons/og.png`} />
+      <meta property="og:image" content={image || `${config.baseUrl}/icons/og.png`} />
       <meta name="twitter:card" content="summary_large_image" />
       <link rel="canonical" href={config.baseUrl + c.path} />
       <link rel="manifest" href="/manifest.webmanifest" />
@@ -113,13 +113,13 @@ export function Social() {
   );
 }
 
-function Html({ children, title, description, noindex, bodyClass, feed = true }: { children: ReactNode; title: string; description?: string; noindex?: boolean; bodyClass?: string; feed?: boolean }) {
+function Html({ children, title, description, noindex, bodyClass, feed = true, image }: { children: ReactNode; title: string; description?: string; noindex?: boolean; bodyClass?: string; feed?: boolean; image?: string }) {
   const c = useC();
   const m = langMeta(c.lang);
   const banner = settings().maintenance_banner;
   return (
     <html lang={c.lang} dir={m.dir}>
-      <Head title={title} description={description} noindex={noindex} />
+      <Head title={title} description={description} noindex={noindex} image={image} />
       <body className={bodyClass}>
         <a className="skip" href="#main">{c.t('nav.skip')}</a>
         {banner && <div className="site-banner">{banner}</div>}
@@ -134,7 +134,7 @@ function Html({ children, title, description, noindex, bodyClass, feed = true }:
   );
 }
 
-export function PublicLayout({ title, description, children, noindex }: { title: string; description?: string; children: ReactNode; noindex?: boolean }) {
+export function PublicLayout({ title, description, children, noindex, image }: { title: string; description?: string; children: ReactNode; noindex?: boolean; image?: string }) {
   const c = useC();
   const showCircles = settings().circles_mode !== 'off';
   const nav = [
@@ -142,7 +142,7 @@ export function PublicLayout({ title, description, children, noindex }: { title:
     ['/why-kitovu', 'nav.why'], ['/chronicles', 'nav.blog'], ['/faqs', 'nav.faqs'],
   ];
   return (
-    <Html title={title} description={description} noindex={noindex}>
+    <Html title={title} description={description} noindex={noindex} image={image}>
       <header className="site-header">
         <div className="container header-row">
           <a href="/" className="brand"><Logo /></a>
@@ -220,7 +220,7 @@ export function PublicLayout({ title, description, children, noindex }: { title:
 
 const APP_NAV: [string, string, any][] = [
   ['/app', 'app.nav.home', LuHouse], ['/app/lots', 'app.nav.lots', LuWheat], ['/app/trades', 'app.nav.trades', LuReceipt],
-  ['/app/circles', 'app.nav.circles', LuUsersRound], ['/app/wallet', 'app.nav.wallet', LuWallet], ['/app/referrals', 'app.nav.refer', LuGift],
+  ['/app/circles', 'app.nav.circles', LuUsersRound], ['/app/plans', 'app.nav.plans', LuPiggyBank], ['/app/gifts', 'app.nav.gifts', LuHeartHandshake], ['/app/wallet', 'app.nav.wallet', LuWallet], ['/app/referrals', 'app.nav.refer', LuGift],
   ['/app/profile', 'app.nav.profile', LuUser], ['/app/security', 'app.nav.security', LuLock], ['/app/support', 'app.nav.support', LuLifeBuoy],
 ];
 
@@ -228,7 +228,8 @@ export function AppLayout({ title, children }: { title: string; children: ReactN
   const c = useC();
   const u = c.user!;
   const unread = Number(q.val('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL', u.id) ?? 0);
-  const nav = APP_NAV.filter(([href]) => href !== '/app/circles' || circlesVisibleTo(u));
+  const st = settings();
+  const nav = APP_NAV.filter(([href]) => (href !== '/app/circles' || circlesVisibleTo(u)) && (href !== '/app/plans' || st.plans_enabled) && (href !== '/app/gifts' || st.gifts_enabled));
   const isActive = (href: string) => (href === '/app' ? c.path === '/app' : c.path.startsWith(href));
   return (
     <Html title={title} noindex bodyClass="app-body">
@@ -276,11 +277,11 @@ export function AppLayout({ title, children }: { title: string; children: ReactN
 
 export const ADMIN_NAV: [string, string, string][] = [
   ['/admin', 'Overview', 'any'], ['/admin/lots', 'Trade Lots', 'operations'], ['/admin/trail', 'Harvest Trail', 'operations'],
-  ['/admin/payouts', 'Payouts', 'finance'], ['/admin/withdrawals', 'Withdrawals', 'finance'], ['/admin/ledger', 'Wallets & ledger', 'finance'],
+  ['/admin/treasury', 'Treasury', 'finance'], ['/admin/payouts', 'Payouts', 'finance'], ['/admin/plans', 'Plans & gifts', 'finance'], ['/admin/withdrawals', 'Withdrawals', 'finance'], ['/admin/ledger', 'Wallets & ledger', 'finance'],
   ['/admin/champions', 'Champions', 'support'], ['/admin/verification', 'Verification', 'support'], ['/admin/circles', 'Harvest Circles', 'operations'],
   ['/admin/prices', 'Prices', 'operations'], ['/admin/feed', 'Activity feed', 'content'], ['/admin/posts', 'Chronicles (blog)', 'content'],
   ['/admin/faqs', 'FAQs & page text', 'content'], ['/admin/newsletter', 'Newsletter', 'content'], ['/admin/referrals', 'Referrals', 'finance'],
-  ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],
+  ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/agents', 'AI agents', 'any'], ['/admin/whatsapp', 'WhatsApp', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],
   ['/admin/audit', 'Audit log', 'super'], ['/admin/settings', 'Settings', 'super'],
 ];
 

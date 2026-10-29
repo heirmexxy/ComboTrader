@@ -436,6 +436,129 @@ CREATE TABLE adjustments (
 ALTER TABLE trades ADD COLUMN original_matures_at TEXT;
 ALTER TABLE trades ADD COLUMN delay_reason TEXT;
 `,
+`
+-- Keep Growing (rollover), gifts, account closure, WhatsApp
+ALTER TABLE users ADD COLUMN rollover_default TEXT NOT NULL DEFAULT 'off';
+ALTER TABLE users ADD COLUMN closed_at TEXT;
+ALTER TABLE users ADD COLUMN whatsapp_opt_in INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE trades ADD COLUMN rollover TEXT NOT NULL DEFAULT 'off';
+ALTER TABLE trades ADD COLUMN rolled_to INTEGER;
+ALTER TABLE trades ADD COLUMN gift_id INTEGER;
+CREATE TABLE rollovers (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  from_trade_id INTEGER NOT NULL UNIQUE REFERENCES trades(id),
+  amount INTEGER NOT NULL,
+  commodity TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  to_trade_id INTEGER,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- Buyer receivables and Kitovu's cash position (Kitovu pays Champions on time from its balance sheet)
+ALTER TABLE lots ADD COLUMN buyer_amount INTEGER;
+ALTER TABLE lots ADD COLUMN buyer_due_at TEXT;
+CREATE TABLE buyer_payments (
+  id INTEGER PRIMARY KEY,
+  lot_id INTEGER NOT NULL REFERENCES lots(id),
+  amount INTEGER NOT NULL,
+  received_at TEXT NOT NULL,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE cash_positions (
+  id INTEGER PRIMARY KEY,
+  amount INTEGER NOT NULL,
+  credit_line INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  as_of TEXT NOT NULL,
+  created_by INTEGER,
+  created_at TEXT NOT NULL
+);
+
+-- Harvest Plan: monthly saving toward a Trade Lot
+ALTER TABLE payments ADD COLUMN purpose TEXT NOT NULL DEFAULT 'wallet';
+ALTER TABLE payments ADD COLUMN plan_id INTEGER;
+CREATE TABLE plans (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  target_amount INTEGER NOT NULL,
+  monthly_amount INTEGER NOT NULL,
+  day_of_month INTEGER NOT NULL,
+  commodity TEXT,
+  authorization_code TEXT,
+  card_label TEXT,
+  status TEXT NOT NULL DEFAULT 'setup',
+  next_charge_at TEXT,
+  failures INTEGER NOT NULL DEFAULT 0,
+  trade_id INTEGER,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX plans_user ON plans(user_id);
+
+-- Gift a Harvest
+CREATE TABLE gifts (
+  id INTEGER PRIMARY KEY,
+  giver_id INTEGER NOT NULL REFERENCES users(id),
+  trade_id INTEGER NOT NULL REFERENCES trades(id),
+  recipient_name TEXT NOT NULL,
+  recipient_email TEXT,
+  recipient_phone TEXT,
+  message TEXT,
+  token_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'sent',
+  recipient_id INTEGER REFERENCES users(id),
+  claimed_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- AI agents: every run is logged; every action is a proposal until approved (or auto-run if low risk and allowed)
+CREATE TABLE agent_runs (
+  id INTEGER PRIMARY KEY,
+  agent TEXT NOT NULL,
+  trigger TEXT,
+  input TEXT,
+  output TEXT,
+  model TEXT,
+  tokens_in INTEGER NOT NULL DEFAULT 0,
+  tokens_out INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'ok',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE agent_actions (
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER,
+  agent TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  risk TEXT NOT NULL DEFAULT 'medium',
+  title TEXT NOT NULL,
+  summary TEXT,
+  payload TEXT NOT NULL DEFAULT '{}',
+  target_user_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'proposed',
+  decided_by INTEGER,
+  decided_at TEXT,
+  result TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX agent_actions_status ON agent_actions(status);
+
+-- WhatsApp conversations (inbound messages and our replies)
+CREATE TABLE wa_messages (
+  id INTEGER PRIMARY KEY,
+  wa_id TEXT,
+  phone TEXT NOT NULL,
+  user_id INTEGER,
+  direction TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX wa_messages_waid ON wa_messages(wa_id) WHERE wa_id IS NOT NULL;
+`,
 ];
 
 export function openDb(file = config.dbFile) {

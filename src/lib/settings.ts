@@ -23,6 +23,20 @@ export const DEFAULTS = {
   support_email: 'hello@combotrader.com.ng',
   support_whatsapp: '',
   maintenance_banner: '',
+  // Payouts and treasury (Kitovu pays Champions on time from its own balance sheet)
+  auto_payouts: true, // credit matured trades automatically on the payout date
+  coverage_warn_ratio: 1.2, // warn when (cash + credit line + buyer money due) / payouts due falls below this
+  // Harvest Plan and gifts
+  plans_enabled: true,
+  plan_min_monthly: 2000000, // ₦20,000
+  plan_max_failures: 3,
+  gifts_enabled: true,
+  // WhatsApp companion
+  whatsapp_enabled: true,
+  // AI agents
+  agents_enabled: 'support,onboarding,treasury,risk,growth,ops',
+  agent_autonomy: 'review' as 'review' | 'auto_low', // auto_low: low-risk messages send without a human click
+  agent_daily_limit: 300, // max model calls per day across all agents
 };
 export type SettingKey = keyof typeof DEFAULTS;
 

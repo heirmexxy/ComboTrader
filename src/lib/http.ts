@@ -12,6 +12,7 @@ export interface User {
   circle_pilot: number; status: string; onboarded: number; notif_email: number; notif_sms: number;
   next_of_kin_name: string | null; next_of_kin_phone: string | null; created_at: string; referred_by: number | null;
   paystack_customer_code: string | null; kyc_method: string | null; kyc_note: string | null; google_id: string | null;
+  rollover_default?: string; whatsapp_opt_in?: number; closed_at?: string | null; id_doc_path?: string | null;
 }
 
 export class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }

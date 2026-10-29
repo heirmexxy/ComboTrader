@@ -3,6 +3,12 @@ import fr from '../locales/fr';
 import sw from '../locales/sw';
 import pt from '../locales/pt';
 import ar from '../locales/ar';
+import xen from '../locales/extra-en';
+import xfr from '../locales/extra-fr';
+import xsw from '../locales/extra-sw';
+import xpt from '../locales/extra-pt';
+import xar from '../locales/extra-ar';
+Object.assign(en, xen); Object.assign(fr, xfr); Object.assign(sw, xsw); Object.assign(pt, xpt); Object.assign(ar, xar);
 
 export type Lang = 'en' | 'fr' | 'sw' | 'pt' | 'ar';
 export const LANGS: { code: Lang; label: string; dir: 'ltr' | 'rtl'; intl: string }[] = [

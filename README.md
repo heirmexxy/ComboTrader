@@ -5,7 +5,14 @@ The Harvest Champions platform by Kitovu Technology Company Limited. Champions b
 - **Stack:** Node.js 22 (no framework), server-rendered React views, SQLite (WAL), a small progressive-enhancement script.
 - **Runtime packages:** `react`, `react-dom`, `react-icons`, `marked`, `pdf-lib`, `sharp`. Build tool: `esbuild`.
 - **Languages:** English, French, Swahili, Portuguese and Arabic (right-to-left).
-- **Tests:** `npm test` runs 35 automated checks covering the ledger, payouts, withdrawals, Harvest Circles, referrals, two-step codes, push encryption, price parsers and translations.
+- **Tests:** `npm test` runs 55 automated checks covering the ledger, automatic payouts, Keep Growing, Harvest Plan, gifts, treasury coverage, withdrawals, Harvest Circles, referrals, data rights, agents, WhatsApp, two-step codes, push encryption, price parsers and translations.
+- **Hosting:** a Hostinger VPS. Step-by-step guide: [deploy/HOSTINGER.md](deploy/HOSTINGER.md). Pushes to `main` deploy automatically (`.github/workflows/deploy.yml`).
+
+### What Champions get
+Trade Lots with real buyers · wallet (card, transfer, USSD) · Trade Certificates anyone can verify · Harvest Trail updates · **automatic payouts on the payout date** · **Keep Growing** (roll a payout into the next lot) · **Harvest Plan** (save monthly, join a lot at the target) · **Gift a Harvest** · shareable **impact receipts** · Harvest Circles · referrals · annual statement PDF · data download and account closure · **WhatsApp companion** · five languages · installable app.
+
+### What Kitovu gets
+**Treasury** (payouts due vs cash, credit line and buyer money; overdue buyers) · **AI agents** (support, onboarding, treasury, risk, growth, ops copilot) with an approval inbox · payouts, withdrawals with two-admin approval · double-entry ledger with daily reconciliation · prices (manual + crawler) · blog, newsletter, FAQs · CSV import of existing users · audit log · error alerts and `/healthz` for uptime monitoring.
 
 ---
 
@@ -30,6 +37,8 @@ Without a Paystack key the site runs in **demo mode**. Payments go to a clearly 
 ---
 
 ## 2. Go live
+
+**Use [deploy/HOSTINGER.md](deploy/HOSTINGER.md)** — it walks through buying the VPS, the one-command setup, DNS in hPanel, keys and automatic deploys. The notes below are the technical reference.
 
 ### 2.1 Server
 Any Linux VPS with Node 22.13+ works: DigitalOcean, Hetzner, AWS Lightsail, or a Nigerian host. Use 1 vCPU and 1–2 GB RAM to start. The database is a single file in `data/`, so the server must have a **persistent disk**.
@@ -91,8 +100,11 @@ With `RUN_SCHEDULER=true` (the default), the server runs these jobs itself:
 | Job | When (Lagos) | What it does |
 | --- | --- | --- |
 | outbox | every minute | sends queued email, SMS and WhatsApp |
+| plans | 09:00 daily | charges Harvest Plan cards on their day, reminds manual savers, joins lots for plans at target |
+| agents | 07:00 daily | treasury brief, onboarding nudges, risk review |
+| growth | Monday 07:00 | newsletter and social post drafts |
 | publish | every minute | publishes scheduled blog posts and newsletters |
-| lifecycle | every 10 min | closes expired lots, marks matured trades, releases expired circles, auto-sends small withdrawals |
+| lifecycle | every 10 min | closes expired lots, marks matured trades, **credits payouts**, Keep Growing rollovers, releases expired circles, auto-sends small withdrawals |
 | prices | 06:00 daily | runs the crawler (skipped when the crawler is off) |
 | nudges | 09:00 daily | automatic reminders (no deposit, no trade, payout in 7 days, inactive 60 days) |
 | reconcile | 02:00 daily | checks the ledger balances and matches payments against Paystack |
@@ -111,6 +123,8 @@ Authorization: Bearer <CRON_SECRET>
 
 ## 3. Before launch checklist
 - [ ] Draft Terms, Privacy, Risk and Cookie notices reviewed by Kitovu's lawyer, and the [bracketed] items filled in (Admin → FAQs & page text → Legal pages). Drafts follow the NDPA 2023, the NDPC GAID and the FCCPA 2018.
+- [ ] Treasury set up: cash position and credit line recorded, buyer contract value and due date on every lot (Admin → Treasury).
+- [ ] AI agents left on "Review everything" for the first month; `ANTHROPIC_API_KEY` has a spend limit in the Anthropic console.
 - [ ] Buyer-payment policy confirmed by Kitovu's lawyer and finance team: if a buyer pays late or defaults, Kitovu pays Champions on the payout date from its own balance sheet (FAQs, Terms §7, Risk Statement). Keep enough funds or a credit line to cover this. The "Exceptional delay" form on each lot is only for causes outside Kitovu's control (Terms §7.4).
 - [ ] Price sources checked (Admin → Prices): NCX (per kg) and commodity.ng (per 50 kg bag, converted to per kg) are on, alongside manual entry. AFEX is off because its prices load by script.
 - [ ] French, Swahili, Portuguese and Arabic money and legal wording reviewed by native speakers (Admin → FAQs & page text lets you fix any line without a developer).
@@ -135,7 +149,9 @@ All amounts are stored as integer kobo in a **double-entry ledger** (`ledger_acc
 | Take circle slots | wallet → reserved |
 | Circle fills | reserved → lot (all members, same moment) |
 | Circle expires or slots released | reserved → wallet |
-| Payout (admin credits a matured trade) | lot → wallet (principal) + Kitovu earnings → wallet |
+| Payout (automatic on the payout date) | lot → wallet (principal) + Kitovu earnings → wallet |
+| Harvest Plan saving | external → plan (the Champion's) |
+| Plan reaches target | plan → wallet → lot |
 | Withdrawal requested | wallet → reserved |
 | Withdrawal paid / failed | reserved → external / reserved → wallet |
 | Referral reward | Kitovu referrals → wallet |
@@ -152,9 +168,10 @@ Safeguards:
 ---
 
 ## 5. Moving existing users across
-The current site's database wasn't available. Two options:
-1. **Invite (simplest):** export names and emails from the old site, then send them a newsletter issue (Admin → Newsletter) linking to `/signup`.
-2. **Migrate balances:** import users with a script into `users`, then credit each opening balance as an approved manual adjustment, so the ledger records where every naira came from. A developer can do this in about an hour once the export is in hand.
+Admin → Champions → **Import users (CSV)** with columns `first_name, last_name, email, phone, country, city, opening_balance`. Everyone gets a set-your-password email; opening balances become adjustments a second admin approves in Wallets & ledger.
+
+## 5a. AI agents
+Agents propose; people decide. Each agent reads platform data, drafts an action, and puts it in Admin → AI agents. Executors are a fixed list (`src/lib/agents.ts`): send a message, answer a ticket, post a Trail update, create a draft lot, create a newsletter draft, add a risk note, email admins. **None moves money.** Low-risk messages can run automatically only when Settings → AI agents → Autonomy is "auto_low". Every model call is logged with token counts. Without `ANTHROPIC_API_KEY` the agents run on rules and templates.
 
 ---
 

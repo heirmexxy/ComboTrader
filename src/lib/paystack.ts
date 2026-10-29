@@ -28,10 +28,17 @@ export async function initialize(o: { email: string; amount: number; reference: 
   });
 }
 
-export interface Verified { status: 'success' | 'failed' | 'abandoned' | 'pending'; amount: number; fees: number; channel: string; paid_at: string | null; currency: string; raw: unknown }
+export interface Authorization { authorization_code: string; reusable: boolean; last4?: string; brand?: string; bank?: string; channel?: string }
+export interface Verified { status: 'success' | 'failed' | 'abandoned' | 'pending'; amount: number; fees: number; channel: string; paid_at: string | null; currency: string; raw: unknown; authorization?: Authorization | null }
 export async function verify(reference: string): Promise<Verified> {
   const d: any = await ps('GET', `/transaction/verify/${encodeURIComponent(reference)}`);
-  return { status: d.status, amount: d.amount, fees: d.fees || 0, channel: d.channel, paid_at: d.paid_at, currency: d.currency, raw: d };
+  return { status: d.status, amount: d.amount, fees: d.fees || 0, channel: d.channel, paid_at: d.paid_at, currency: d.currency, raw: d, authorization: d.authorization || null };
+}
+
+/** Charges a saved, reusable card (Harvest Plan instalments). Final status is confirmed by verify/webhook. */
+export async function chargeAuthorization(o: { email: string; amount: number; authorization_code: string; reference: string; metadata?: Record<string, unknown> }) {
+  if (isDemo() && demoAllowed()) return { status: 'success', reference: o.reference };
+  return ps<{ status: string; reference: string }>('POST', '/transaction/charge_authorization', { ...o, currency: 'NGN' });
 }
 
 export function webhookValid(raw: Buffer, signature: string | undefined) {

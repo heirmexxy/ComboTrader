@@ -5,6 +5,7 @@
 //   wallet:<uid>           a Champion's available balance
 //   reserved:<uid>         a Champion's held funds (circle reservations, pending withdrawals)
 //   lot:<lotId>            principal committed to a Trade Lot (owed back to Champions)
+//   plan:<planId>          a Champion's Harvest Plan savings (theirs; withdrawable to wallet)
 //   kitovu:earnings        Kitovu's cost of paying earnings
 //   kitovu:referrals       Kitovu's cost of referral rewards
 //   kitovu:fees            card fees passed on to Champions
@@ -19,6 +20,7 @@ export function account(code: string, kind?: string, userId?: number): number {
 export const walletAcct = (uid: number) => account(`wallet:${uid}`, 'wallet', uid);
 export const reservedAcct = (uid: number) => account(`reserved:${uid}`, 'reserved', uid);
 export const lotAcct = (lotId: number) => account(`lot:${lotId}`, 'lot');
+export const planAcct = (planId: number, uid: number) => account(`plan:${planId}`, 'plan', uid);
 export const EXT = () => account('ext:paystack', 'external');
 
 export function balance(code: string): number {
@@ -50,7 +52,7 @@ export function post(kind: string, legs: Leg[], o: { ref?: string; memo?: string
     for (const l of legs) {
       if (l.amount >= 0) continue;
       const a = q.get<{ code: string; kind: string }>('SELECT code, kind FROM ledger_accounts WHERE id=?', l.account)!;
-      if ((a.kind === 'wallet' || a.kind === 'reserved' || a.kind === 'lot') && balance(a.code) < 0) {
+      if ((a.kind === 'wallet' || a.kind === 'reserved' || a.kind === 'lot' || a.kind === 'plan') && balance(a.code) < 0) {
         throw new LedgerError(a.kind === 'wallet' ? 'Insufficient wallet balance' : `Insufficient funds in ${a.code}`);
       }
     }

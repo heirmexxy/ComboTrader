@@ -4,7 +4,9 @@ import { createElement as h } from 'react';
 import * as V from '../views/app/pages';
 import { q, now } from '../lib/db';
 import { walletBalance, reservedBalance, walletStatement } from '../lib/ledger';
-import { openLots, getLot, joinLot, trailFor, impactFor, rankFor, TradeError } from '../lib/trading';
+import { openLots, getLot, joinLot, trailFor, impactFor, rankFor, TradeError, isRollover } from '../lib/trading';
+import { closureBlockers } from '../lib/account';
+import { supportOnTicket } from '../lib/agents';
 import { startFunding, requestWithdrawal } from '../lib/wallet';
 import { circlesVisibleTo, userCircles, publicCircles, getCircle, getCircleByInvite, takeSlots, releaseSlots, createCircle } from '../lib/circles';
 import { certificatePdf } from '../lib/cards';
@@ -47,7 +49,7 @@ post('/app/lots/:id/join', 'auth', (c) => {
   const amount = parseNaira(c.body.amount);
   try {
     if (!c.bool('agree')) throw new TradeError('auth.must_agree');
-    const t = joinLot(c.user!, lot.id, amount);
+    const t = joinLot(c.user!, lot.id, amount, { rollover: isRollover(c.body.rollover) ? c.body.rollover : undefined });
     c.redirect(`/app/trades/${t.id}`, ['ok', c.t('lots.joined', { lot: lot.title })]);
   } catch (e) {
     render(c, h(V.JoinLot, { lot, wallet: walletBalance(c.user!.id), trail: trailFor(lot.id), error: err(c, e) }), 422);
@@ -164,7 +166,7 @@ get('/app/referrals', 'auth', (c) => {
 // ---------- Profile, verification, bank ----------
 async function profilePage(c: Ctx) {
   const banks = q.all('SELECT * FROM bank_accounts WHERE user_id=? AND active=1 ORDER BY id DESC', c.user!.id);
-  render(c, h(V.AppProfile, { banks, bankList: await paystack.banks().catch(() => []), countries: countryOptions(c.lang) }));
+  render(c, h(V.AppProfile, { banks, bankList: await paystack.banks().catch(() => []), countries: countryOptions(c.lang), blockers: closureBlockers(c.user!.id) }));
 }
 get('/app/profile', 'auth', profilePage);
 post('/app/profile', 'auth', (c) => {
@@ -294,7 +296,8 @@ post('/app/security/signout-others', 'auth', (c) => {
 get('/app/support', 'auth', (c) => render(c, h(V.AppSupport, { tickets: q.all('SELECT * FROM tickets WHERE user_id=? ORDER BY id DESC', c.user!.id) })));
 post('/app/support', 'auth', (c) => {
   if (!rateLimit(`ticket:${c.user!.id}`, 10, 3600)) return c.redirect('/app/support', ['error', c.t('auth.too_many')]);
-  q.insert('tickets', { user_id: c.user!.id, subject: c.str('subject', 120), body: c.str('body', 3000), created_at: now() });
+  const id = q.insert('tickets', { user_id: c.user!.id, subject: c.str('subject', 120), body: c.str('body', 3000), created_at: now() }).id;
+  supportOnTicket(id).catch(() => {}); // the support agent drafts (or sends) a reply
   c.redirect('/app/support', ['ok', c.t('support.sent')]);
 });
 get('/app/notifications', 'auth', (c) => render(c, h(V.AppNotifications, { items: q.all('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 100', c.user!.id) })));

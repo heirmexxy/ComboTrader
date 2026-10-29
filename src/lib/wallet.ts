@@ -1,6 +1,6 @@
 // Funding (Paystack collections) and withdrawals (Paystack Transfers or manual international).
 import { q, tx, now } from './db';
-import { move, post, walletAcct, reservedAcct, EXT, account, walletBalance } from './ledger';
+import { move, post, walletAcct, reservedAcct, planAcct, EXT, account, walletBalance } from './ledger';
 import { settings } from './settings';
 import * as paystack from './paystack';
 import { randomCode, fmtNGN } from './util';
@@ -22,16 +22,26 @@ export function totalFunded(userId: number) {
   return Number(q.val("SELECT COALESCE(SUM(amount - fee),0) FROM payments WHERE user_id=? AND status='success'", userId) ?? 0);
 }
 
-export async function startFunding(user: User, amount: number) {
+export function fundingAllowed(user: User, amount: number) {
   const s = settings();
   if (amount < 100000) throw new TradeError('wallet.min', { amount: fmtNGN(100000) });
   if (user.kyc_status !== 'verified' && totalFunded(user.id) + amount > s.kyc_required_above) throw new TradeError('wallet.kyc_fund', { amount: fmtNGN(s.kyc_required_above) });
+}
+
+export async function startFunding(user: User, amount: number, o: { purpose?: 'wallet' | 'plan'; planId?: number } = {}) {
+  const s = settings();
+  fundingAllowed(user, amount);
   const fee = s.pass_card_fees ? estimateFee(amount) : 0;
   const reference = newReference('CTF');
-  q.insert('payments', { user_id: user.id, reference, amount: amount + fee, fee, status: 'pending', demo: paystack.isDemo() ? 1 : 0, created_at: now() });
-  const init = await paystack.initialize({ email: user.email, amount: amount + fee, reference, metadata: { user_id: user.id, purpose: 'wallet_fund' } });
+  q.insert('payments', { user_id: user.id, reference, amount: amount + fee, fee, status: 'pending', demo: paystack.isDemo() ? 1 : 0, purpose: o.purpose || 'wallet', plan_id: o.planId ?? null, created_at: now() });
+  const init = await paystack.initialize({ email: user.email, amount: amount + fee, reference, metadata: { user_id: user.id, purpose: o.purpose === 'plan' ? 'harvest_plan' : 'wallet_fund', plan_id: o.planId } });
   return init.authorization_url;
 }
+
+type PaymentHook = (payment: any, authorization: paystack.Authorization | null | undefined) => void;
+let onPlanPayment: PaymentHook | null = null;
+/** Harvest Plan registers here so a confirmed plan payment can save the card and check the target. */
+export function setPlanPaymentHook(fn: PaymentHook) { onPlanPayment = fn; }
 
 /**
  * Confirms a payment (from callback, webhook or demo checkout) and credits the wallet exactly once.
@@ -44,7 +54,7 @@ export async function confirmPayment(reference: string, o: { demoSuccess?: boole
   let v: paystack.Verified;
   if (p.demo) {
     if (!o.demoSuccess) return { ok: false as const, reason: 'pending' };
-    v = { status: 'success', amount: p.amount, fees: 0, channel: 'demo', paid_at: now(), currency: 'NGN', raw: { demo: true } };
+    v = { status: 'success', amount: p.amount, fees: 0, channel: 'demo', paid_at: now(), currency: 'NGN', raw: { demo: true }, authorization: { authorization_code: `AUTH_demo_${p.user_id}`, reusable: true, last4: '4081', brand: 'visa', channel: 'card' } };
   } else {
     v = await paystack.verify(reference);
   }
@@ -57,15 +67,18 @@ export async function confirmPayment(reference: string, o: { demoSuccess?: boole
     q.run("UPDATE payments SET status='review', raw=? WHERE id=?", JSON.stringify(v.raw).slice(0, 4000), p.id);
     return { ok: false as const, reason: 'mismatch' };
   }
+  const isPlan = p.purpose === 'plan' && p.plan_id;
   tx(() => {
     const credit = p.amount - p.fee;
-    const legs = [{ account: EXT(), amount: -p.amount }, { account: walletAcct(p.user_id), amount: credit }];
+    const to = isPlan ? planAcct(p.plan_id, p.user_id) : walletAcct(p.user_id);
+    const legs = [{ account: EXT(), amount: -p.amount }, { account: to, amount: credit }];
     if (p.fee) legs.push({ account: account('kitovu:fees'), amount: p.fee });
-    post('fund', legs, { ref: reference, memo: 'Wallet funded', userId: p.user_id });
+    post('fund', legs, { ref: reference, memo: isPlan ? 'Harvest Plan saving' : 'Wallet funded', userId: p.user_id });
     q.run("UPDATE payments SET status='success', channel=?, paid_at=?, raw=? WHERE id=?", v.channel, v.paid_at || now(), JSON.stringify(v.raw).slice(0, 4000), p.id);
   });
   const u = userById(p.user_id);
-  if (u) notify(u, 'fund_success', { amount: fmtNGN(p.amount - p.fee) }, { link: '/app/wallet', email: true });
+  if (isPlan) { if (onPlanPayment) onPlanPayment(p, v.authorization); }
+  else if (u) notify(u, 'fund_success', { amount: fmtNGN(p.amount - p.fee) }, { link: '/app/wallet', email: true });
   return { ok: true as const, payment: q.get<any>('SELECT * FROM payments WHERE id=?', p.id) };
 }
 

@@ -201,7 +201,8 @@ post('/reset-password/:token', 'public', (c) => {
   if (prob) return render(c, h(A.ResetPage, { token: c.params.token, error: c.t(prob) }), 422);
   const t = consumeToken('reset', c.params.token);
   if (!t) return c.redirect('/forgot-password', ['error', c.t('auth.bad_link')]);
-  q.run('UPDATE users SET password_hash=? WHERE id=?', hashPassword(pw), t.user_id);
+  // A reset link proves the person controls the email address.
+  q.run('UPDATE users SET password_hash=?, email_verified_at=COALESCE(email_verified_at, ?) WHERE id=?', hashPassword(pw), now(), t.user_id);
   q.run('DELETE FROM sessions WHERE user_id=?', t.user_id);
   audit(t.user_id, 'password.reset', `user:${t.user_id}`, undefined, c.ip);
   c.redirect('/login', ['ok', c.t('auth.reset_done')]);

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 if (fs.existsSync('.env')) {
   for (const line of fs.readFileSync('.env', 'utf8').split('\n')) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
   }
 }
 
@@ -40,6 +40,18 @@ export const config = {
   vapidPublic: e.VAPID_PUBLIC_KEY || '',
   vapidPrivate: e.VAPID_PRIVATE_KEY || '',
   vapidSubject: e.VAPID_SUBJECT || 'mailto:hello@combotrader.com.ng',
+
+  // AI agents (Claude API)
+  anthropicKey: e.ANTHROPIC_API_KEY || '',
+  aiModel: e.AI_MODEL || 'claude-sonnet-5-5',
+  aiModelFast: e.AI_MODEL_FAST || 'claude-haiku-5-5',
+
+  // WhatsApp Cloud API (Meta)
+  waToken: e.WHATSAPP_TOKEN || '',
+  waPhoneId: e.WHATSAPP_PHONE_NUMBER_ID || '',
+  waVerifyToken: e.WHATSAPP_VERIFY_TOKEN || '',
+  waAppSecret: e.WHATSAPP_APP_SECRET || '',
+  waNumber: e.WHATSAPP_NUMBER || '', // public number shown to Champions, e.g. 2348012345678
 
   /** Demo helpers (codes shown on screen, simulated checkout) are never shown in production unless DEMO_MODE=true. */
   demoMode: !production || e.DEMO_MODE === 'true',

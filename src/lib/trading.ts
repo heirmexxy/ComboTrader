@@ -18,8 +18,10 @@ export interface Lot {
 export interface Trade {
   id: number; user_id: number; lot_id: number; circle_id: number | null; slots: number | null; amount: number; rate_bps: number;
   period_months: number; status: string; start_at: string; matures_at: string; earnings: number | null; paid_at: string | null;
-  certificate_no: string; share_token: string; created_at: string;
+  certificate_no: string; share_token: string; created_at: string; rollover?: string; gift_id?: number | null;
 }
+export type RolloverMode = 'off' | 'principal' | 'all';
+export const isRollover = (v: unknown): v is RolloverMode => v === 'off' || v === 'principal' || v === 'all';
 
 export const STAGES = ['funded', 'sourcing', 'warehoused', 'delivered', 'buyer_paid', 'champions_paid'] as const;
 
@@ -45,7 +47,7 @@ export function newCertificateNo() {
 }
 
 /** Champion joins a lot from their wallet. */
-export function joinLot(user: User, lotId: number, amount: number) {
+export function joinLot(user: User, lotId: number, amount: number, o: { rollover?: RolloverMode } = {}) {
   return tx(() => {
     const lot = getLot(lotId);
     if (!lot || lot.status !== 'open' || lot.closes_at < now()) throw new TradeError('lots.not_open');
@@ -55,25 +57,26 @@ export function joinLot(user: User, lotId: number, amount: number) {
     if (amount < lot.min_commit && amount !== remaining) throw new TradeError('lots.too_small', { amount: fmtNGN(lot.min_commit) });
     const bal = walletBalance(user.id);
     if (bal < amount) throw new TradeError('lots.need_funds', { amount: fmtNGN(amount - bal) });
-    const trade = createTrade(user.id, lot, amount, now());
+    const trade = createTrade(user.id, lot, amount, now(), { rollover: o.rollover });
     if (lotRemaining(getLot(lotId)!) === 0) q.run("UPDATE lots SET status='filled' WHERE id=? AND status='open'", lotId);
     return trade;
   });
 }
 
 /** Creates a trade and moves the money (wallet or reserved -> lot). */
-export function createTrade(userId: number, lot: Lot, amount: number, startAt: string, o: { circleId?: number; slots?: number; fromAccount?: number } = {}) {
+export function createTrade(userId: number, lot: Lot, amount: number, startAt: string, o: { circleId?: number; slots?: number; fromAccount?: number; rollover?: RolloverMode; giftId?: number; silent?: boolean } = {}) {
   const firstTrade = !q.get("SELECT 1 FROM trades WHERE user_id=? AND status!='cancelled'", userId);
   const t = q.insert('trades', {
     user_id: userId, lot_id: lot.id, circle_id: o.circleId ?? null, slots: o.slots ?? null, amount, rate_bps: lot.rate_bps,
     period_months: lot.period_months, status: 'active', start_at: startAt, matures_at: addMonths(startAt, lot.period_months),
     certificate_no: newCertificateNo(), share_token: randomToken(12), created_at: now(),
+    rollover: o.rollover ?? (q.val<string>('SELECT rollover_default FROM users WHERE id=?', userId) || 'off'), gift_id: o.giftId ?? null,
   });
   move('trade', o.fromAccount ?? walletAcct(userId), lotAcct(lot.id), amount, { ref: `trade:${t.id}`, memo: lot.code, userId });
   const user = userById(userId)!;
   activity('trade', userId, { commodity: lot.commodity, lot: lot.code });
   const trade = q.get<Trade>('SELECT * FROM trades WHERE id=?', t.id)!;
-  notify(user, 'trade_joined', { lot: lot.title, amount: fmtNGN(amount), earn: fmtNGN(earningsFor(amount, lot.rate_bps, lot.period_months)), date: trade.matures_at.slice(0, 10) }, { link: `/app/trades/${t.id}` });
+  if (!o.silent) notify(user, 'trade_joined', { lot: lot.title, amount: fmtNGN(amount), earn: fmtNGN(earningsFor(amount, lot.rate_bps, lot.period_months)), date: trade.matures_at.slice(0, 10) }, { link: `/app/trades/${t.id}` });
   if (firstTrade) rewardReferrer(user, t.id);
   return trade;
 }
@@ -126,7 +129,7 @@ export const upcomingPayouts = (days = 30) => q.all<any>(
    WHERE t.status='active' AND t.matures_at > ? AND t.matures_at <= ? ORDER BY t.matures_at`, now(), new Date(Date.now() + days * 864e5).toISOString());
 
 /** Credits principal + earnings for one matured trade to the Champion's wallet. Idempotent. */
-export function payTrade(tradeId: number, by: number) {
+export function payTrade(tradeId: number, by: number | null) {
   return tx(() => {
     const t = q.get<Trade>('SELECT * FROM trades WHERE id=?', tradeId);
     if (!t) throw new LedgerError('Trade not found');
@@ -138,7 +141,7 @@ export function payTrade(tradeId: number, by: number) {
       { account: lotAcct(t.lot_id), amount: -t.amount },
       { account: account('kitovu:earnings'), amount: -earn },
       { account: walletAcct(t.user_id), amount: t.amount + earn },
-    ], { ref: `payout:${t.id}`, memo: lot.code, userId: t.user_id, by });
+    ], { ref: `payout:${t.id}`, memo: lot.code, userId: t.user_id, by: by ?? undefined });
     q.run("UPDATE trades SET status='paid', earnings=?, paid_at=? WHERE id=?", earn, now(), t.id);
     if (!q.get("SELECT 1 FROM trades WHERE lot_id=? AND status IN ('active','matured')", t.lot_id)) {
       q.run("UPDATE lots SET status='completed' WHERE id=? AND status IN ('filled','active','open')", t.lot_id);
@@ -147,8 +150,57 @@ export function payTrade(tradeId: number, by: number) {
     audit(by, 'payout.credit', `trade:${t.id}`, { amount: t.amount, earn });
     const u = userById(t.user_id)!;
     notify(u, 'payout_credited', { amount: fmtNGN(t.amount + earn), earn: fmtNGN(earn), lot: lot.title }, { link: '/app/wallet', sms: true });
+    if (t.rollover === 'principal' || t.rollover === 'all') {
+      q.run('INSERT OR IGNORE INTO rollovers (user_id, from_trade_id, amount, commodity, status, expires_at, created_at) VALUES (?,?,?,?,?,?,?)',
+        t.user_id, t.id, t.rollover === 'all' ? t.amount + earn : t.amount, lot.commodity, 'pending', new Date(Date.now() + 14 * 864e5).toISOString(), now());
+    }
     return q.get<Trade>('SELECT * FROM trades WHERE id=?', t.id)!;
   });
+}
+
+/** Credits every matured trade automatically (setting auto_payouts). Kitovu pays on the payout date whatever the buyer does. */
+export function autoPayDue() {
+  if (!settings().auto_payouts) return 0;
+  let n = 0;
+  for (const t of duePayouts()) { try { payTrade(t.id, null); n++; } catch (e) { audit(null, 'payout.auto_failed', `trade:${t.id}`, String((e as Error).message)); } }
+  return n;
+}
+
+/** Keep Growing: re-commits a paid-out trade into the best open lot. Waits up to 14 days for a suitable lot. */
+export function processRollovers() {
+  let done = 0;
+  for (const r of q.all<any>("SELECT * FROM rollovers WHERE status='pending' ORDER BY id")) {
+    const u = userById(r.user_id);
+    if (!u || u.status !== 'active') { q.run("UPDATE rollovers SET status='expired' WHERE id=?", r.id); continue; }
+    const amount = Math.min(r.amount, walletBalance(u.id));
+    const lot = pickRolloverLot(amount, r.commodity);
+    if (lot) {
+      const amt = Math.min(amount, lotRemaining(lot));
+      try {
+        const t = joinLot(u, lot.id, amt, { rollover: (q.val<string>('SELECT rollover FROM trades WHERE id=?', r.from_trade_id) as RolloverMode) || 'off' });
+        q.run("UPDATE rollovers SET status='done', to_trade_id=? WHERE id=?", t.id, r.id);
+        q.run('UPDATE trades SET rolled_to=? WHERE id=?', t.id, r.from_trade_id);
+        notify(u, 'rollover_done', { amount: fmtNGN(amt), lot: lot.title, date: t.matures_at.slice(0, 10) }, { link: `/app/trades/${t.id}` });
+        done++;
+        continue;
+      } catch (e) { audit(null, 'rollover.failed', `rollover:${r.id}`, String((e as Error).message)); }
+    }
+    if (r.expires_at < now() || amount <= 0) {
+      q.run("UPDATE rollovers SET status='expired' WHERE id=?", r.id);
+      notify(u, 'rollover_expired', { amount: fmtNGN(r.amount) }, { link: '/app/lots' });
+    }
+  }
+  return done;
+}
+/** Same commodity first, then any open lot that can take at least its minimum from this amount. */
+export function pickRolloverLot(amount: number, commodity?: string | null) {
+  if (amount <= 0) return null;
+  const fits = openLots()
+    .map((l) => ({ l, take: Math.min(amount, lotRemaining(l)) }))
+    .filter(({ l, take }) => take > 0 && (take >= l.min_commit || take === lotRemaining(l)) && take >= Math.min(amount, l.min_commit))
+    .sort((a, b) => (b.take - a.take) || (Number(b.l.commodity === commodity) - Number(a.l.commodity === commodity)));
+  const best = fits[0]?.take;
+  return (fits.find((f) => f.take === best && f.l.commodity === commodity) || fits[0])?.l || null;
 }
 
 /** Earnings for the extra days when a payout was delayed (same rate, pro-rated daily). */
