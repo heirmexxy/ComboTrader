@@ -559,6 +559,11 @@ CREATE TABLE wa_messages (
 );
 CREATE UNIQUE INDEX wa_messages_waid ON wa_messages(wa_id) WHERE wa_id IS NOT NULL;
 `,
+`
+-- Champions choose how long they stay; the rate follows the period (Settings → rates). A lot lists the periods it offers.
+ALTER TABLE lots ADD COLUMN periods TEXT NOT NULL DEFAULT '4,6,9,12';
+UPDATE lots SET period_months = 12 WHERE status IN ('draft','open');
+`,
 ];
 
 export function openDb(file = config.dbFile) {

@@ -30,7 +30,7 @@ export function createGift(giver: User, g: GiftInput) {
   });
   const lot = getLot(g.lotId)!;
   const url = `${config.baseUrl}/gift/${raw}`;
-  const earn = earningsFor(g.amount, lot.rate_bps, lot.period_months);
+  const earn = earningsFor(g.amount, res.trade.rate_bps, res.trade.period_months);
   const line = `${giver.first_name} has gifted you a ${fmtNGN(g.amount)} ${lot.commodity_name} harvest trade on ComboTrader. It pays ${fmtNGN(g.amount + earn)} on ${res.trade.matures_at.slice(0, 10)}.`;
   if (email) queueEmail(email, `${giver.first_name} sent you a Harvest gift`, emailShell(`A Harvest gift from ${escapeHtml(giver.first_name)}`,
     `<p>Hello ${escapeHtml(name)},</p><p>${escapeHtml(line)}</p>${g.message ? `<blockquote style="border-left:3px solid #D4A017;margin:12px 0;padding:4px 12px">${escapeHtml(g.message)}</blockquote>` : ''}<p>Claim it with this private link. It takes two minutes to create your account.</p>`,

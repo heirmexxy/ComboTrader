@@ -6,7 +6,7 @@ import { Csrf, Money, Field, Select, Check, Empty, Progress, Tag, toneFor } from
 import { PageHead } from '../public/pages';
 import { fmtDate, fmtNum } from '../../lib/i18n';
 import { fmtNGN, earningsFor } from '../../lib/util';
-import { lotRemaining, type Lot } from '../../lib/trading';
+import { lotRemaining, lotPeriods, rateFor, lotDefaultPeriod, type Lot } from '../../lib/trading';
 import { monthsToTarget, type Plan } from '../../lib/plans';
 import { settings } from '../../lib/settings';
 import { config } from '../../lib/config';
@@ -16,7 +16,7 @@ import { FaWhatsapp } from 'react-icons/fa6';
 function Card({ title, children, className = '' }: { title?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`card ${className}`}>{title && <h2 className="card-title">{title}</h2>}{children}</section>;
 }
-const lotOptions = (lots: Lot[], c: ReturnType<typeof useC>) => lots.map((l) => ({ value: String(l.id), label: `${l.title} · ${l.period_months} ${c.t('plan.months_short')} · ${l.rate_bps / 100}% · ${c.t('lot.left', { amount: fmtNGN(lotRemaining(l)) })}` }));
+const lotOptions = (lots: Lot[], c: ReturnType<typeof useC>) => lots.map((l) => ({ value: String(l.id), label: `${l.title} · ${lotDefaultPeriod(l)} ${c.t('plan.months_short')} · ${rateFor(lotDefaultPeriod(l)) / 100}% · ${c.t('lot.left', { amount: fmtNGN(lotRemaining(l)) })}` }));
 
 // ---------- Harvest Plan ----------
 export function AppPlans({ plans, commodities, error }: { plans: Plan[]; commodities: { code: string; name: string }[]; error?: string }) {
@@ -33,14 +33,14 @@ export function AppPlans({ plans, commodities, error }: { plans: Plan[]; commodi
             <Csrf />
             <Field label={c.t('plan.name')} name="name" value={c.t('plan.name_default')} maxLength={60} />
             <div className="row-2">
-              <Field label={c.t('plan.target')} name="target" required inputMode="numeric" value="1,000,000" dir="ltr" />
-              <Field label={c.t('plan.monthly')} name="monthly" required inputMode="numeric" value="100,000" dir="ltr" hint={c.t('plan.min_monthly', { amount: fmtNGN(s.plan_min_monthly) })} />
+              <Field label={c.t('plan.target')} name="target" required inputMode="numeric" value="250,000" dir="ltr" />
+              <Field label={c.t('plan.monthly')} name="monthly" required inputMode="numeric" value="25,000" dir="ltr" hint={c.t('plan.min_monthly', { amount: fmtNGN(s.plan_min_monthly) })} />
             </div>
             <div className="row-2">
               <Select label={c.t('plan.day')} name="day" value="25" options={Array.from({ length: 28 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))} />
               <Select label={c.t('plan.commodity')} name="commodity" options={[{ value: '', label: c.t('plan.any_commodity') }, ...commodities.map((x) => ({ value: x.code, label: x.name }))]} />
             </div>
-            <p className="calc-inline" data-plan-months>{c.t('plan.months_to', { n: monthsToTarget(100000000, 10000000) })}</p>
+            <p className="calc-inline" data-plan-months>{c.t('plan.months_to', { n: monthsToTarget(25000000, 2500000) })}</p>
             <p className="muted small">{c.t('plan.how')}</p>
             <Check name="agree" required label={<>{c.t('plan.agree')} <a href="/legal/terms" target="_blank">{c.t('footer.terms')}</a></>} />
             <button className="btn btn-primary btn-block" type="submit"><LuPiggyBank aria-hidden /> {c.t('plan.start')}</button>

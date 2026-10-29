@@ -49,7 +49,7 @@ post('/app/lots/:id/join', 'auth', (c) => {
   const amount = parseNaira(c.body.amount);
   try {
     if (!c.bool('agree')) throw new TradeError('auth.must_agree');
-    const t = joinLot(c.user!, lot.id, amount, { rollover: isRollover(c.body.rollover) ? c.body.rollover : undefined });
+    const t = joinLot(c.user!, lot.id, amount, { rollover: isRollover(c.body.rollover) ? c.body.rollover : undefined, months: c.int('months') || undefined });
     c.redirect(`/app/trades/${t.id}`, ['ok', c.t('lots.joined', { lot: lot.title })]);
   } catch (e) {
     render(c, h(V.JoinLot, { lot, wallet: walletBalance(c.user!.id), trail: trailFor(lot.id), error: err(c, e) }), 422);

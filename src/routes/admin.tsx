@@ -7,7 +7,7 @@ import { Box, Kpis, Table, Act, F, Form, N, D, S, naira } from '../views/admin/u
 import { Csrf } from '../views/components';
 import { q, tx, now } from '../lib/db';
 import { post as postJournal, move, walletAcct, reservedAcct, lotAcct, account, balance, trialBalance, walletBalance, reservedBalance } from '../lib/ledger';
-import { delayLotPayouts, lateEarnings, allLots, getLot, duePayouts, upcomingPayouts, payTrade, addTrailEvent, trailFor, STAGES, siteStats, creditReferral, markMatured, lotRemaining } from '../lib/trading';
+import { lotPeriods, rateFor, PERIODS, delayLotPayouts, lateEarnings, allLots, getLot, duePayouts, upcomingPayouts, payTrade, addTrailEvent, trailFor, STAGES, siteStats, creditReferral, markMatured, lotRemaining } from '../lib/trading';
 import { approveWithdrawal, completeWithdrawal } from '../lib/wallet';
 import { allCircles, createCircle, expireCircles, getCircle } from '../lib/circles';
 import { recordPrice, crawlPrices, latestPrices } from '../lib/prices';
@@ -84,7 +84,7 @@ get('/admin/lots', 'admin:operations', (c) => page(c, 'Trade Lots', (
   <Box><Table rows={allLots()} cols={[
     ['Lot', (l) => <><a href={`/admin/lots/${l.id}`}><b>{l.title}</b></a><br /><span className="muted small">{l.code} · {l.commodity_name}</span></>],
     ['Status', (l) => <S s={l.status} />], ['Funded', (l) => <><N k={l.funded} /> <span className="muted small">of {fmtNGN(l.target_amount)}</span></>],
-    ['Terms', (l) => `${l.rate_bps / 100}% · ${l.period_months} mo`], ['Closes', (l) => <D v={l.closes_at} />],
+    ['Periods', (l) => `${lotPeriods(l).join(', ')} mo`], ['Closes', (l) => <D v={l.closes_at} />],
     ['', (l) => <a className="btn btn-ghost btn-sm" href={`/lots/${l.code}`} target="_blank">Public page</a>],
   ]} /></Box>
 ), <a className="btn btn-primary" href="/admin/lots/new">New lot</a>));
@@ -105,9 +105,11 @@ function LotForm({ l }: { l?: any }) {
       <F label="Tonnage" name="tonnage" type="number" step="0.1" value={l?.tonnage} required />
       <F label="Farmers paid (estimate)" name="farmers" type="number" value={l?.farmers ?? 0} />
       <F label="Lot size (₦)" name="target_amount" value={naira(l?.target_amount)} required />
-      <F label="Minimum commitment (₦)" name="min_commit" value={naira(l?.min_commit ?? 100000000)} required />
-      <F label="Period (months)" name="period_months" value={l?.period_months ?? 12} options={[['4', '4'], ['6', '6'], ['9', '9'], ['12', '12']]} />
-      <F label="Rate (% per annum)" name="rate" type="number" step="0.01" value={l ? l.rate_bps / 100 : 20} required />
+      <F label="Minimum commitment (₦)" name="min_commit" value={naira(l?.min_commit ?? settings().min_commit_default)} required />
+      <fieldset className="field"><legend>Periods Champions can choose</legend>
+        {PERIODS.map((m) => <label key={m} className="check"><input type="checkbox" name="periods[]" value={m} defaultChecked={l ? lotPeriods(l).includes(m) : true} /> <span>{m} months — {rateFor(m) / 100}% per annum</span></label>)}
+        <p className="hint">Rates come from <a href="/admin/settings#rates">Settings → Earnings rates</a>. Untick periods the buyer cycle can't support.</p>
+      </fieldset>
       <F label="Closes on" name="closes_at" type="date" value={(l?.closes_at || new Date(Date.now() + 30 * 864e5).toISOString()).slice(0, 10)} required />
       <F label="Allow Harvest Circles on this lot" name="circles_enabled" type="checkbox" value={l?.circles_enabled} />
       <F label="Description (public)" name="description" type="textarea" value={l?.description} rows={3} />
@@ -117,13 +119,15 @@ function LotForm({ l }: { l?: any }) {
 get('/admin/lots/new', 'admin:operations', (c) => page(c, 'New Trade Lot', <Box><LotForm /></Box>));
 function lotFields(c: Ctx) {
   const target = parseNaira(c.body.target_amount), min = parseNaira(c.body.min_commit);
-  const rate = Math.round(Number(c.body.rate) * 100);
-  if (!target || !min || min > target || !(rate > 0 && rate <= 10000)) throw new HttpError(400, 'Check the lot size, minimum and rate.');
+  const chosen = (Array.isArray(c.body.periods) ? c.body.periods : [c.body.periods]).map(Number).filter((m: number) => (PERIODS as readonly number[]).includes(m)).sort((a: number, b: number) => a - b);
+  if (!target || !min || min > target) throw new HttpError(400, 'Check the lot size and minimum.');
+  if (!chosen.length) throw new HttpError(400, 'Choose at least one period Champions can pick.');
+  const longest = chosen[chosen.length - 1];
   if (!q.get('SELECT 1 FROM commodities WHERE code=?', c.str('commodity'))) throw new HttpError(400, 'Choose a commodity.');
   return {
     title: c.str('title', 120), commodity: c.str('commodity', 40), region: c.str('region', 80), buyer_type: c.str('buyer_type', 80), buyer_name: c.str('buyer_name', 120),
     contract_ref: c.str('contract_ref', 80) || null, tonnage: Number(c.body.tonnage) || 0, farmers: c.int('farmers'), target_amount: target, min_commit: min,
-    period_months: [4, 6, 9, 12].includes(c.int('period_months')) ? c.int('period_months') : 12, rate_bps: rate,
+    periods: chosen.join(','), period_months: longest, rate_bps: rateFor(longest),
     closes_at: new Date(`${c.str('closes_at', 10)}T22:59:00Z`).toISOString(), circles_enabled: c.bool('circles_enabled') ? 1 : 0, description: c.str('description', 1000),
     buyer_amount: parseNaira(c.body.buyer_amount) || null, buyer_due_at: c.str('buyer_due_at', 10) ? new Date(`${c.str('buyer_due_at', 10)}T12:00:00Z`).toISOString() : null,
   };
@@ -171,7 +175,7 @@ post('/admin/lots/:id', 'admin:operations', (c) => {
   if (!l) throw new HttpError(404, 'Not found');
   const f: any = lotFields(c);
   // Terms are fixed once Champions have joined.
-  if ((l.funded || 0) > 0) { delete f.rate_bps; delete f.period_months; delete f.commodity; if (f.target_amount < (l.funded || 0)) f.target_amount = l.funded; }
+  if ((l.funded || 0) > 0) { delete f.commodity; if (f.target_amount < (l.funded || 0)) f.target_amount = l.funded; }
   const contract = savePrivateFile(c.files.contract);
   if (contract) f.contract_path = contract;
   q.update('lots', l.id, f);
@@ -962,15 +966,22 @@ get('/admin/settings', 'admin:super', (c) => {
         <input type="hidden" name="_group" value="money" />
       </Form>
     </Box>
-    <Box title="Public figures and ranks">
-      <p className="muted small">Baselines are Kitovu's track record before this platform. Live platform figures are added on top.</p>
+    <Box title="Earnings rates by period" id="rates">
+      <p className="muted small">The longer a Champion stays, the more they earn. A new trade locks in the rate for its period at the moment it is joined; changing these does not change existing trades.</p>
+      <Form action="/admin/settings" submit="Save rates">
+        <F label="4 months (% per annum)" name="rate_4" type="number" step="0.01" value={s.rate_4} />
+        <F label="6 months (% per annum)" name="rate_6" type="number" step="0.01" value={s.rate_6} />
+        <F label="9 months (% per annum)" name="rate_9" type="number" step="0.01" value={s.rate_9} />
+        <F label="12 months (% per annum)" name="rate_12" type="number" step="0.01" value={s.rate_12} />
+        <F label="Default minimum commitment for new lots (₦)" name="min_commit_default" value={naira(s.min_commit_default)} />
+        <input type="hidden" name="_group" value="rates" />
+      </Form>
+    </Box>
+    <Box title="Champion ranks">
+      <p className="muted small">The homepage numbers (Champions, tons, payouts, farmers) are edited in <a href="/admin/figures">Homepage numbers</a>.</p>
       <Form action="/admin/settings" submit="Save">
-        <F label="Champions baseline" name="baseline_champions" type="number" value={s.baseline_champions} />
-        <F label="Tons baseline" name="baseline_tons" type="number" value={s.baseline_tons} />
-        <F label="Payouts baseline (₦)" name="baseline_payouts" value={naira(s.baseline_payouts)} />
-        <F label="Farmers baseline" name="baseline_farmers" type="number" value={s.baseline_farmers} />
         <F label="Rank thresholds in tons (Sprout, Harvester, Granary Keeper)" name="rank_thresholds" value={s.rank_thresholds} />
-        <input type="hidden" name="_group" value="figures" />
+        <input type="hidden" name="_group" value="ranks" />
       </Form>
     </Box>
     <Box title="Contact details and site banner">
@@ -1001,7 +1012,7 @@ get('/admin/settings', 'admin:super', (c) => {
     </Box>
   </>);
 });
-const MONEY_KEYS: SettingKey[] = ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'baseline_payouts', 'plan_min_monthly'];
+const MONEY_KEYS: SettingKey[] = ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'baseline_payouts', 'plan_min_monthly', 'min_commit_default'];
 const GROUPS: Record<string, SettingKey[]> = {
   features: ['circles_mode', 'circle_deadline_days', 'circle_max_share_pct', 'feed_enabled', 'price_crawler_enabled', 'price_hold_threshold_pct'],
   money: ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'pass_card_fees'],
@@ -1009,6 +1020,8 @@ const GROUPS: Record<string, SettingKey[]> = {
   contact: ['support_phone', 'support_whatsapp', 'support_email', 'maintenance_banner'],
   payouts: ['auto_payouts', 'coverage_warn_ratio', 'plans_enabled', 'plan_min_monthly', 'plan_max_failures', 'gifts_enabled', 'whatsapp_enabled'],
   agents: ['agents_enabled', 'agent_autonomy', 'agent_daily_limit'],
+  ranks: ['rank_thresholds'],
+  rates: ['rate_4', 'rate_6', 'rate_9', 'rate_12', 'min_commit_default'],
 };
 post('/admin/settings', 'admin:super', (c) => {
   const keys = GROUPS[c.str('_group')] || [];
@@ -1022,6 +1035,7 @@ post('/admin/settings', 'admin:super', (c) => {
     else v = c.str(k, 500);
     if (k === 'circles_mode' && !['off', 'pilot', 'on'].includes(String(v))) continue;
     if (k === 'agent_autonomy' && !['review', 'auto_low'].includes(String(v))) continue;
+    if (/^rate_\d+$/.test(k) && !(Number(v) > 0 && Number(v) <= 100)) continue;
     if (k === 'agents_enabled') v = (Array.isArray(c.body.agents_enabled) ? c.body.agents_enabled : [c.body.agents_enabled]).filter((x: unknown) => typeof x === 'string' && /^[a-z]+$/.test(x)).join(',');
     if (JSON.stringify(settings()[k]) !== JSON.stringify(v)) changed[k] = v;
     setSetting(k, v);

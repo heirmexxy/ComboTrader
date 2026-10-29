@@ -40,7 +40,7 @@ The Platform is operated by **Kitovu Technology Company Limited**, a company reg
 
 5.2 You choose the amount you commit, within the Lot's minimum and the amount remaining. Once you confirm, the amount moves from your wallet into the trade and is **locked until the payout date**. Early exit is not available.
 
-5.3 Earnings are calculated at the rate shown on the Lot, pro-rated by months, and paid with your principal on the payout date shown on your Trade Certificate.
+5.3 Earnings are calculated at the rate for the period you choose when you join (shown on the Lot and on your Trade Certificate), pro-rated by months, and paid with your principal on the payout date shown on your Trade Certificate.
 
 5.4 If a Lot is cancelled before the trade proceeds (for example, if the buyer order falls through), we return your full committed amount to your wallet.
 

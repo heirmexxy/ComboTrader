@@ -9,7 +9,7 @@ import { bootstrap } from '../src/lib/bootstrap';
 import { createUser, userById } from '../src/lib/auth';
 import { walletBalance, reservedBalance, trialBalance, balance } from '../src/lib/ledger';
 import { confirmPayment, requestWithdrawal, approveWithdrawal, completeWithdrawal } from '../src/lib/wallet';
-import { joinLot, getLot, payTrade, impactFor, rankFor, TradeError } from '../src/lib/trading';
+import { joinLot, getLot, payTrade, impactFor, rankFor, TradeError, rateFor, lotPeriods }  from '../src/lib/trading';
 import { createCircle, takeSlots, expireCircles, getCircle } from '../src/lib/circles';
 import { setSetting } from '../src/lib/settings';
 import { earningsFor, addDays, hashPassword, verifyPassword } from '../src/lib/util';
@@ -44,11 +44,35 @@ async function fund(uid: number, kobo: number) {
   return ref;
 }
 const lotId = q.insert('lots', { code: 'T-1', commodity: 'soybean', title: 'Test lot', buyer_type: 'Mill', tonnage: 100, farmers: 50, target_amount: 1_000_000_00, min_commit: 100_000_00,
-  period_months: 6, rate_bps: 2000, closes_at: addDays(now(), 10), status: 'open', circles_enabled: 1, created_at: now() }).id;
+  period_months: 6, periods: '6', rate_bps: 2000, closes_at: addDays(now(), 10), status: 'open', circles_enabled: 1, created_at: now() }).id;
 
 console.log('\nMoney');
 await t('earnings are pro-rated: ₦1M for 12 months at 20% = ₦200,000', () => eq(earningsFor(100_000_000, 2000, 12), 20_000_000));
 await t('₦1M for 4 months at 20% = ₦66,667', () => eq(earningsFor(100_000_000, 2000, 4), 6_666_667));
+await t('rate card: 4m 20%, 6m 22.5%, 9m 26.25%, 12m 30% (longer pays more)', () => {
+  eq(rateFor(4), 2000); eq(rateFor(6), 2250); eq(rateFor(9), 2625); eq(rateFor(12), 3000);
+  eq(earningsFor(250_000_00, rateFor(12), 12), 75_000_00); eq(earningsFor(250_000_00, rateFor(6), 6), 28_125_00);
+});
+await t('a Champion chooses the period; the trade keeps that period and rate', async () => {
+  const u = mkUser('period@t.ng'); await fund(u.id, 500_000_00);
+  const lid = q.insert('lots', { code: 'T-PER', commodity: 'maize', title: 'Periods lot', buyer_type: 'Mill', tonnage: 10, farmers: 5, target_amount: 1_000_000_00, min_commit: 250_000_00,
+    period_months: 12, periods: '4,6,9,12', rate_bps: 3000, closes_at: addDays(now(), 10), status: 'open', created_at: now() }).id;
+  eq(lotPeriods(getLot(lid)!).join(','), '4,6,9,12');
+  const a = joinLot(userById(u.id)!, lid, 250_000_00, { months: 4 });
+  eq(a.period_months, 4); eq(a.rate_bps, 2000);
+  const b = joinLot(userById(u.id)!, lid, 250_000_00);
+  eq(b.period_months, 12, 'defaults to the longest'); eq(b.rate_bps, 3000);
+  q.run("UPDATE lots SET periods='6,12' WHERE id=?", lid);
+  await fund(u.id, 250_000_00);
+  throws(() => joinLot(userById(u.id)!, lid, 250_000_00, { months: 9 }), 'lots.bad_period');
+  q.run("UPDATE lots SET status='cancelled' WHERE id=?", lid);
+});
+await t('homepage figures: add mode includes activity, exact mode shows the typed number only', async () => {
+  const { siteStats } = await import('../src/lib/trading');
+  setSetting('baseline_champions', 1000);
+  setSetting('figures_mode', 'exact'); eq(siteStats().champions, 1000);
+  setSetting('figures_mode', 'add'); eq(siteStats().champions > 1000, true);
+});
 const ada = mkUser('ada@t.ng');
 await t('funding credits the wallet exactly once (idempotent)', async () => {
   const ref = await fund(ada.id, 500_000_00);
@@ -67,7 +91,7 @@ await t('cannot pay a trade before it matures', () => throws(() => payTrade(trad
 await t('payout credits principal + earnings once', () => {
   q.run('UPDATE trades SET matures_at=? WHERE id=?', addDays(now(), -1), tradeId);
   payTrade(tradeId, 1); payTrade(tradeId, 1);
-  eq(walletBalance(ada.id), 200_000_00 + 300_000_00 + earningsFor(300_000_00, 2000, 6));
+  eq(walletBalance(ada.id), 200_000_00 + 300_000_00 + earningsFor(300_000_00, rateFor(6), 6));
   eq(balance(`lot:${lotId}`), 0); eq(trialBalance(), 0);
 });
 await t('impact and rank are computed from tonnage moved', () => {
@@ -78,14 +102,14 @@ await t('a delayed payout keeps earning at the same rate for the extra days', as
   const { delayLotPayouts } = await import('../src/lib/trading');
   const u = mkUser('late@t.ng'); await fund(u.id, 100_000_00);
   const lid = q.insert('lots', { code: 'T-LATE', commodity: 'maize', title: 'Late lot', buyer_type: 'Mill', tonnage: 10, farmers: 5, target_amount: 1_000_000_00, min_commit: 100_000_00,
-    period_months: 12, rate_bps: 2000, closes_at: addDays(now(), 10), status: 'open', created_at: now() }).id;
+    period_months: 12, periods: '12', rate_bps: 2000, closes_at: addDays(now(), 10), status: 'open', created_at: now() }).id;
   const tr = joinLot(userById(u.id)!, lid, 100_000_00);
   q.run('UPDATE trades SET matures_at=? WHERE id=?', addDays(now(), -1), tr.id);
   eq(delayLotPayouts(lid, addDays(now(), 29), 'Buyer asked for time', 1), 1);
   q.run('UPDATE trades SET matures_at=? WHERE id=?', addDays(now(), -0.5), tr.id);
   q.run('UPDATE trades SET original_matures_at=? WHERE id=?', addDays(now(), -30.5), tr.id);
   const paid = payTrade(tr.id, 1);
-  eq(paid.earnings, 20_000_00 + Math.round(100_000_00 * 2000 * 30 / 3650000));
+  eq(paid.earnings, earningsFor(100_000_00, rateFor(12), 12) + Math.round(100_000_00 * rateFor(12) * 30 / 3650000));
 });
 
 console.log('\nWithdrawals');
@@ -122,7 +146,7 @@ await t('a failed transfer returns the money to the wallet', () => {
 
 console.log('\nHarvest Circles');
 const lot2 = q.insert('lots', { code: 'T-2', commodity: 'maize', title: 'Circle lot', buyer_type: 'Mill', tonnage: 10, farmers: 5, target_amount: 1_000_000_00, min_commit: 100_000_00,
-  period_months: 4, rate_bps: 2000, closes_at: addDays(now(), 30), status: 'open', circles_enabled: 1, created_at: now() }).id;
+  period_months: 4, periods: '4', rate_bps: 2000, closes_at: addDays(now(), 30), status: 'open', circles_enabled: 1, created_at: now() }).id;
 const members = await Promise.all([1, 2, 3, 4, 5].map(async (i) => { const u = mkUser(`m${i}@t.ng`); await fund(u.id, 100_000_00); return u; }));
 await t('slots are reserved, not spent, while the circle fills', () => {
   const ci = createCircle({ lotId: lot2, name: 'Test Circle', slots: 5, slotPrice: 10_000_00, creatorId: null, isPrivate: false, maxSharePct: 40 });
@@ -198,7 +222,7 @@ console.log('\nPayouts, Keep Growing and treasury');
 const { autoPayDue, processRollovers, pickRolloverLot } = await import('../src/lib/trading');
 const { coverage, receivables } = await import('../src/lib/treasury');
 const mkLot = (code: string, o: Record<string, unknown> = {}) => q.insert('lots', { code, commodity: 'soybean', title: `Lot ${code}`, buyer_type: 'Mill', tonnage: 20, farmers: 10, target_amount: 2_000_000_00, min_commit: 100_000_00,
-  period_months: 6, rate_bps: 2000, closes_at: addDays(now(), 20), status: 'open', created_at: now(), ...o }).id;
+  period_months: 6, periods: '6', rate_bps: 2000, closes_at: addDays(now(), 20), status: 'open', created_at: now(), ...o }).id;
 await t('matured trades are credited automatically on the payout date', async () => {
   const u = mkUser('auto@t.ng'); await fund(u.id, 200_000_00);
   const lid = mkLot('AUTO-1');
@@ -206,7 +230,7 @@ await t('matured trades are credited automatically on the payout date', async ()
   q.run('UPDATE trades SET matures_at=? WHERE id=?', addDays(now(), -0.01), tr.id);
   eq(autoPayDue() >= 1, true);
   eq(q.val('SELECT status FROM trades WHERE id=?', tr.id), 'paid');
-  eq(walletBalance(u.id), 200_000_00 + earningsFor(200_000_00, 2000, 6)); eq(trialBalance(), 0);
+  eq(walletBalance(u.id), 200_000_00 + earningsFor(200_000_00, rateFor(6), 6)); eq(trialBalance(), 0);
 });
 await t('Keep Growing re-commits principal + earnings into an open lot of the same commodity', async () => {
   const u = mkUser('grow@t.ng'); await fund(u.id, 300_000_00);
@@ -218,7 +242,7 @@ await t('Keep Growing re-commits principal + earnings into an open lot of the sa
   const target = mkLot('GROW-C');
   eq(processRollovers() >= 1, true);
   const next = q.get<any>('SELECT * FROM trades WHERE user_id=? AND id!=? ORDER BY id DESC', u.id, tr.id)!;
-  eq(next.lot_id, target, 'same commodity first'); eq(next.amount, 300_000_00 + earningsFor(300_000_00, 2000, 6)); eq(walletBalance(u.id), 0); eq(trialBalance(), 0);
+  eq(next.lot_id, target, 'same commodity first'); eq(next.amount, 300_000_00 + earningsFor(300_000_00, rateFor(6), 6)); eq(walletBalance(u.id), 0); eq(trialBalance(), 0);
 });
 await t('Keep Growing with principal only leaves earnings in the wallet', async () => {
   const u = mkUser('grow2@t.ng'); await fund(u.id, 100_000_00);
@@ -226,7 +250,7 @@ await t('Keep Growing with principal only leaves earnings in the wallet', async 
   const tr = joinLot(userById(u.id)!, a, 100_000_00, { rollover: 'principal' });
   q.run('UPDATE trades SET matures_at=? WHERE id=?', addDays(now(), -0.01), tr.id);
   autoPayDue(); processRollovers();
-  eq(walletBalance(u.id), earningsFor(100_000_00, 2000, 6));
+  eq(walletBalance(u.id), earningsFor(100_000_00, rateFor(6), 6));
 });
 await t('rollover lot picker respects the lot minimum', () => {
   eq(pickRolloverLot(50_00), null);

@@ -4,7 +4,7 @@ import { q, now } from './db';
 import { flushOutbox, notify, queueEmail, emailShell, escapeHtml } from './notify';
 import { crawlPrices } from './prices';
 import { expireCircles } from './circles';
-import { closeExpiredLots, markMatured, siteStats, autoPayDue, processRollovers } from './trading';
+import { closeExpiredLots, markMatured, siteStats, autoPayDue, processRollovers, rateFor, lotDefaultPeriod } from './trading';
 import { runPlans } from './plans';
 import { AGENT_JOBS } from './agents';
 import { treasurySnapshot } from './treasury';
@@ -130,10 +130,11 @@ export function notifyWaitlist(lotId: number) {
   const lot = q.get<any>('SELECT l.*, c.name AS cname FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.id=?', lotId);
   if (!lot) return 0;
   let n = 0;
-  for (const w of q.all<any>('SELECT * FROM waitlist WHERE commodity=? AND notified_at IS NULL', lot.commodity)) {
+  const top = rateFor(lotDefaultPeriod(lot)) / 100;
+  for (const w of q.all<any>("SELECT * FROM waitlist WHERE commodity IN (?, 'any') AND notified_at IS NULL", lot.commodity)) {
     const u = w.user_id ? userById(w.user_id) : null;
-    if (u) notify(u, 'waitlist_open', { commodity: lot.cname, lot: lot.title, rate: lot.rate_bps / 100 }, { link: `/lots/${lot.code}`, sms: true });
-    else if (w.email) queueEmail(w.email, `A new ${lot.cname} lot is open`, emailShell(`A new ${escapeHtml(lot.cname)} lot is open`, `<p>${escapeHtml(lot.title)} is open at ${lot.rate_bps / 100}% per annum. Slots are limited.</p>`, { label: 'View the lot', url: `${config.baseUrl}/lots/${lot.code}` }));
+    if (u) notify(u, 'waitlist_open', { commodity: lot.cname, lot: lot.title, rate: top }, { link: `/lots/${lot.code}`, sms: true });
+    else if (w.email) queueEmail(w.email, `A new ${lot.cname} lot is open`, emailShell(`A new ${escapeHtml(lot.cname)} lot is open`, `<p>${escapeHtml(lot.title)} is open, earning up to ${top}% per annum depending on how long you stay. Slots are limited.</p>`, { label: 'View the lot', url: `${config.baseUrl}/lots/${lot.code}` }));
     q.run('UPDATE waitlist SET notified_at=? WHERE id=?', now(), w.id);
     n++;
   }

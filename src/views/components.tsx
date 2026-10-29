@@ -3,7 +3,7 @@ import { useC } from './render';
 import { fmtNGN, earningsFor } from '../lib/util';
 import { fmtDate, fmtNum } from '../lib/i18n';
 import { approx } from '../lib/geo';
-import { lotPct, lotRemaining, STAGES, type Lot } from '../lib/trading';
+import { lotPct, lotRemaining, STAGES, type Lot, lotRates, lotPeriods } from '../lib/trading';
 import { LuCheck, LuMapPin, LuUsers, LuWheat, LuClock, LuFileCheck } from 'react-icons/lu';
 
 export function Logo({ light = true }: { light?: boolean }) {
@@ -84,8 +84,8 @@ export function LotCard({ lot, href }: { lot: Lot; href?: string }) {
       </div>
       <h3><a href={href || `/lots/${lot.code}`}>{lot.title}</a></h3>
       <dl className="lot-terms">
-        <div><dt>{c.t('lot.term_rate')}</dt><dd>{c.t('lot.rate', { rate: lot.rate_bps / 100 })}</dd></div>
-        <div><dt>{c.t('lot.term_period')}</dt><dd>{c.t('lot.period', { n: lot.period_months })}</dd></div>
+        <div><dt>{c.t('lot.term_rate')}</dt><dd>{rateRange(c, lot)}</dd></div>
+        <div><dt>{c.t('lot.term_period')}</dt><dd>{periodRange(c, lot)}</dd></div>
         <div><dt>{c.t('lot.term_min')}</dt><dd><Money kobo={lot.min_commit} /></dd></div>
       </dl>
       <p className="lot-meta"><span><LuUsers aria-hidden /> {lot.buyer_type}</span><span><LuMapPin aria-hidden /> {lot.region}</span></p>
@@ -97,15 +97,25 @@ export function LotCard({ lot, href }: { lot: Lot; href?: string }) {
   );
 }
 
+/** "20%–30% p.a." (or a single rate when the lot offers one period). */
+export function rateRange(c: ReturnType<typeof useC>, lot: Lot) {
+  const r = lotRates(lot);
+  return r.length > 1 ? c.t('lot.rate_range', { low: r[0].rateBps / 100, high: r[r.length - 1].rateBps / 100 }) : c.t('lot.rate', { rate: r[0].rateBps / 100 });
+}
+export function periodRange(c: ReturnType<typeof useC>, lot: Lot) {
+  const p = lotPeriods(lot);
+  return p.length > 1 ? c.t('lot.period_range', { a: p[0], b: p[p.length - 1] }) : c.t('lot.period', { n: p[0] });
+}
+
 export function LotTerms({ lot }: { lot: Lot }) {
   const c = useC();
-  const ex = Math.max(lot.min_commit, 100000000);
+  const ex = Math.max(lot.min_commit, 25000000);
+  const rates = lotRates(lot);
   return (
     <div className="card">
       <h3>{c.t('lot.terms')}</h3>
       <dl className="kv">
-        <dt>{c.t('lot.term_rate')}</dt><dd>{c.t('lot.rate', { rate: lot.rate_bps / 100 })}</dd>
-        <dt>{c.t('lot.term_period')}</dt><dd>{c.t('lot.period', { n: lot.period_months })}</dd>
+        <dt>{c.t('lot.term_rate')}</dt><dd>{rateRange(c, lot)}<br /><span className="muted small">{c.t('lot.rates_note')}</span></dd>
         <dt>{c.t('lot.term_min')}</dt><dd><Money kobo={lot.min_commit} /></dd>
         <dt>{c.t('lot.size')}</dt><dd><Money kobo={lot.target_amount} /> · {c.t('lot.tonnage', { t: fmtNum(c.lang, lot.tonnage, 1) })}</dd>
         <dt>{c.t('lot.buyer')}</dt><dd>{lot.buyer_type}</dd>
@@ -113,7 +123,10 @@ export function LotTerms({ lot }: { lot: Lot }) {
         <dt>{c.t('lot.term_payout')}</dt><dd>{c.t('lot.term_payout_v')}</dd>
       </dl>
       {lot.contract_ref && <p className="ok-line"><LuFileCheck aria-hidden /> {c.t('lot.contract')}</p>}
-      <p className="muted small">{c.t('lot.earn_on', { earn: fmtNGN(earningsFor(ex, lot.rate_bps, lot.period_months)), amount: fmtNGN(ex) })}</p>
+      <div className="table-wrap"><table className="table rate-table">
+        <thead><tr><th>{c.t('lot.term_period')}</th><th>{c.t('lot.term_rate')}</th><th className="num">{c.t('lot.earn_col', { amount: fmtNGN(ex) })}</th></tr></thead>
+        <tbody>{rates.map((r) => <tr key={r.months}><td>{c.t('lot.period', { n: r.months })}</td><td>{c.t('lot.rate', { rate: r.rateBps / 100 })}</td><td className="num" dir="ltr">{fmtNGN(earningsFor(ex, r.rateBps, r.months))}</td></tr>)}</tbody>
+      </table></div>
     </div>
   );
 }

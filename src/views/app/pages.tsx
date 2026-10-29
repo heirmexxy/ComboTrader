@@ -2,10 +2,10 @@ import type { ReactNode } from 'react';
 import { useC } from '../render';
 import { AppLayout } from '../layout';
 import { Csrf, Money, LotCard, LotTerms, Trail, Tag, toneFor, Field, Select, Check, Empty, Progress } from '../components';
-import { CircleCard } from '../public/pages';
+import { CircleCard, WaitlistForm } from '../public/pages';
 import { fmtDate, fmtNum, LANGS } from '../../lib/i18n';
 import { fmtNGN, earningsFor } from '../../lib/util';
-import { RANKS, lotRemaining, lateEarnings, type Lot, type Trade } from '../../lib/trading';
+import { RANKS, lotRemaining, lateEarnings, lotRates, lotDefaultPeriod, rateFor, type Lot, type Trade } from '../../lib/trading';
 import type { Circle } from '../../lib/circles';
 import { config } from '../../lib/config';
 import { settings } from '../../lib/settings';
@@ -55,7 +55,7 @@ export function AppHome({ d }: { d: HomeData }) {
         </Card>
       </div>
       <h2 className="section-title">{c.t('app.open_lots')}</h2>
-      {d.lots.length ? <div className="grid-3">{d.lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <Empty>{c.t('lot.none')}</Empty>}
+      {d.lots.length ? <div className="grid-3">{d.lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <><Empty>{c.t('lot.none')}</Empty><WaitlistForm /></>}
       <h2 className="section-title">{c.t('app.recent')}</h2>
       <Card>{d.recent.length ? <ul className="list">{d.recent.map((n, i) => <li key={i}><div><strong>{n.title}</strong><p className="muted small">{n.body}</p></div><span className="muted small">{fmtDate(c.lang, n.created_at)}</span></li>)}</ul> : <p className="muted">{c.t('app.none')}</p>}</Card>
     </AppLayout>
@@ -68,7 +68,7 @@ export function AppLots({ lots }: { lots: Lot[] }) {
     <AppLayout title={c.t('app.nav.lots')}>
       <div className="page-title"><h1>{c.t('lots.title')}</h1></div>
       <p className="lead-dark">{c.t('lots.intro')}</p>
-      {lots.length ? <div className="grid-3">{lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <Empty>{c.t('lot.none')} <a href="/lots">{c.t('lot.waitlist_btn')}</a></Empty>}
+      {lots.length ? <div className="grid-3">{lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <><Empty>{c.t('lot.none')}</Empty><WaitlistForm /></>}
     </AppLayout>
   );
 }
@@ -85,10 +85,22 @@ export function JoinLot({ lot, wallet, trail, error }: { lot: Lot; wallet: numbe
       <div className="grid-2 top">
         <Card>
           {open ? (
-            <form method="post" action={`/app/lots/${lot.id}/join`} data-join data-rate={lot.rate_bps} data-months={lot.period_months}>
+            <form method="post" action={`/app/lots/${lot.id}/join`} data-join>
               <Csrf />
               <Field label={c.t('lots.amount')} name="amount" required inputMode="numeric" value={(def / 100).toLocaleString('en')} dir="ltr" hint={`${c.t('lot.min', { amount: fmtNGN(lot.min_commit) })} · ${c.t('lot.left', { amount: fmtNGN(rem) })}`} />
-              <p className="calc-inline">{c.t('calc.earn')}: <b data-join-earn dir="ltr">{fmtNGN(earningsFor(def, lot.rate_bps, lot.period_months))}</b> · {c.t('lot.matures', { date: fmtDate(c.lang, new Date(Date.now() + lot.period_months * 30.44 * 864e5).toISOString()) })}</p>
+              <fieldset className="field">
+                <legend>{c.t('lots.choose_period')}</legend>
+                <div className="period-options">
+                  {lotRates(lot).map((r) => (
+                    <label key={r.months} className="period-opt">
+                      <input type="radio" name="months" value={r.months} data-rate={r.rateBps} defaultChecked={r.months === lotDefaultPeriod(lot)} required />
+                      <span><b>{c.t('lot.period', { n: r.months })}</b><span className="muted small">{c.t('lot.rate', { rate: r.rateBps / 100 })}</span></span>
+                    </label>
+                  ))}
+                </div>
+                <p className="hint">{c.t('lot.rates_note')}</p>
+              </fieldset>
+              <p className="calc-inline">{c.t('calc.earn')}: <b data-join-earn dir="ltr">{fmtNGN(earningsFor(def, lotRates(lot).slice(-1)[0].rateBps, lotDefaultPeriod(lot)))}</b> · <span data-join-date data-tpl={c.t('lot.matures', { date: '{date}' })}>{c.t('lot.matures', { date: fmtDate(c.lang, new Date(Date.now() + lotDefaultPeriod(lot) * 30.44 * 864e5).toISOString()) })}</span></p>
               <p className="muted">{c.t('lots.from_wallet', { amount: fmtNGN(wallet) })} {wallet < def && <a href="/app/wallet#fund">{c.t('app.fund_cta')}</a>}</p>
               <Select label={c.t('roll.at_maturity')} name="rollover" value={(c.user as any).rollover_default || 'off'} options={['off', 'principal', 'all'].map((v) => ({ value: v, label: c.t(`roll.${v}`) }))} />
               <Check name="agree" required label={<>{c.t('lots.agree_terms')} <a href="/legal/risk" target="_blank">{c.t('footer.risk')}</a></>} />
@@ -140,7 +152,7 @@ export function TradeDetail({ t, trail, tons, farmers }: { t: TradeRow & { buyer
       {(t as any).original_matures_at && t.status !== 'paid' && <div className="flash flash-info">{c.t('trades.delayed', { from: fmtDate(c.lang, (t as any).original_matures_at), to: fmtDate(c.lang, t.matures_at), reason: (t as any).delay_reason || '' })}</div>}
       <div className="kpis">
         <Kpi label={c.t('trades.amount')}><Money kobo={t.amount} approxFor /></Kpi>
-        <Kpi label={c.t('trades.earn')}><Money kobo={earn} /></Kpi>
+        <Kpi label={c.t('trades.earn')}><Money kobo={earn} /><span className="muted small" style={{ display: 'block' }}>{c.t('lot.period', { n: t.period_months })} · {c.t('lot.rate', { rate: t.rate_bps / 100 })}</span></Kpi>
         <Kpi label={c.t('trades.started')}>{fmtDate(c.lang, t.start_at)}</Kpi>
         <Kpi label={c.t('trades.matures')}>{fmtDate(c.lang, t.matures_at)}</Kpi>
       </div>
@@ -184,7 +196,7 @@ export function AppCircles({ mine, open, lots }: { mine: (Circle & { my_slots: n
           <form method="post" action="/app/circles" className="form-grid">
             <Csrf />
             <Field label={c.t('circles.name')} name="name" required maxLength={60} placeholder="Family Harvest Circle" />
-            <Select label={c.t('nav.lots')} name="lot_id" options={lots.map((l) => ({ value: String(l.id), label: `${l.title} · ${l.rate_bps / 100}%` }))} />
+            <Select label={c.t('nav.lots')} name="lot_id" options={lots.map((l) => ({ value: String(l.id), label: `${l.title} · ${rateFor(lotDefaultPeriod(l)) / 100}% · ${lotDefaultPeriod(l)} ${c.t('plan.months_short')}` }))} />
             <Select label={c.t('circles.how_many')} name="slots" value="25" options={[10, 20, 25, 50].map((n) => ({ value: String(n), label: String(n) }))} />
             <Select label={c.t('circles.slot_price', { amount: '' }).trim()} name="slot_price" value="10000" options={[5000, 10000, 20000, 50000].map((n) => ({ value: String(n), label: fmtNGN(n * 100) }))} />
             <button className="btn btn-primary" type="submit">{c.t('circles.create')}</button>
@@ -207,7 +219,7 @@ export function CircleDetail({ ci, mySlots, wallet }: { ci: Circle; mySlots: num
         <Card>
           <Progress pct={Math.round(((ci.taken || 0) / ci.slots) * 100)} />
           <p className="lot-fill"><span>{c.t('circles.slots', { taken: ci.taken || 0, total: ci.slots })}</span><span>{c.t('circles.slot_price', { amount: fmtNGN(ci.slot_price) })}</span></p>
-          <p className="muted">{c.t('circles.deadline', { date: fmtDate(c.lang, ci.deadline) })} · {c.t('lot.rate', { rate: (ci.rate_bps || 0) / 100 })} · {c.t('lot.period', { n: ci.period_months || 0 })}</p>
+          <p className="muted">{c.t('circles.deadline', { date: fmtDate(c.lang, ci.deadline) })} · {c.t('lot.rate', { rate: rateFor(ci.period_months || 12) / 100 })} · {c.t('lot.period', { n: ci.period_months || 0 })}</p>
           {mySlots > 0 && <p className="ok-line"><LuCheck aria-hidden /> {c.t('circles.your_slots', { n: mySlots })}</p>}
           {canTake && (
             <form method="post" action={`/app/circles/${ci.id}/take`}>
@@ -247,8 +259,8 @@ export function AppWallet({ d }: { d: WalletData }) {
         <Card title={c.t('wallet.fund')}>
           <form method="post" action="/app/wallet/fund" id="fund">
             <Csrf />
-            <Field label={c.t('wallet.amount')} name="amount" required inputMode="numeric" value="1,000,000" dir="ltr" />
-            <p className="muted small">{c.t('wallet.fund_note')}{s.pass_card_fees && ` ${c.t('wallet.fee_note', { fee: fmtNGN(estimateFee(100000000)) })}`}</p>
+            <Field label={c.t('wallet.amount')} name="amount" required inputMode="numeric" value="250,000" dir="ltr" />
+            <p className="muted small">{c.t('wallet.fund_note')}{s.pass_card_fees && ` ${c.t('wallet.fee_note', { fee: fmtNGN(estimateFee(25000000)) })}`}</p>
             <button className="btn btn-primary btn-block" type="submit">{c.t('wallet.fund_btn')}</button>
           </form>
         </Card>

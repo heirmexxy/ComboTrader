@@ -6,7 +6,7 @@ import { q, now } from './db';
 import { config } from './config';
 import { settings } from './settings';
 import { walletBalance, reservedBalance } from './ledger';
-import { openLots, lotRemaining, stageLabel } from './trading';
+import { openLots, lotRemaining, stageLabel, lotPeriods, rateFor } from './trading';
 import { userPlans } from './plans';
 import { supportAnswer } from './agents';
 import { translate, isLang, detectLang, type Lang } from './i18n';
@@ -90,7 +90,7 @@ export async function handleInbound(from: string, text: string, waId?: string | 
     case 'lots': {
       const lots = openLots(4);
       if (!lots.length) return t('wa.no_lots', { url: `${config.baseUrl}/lots` });
-      return `${t('wa.lots_head')}\n${lots.map((l) => `• ${l.title}: ${l.period_months} mo · ${l.rate_bps / 100}% p.a. · ${t('wa.left', { amount: fmtNGN(lotRemaining(l)) })}\n  ${config.baseUrl}/lots/${l.code}`).join('\n')}\n${t('wa.join_web')}`;
+      return `${t('wa.lots_head')}\n${lots.map((l) => `• ${l.title}: ${lotPeriods(l).join('/')} mo · ${rateFor(lotPeriods(l)[0]) / 100}–${rateFor(lotPeriods(l).slice(-1)[0]) / 100}% p.a. · ${t('wa.left', { amount: fmtNGN(lotRemaining(l)) })}\n  ${config.baseUrl}/lots/${l.code}`).join('\n')}\n${t('wa.join_web')}`;
     }
     case 'plan': {
       const p = userPlans(u.id).find((x) => ['active', 'paused', 'ready'].includes(x.status));

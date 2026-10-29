@@ -78,15 +78,15 @@ get('/lang/:code', 'public', (c) => {
 // Waitlist for the next lot of a commodity.
 post('/waitlist', 'public', (c) => {
   const commodity = c.str('commodity', 40);
-  if (!q.get('SELECT 1 FROM commodities WHERE code=?', commodity)) return c.back('/lots');
+  if (commodity !== 'any' && !q.get('SELECT 1 FROM commodities WHERE code=?', commodity)) return c.back('/lots');
   const email = c.user ? null : c.str('email', 200).toLowerCase();
   if (!c.user && !isEmail(email || '')) return c.back('/lots', ['error', c.t('auth.bad_email')]);
   const exists = c.user
     ? q.get('SELECT 1 FROM waitlist WHERE user_id=? AND commodity=? AND notified_at IS NULL', c.user.id, commodity)
     : q.get('SELECT 1 FROM waitlist WHERE email=? AND commodity=? AND notified_at IS NULL', email, commodity);
   if (!exists) q.insert('waitlist', { user_id: c.user?.id ?? null, email, commodity, created_at: now() });
-  const name = q.val<string>('SELECT name FROM commodities WHERE code=?', commodity) || commodity;
-  c.back('/lots', ['ok', c.t('lot.waitlist_ok', { commodity: name })]);
+  const name = commodity === 'any' ? c.t('lot.any_commodity').toLowerCase() : q.val<string>('SELECT name FROM commodities WHERE code=?', commodity) || commodity;
+  c.back('/lots', ['ok', commodity === 'any' ? c.t('lot.waitlist_ok_any') : c.t('lot.waitlist_ok', { commodity: name })]);
 });
 
 // ---------- Chronicles ----------

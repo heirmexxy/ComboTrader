@@ -18,11 +18,18 @@ export const DEFAULTS = {
   baseline_tons: 5000,
   baseline_payouts: 5000000000, // ₦50M
   baseline_farmers: 25000,
+  figures_mode: 'add' as 'add' | 'exact', // add: number typed + live platform activity; exact: show exactly the number typed
   rank_thresholds: '1,5,20', // tons for Sprout, Harvester, Granary Keeper
   support_phone: '+234 000 000 0000',
   support_email: 'hello@combotrader.com.ng',
   support_whatsapp: '',
   maintenance_banner: '',
+  // Earnings rate by how long a Champion stays (% per annum). The longer you stay, the more you earn.
+  rate_4: 20,
+  rate_6: 22.5,
+  rate_9: 26.25,
+  rate_12: 30,
+  min_commit_default: 25000000, // ₦250,000 — default minimum for new lots
   // Payouts and treasury (Kitovu pays Champions on time from its own balance sheet)
   auto_payouts: true, // credit matured trades automatically on the payout date
   coverage_warn_ratio: 1.2, // warn when (cash + credit line + buyer money due) / payouts due falls below this

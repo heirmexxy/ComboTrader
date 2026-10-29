@@ -11,7 +11,7 @@ import { notify, queueEmail, emailShell, escapeHtml } from './notify';
 import { audit } from './audit';
 import { userById } from './auth';
 import { walletBalance } from './ledger';
-import { addTrailEvent, getLot, STAGES, siteStats, impactFor } from './trading';
+import { addTrailEvent, getLot, STAGES, siteStats, impactFor, rateFor, lotPeriods } from './trading';
 import { treasurySnapshot } from './treasury';
 import { faqsFor } from './content';
 import { config } from './config';
@@ -66,14 +66,14 @@ const EXECUTORS: Record<string, (p: any, by: number | null) => string> = {
   /** Creates a lot as a DRAFT (never opens it). */
   draft_lot(p, by) {
     if (!q.get('SELECT 1 FROM commodities WHERE code=?', p.commodity)) throw new Error('Unknown commodity');
-    const target = Math.round(Number(p.target_naira) * 100), min = Math.round(Number(p.min_naira || 1_000_000) * 100);
+    const target = Math.round(Number(p.target_naira) * 100), min = Math.round(Number(p.min_naira || settings().min_commit_default / 100) * 100);
     if (!(target > 0) || !(min > 0) || min > target) throw new Error('Check the lot size and minimum');
     const code = `${String(p.commodity).slice(0, 2).toUpperCase()}-${randomCode(4)}`;
     const id = q.insert('lots', {
       code, commodity: p.commodity, title: String(p.title).slice(0, 120), description: String(p.description || '').slice(0, 1000), region: String(p.region || '').slice(0, 80),
       buyer_type: String(p.buyer_type || 'Buyer').slice(0, 80), buyer_name: String(p.buyer_name || '').slice(0, 120) || null, contract_ref: String(p.contract_ref || '').slice(0, 80) || null,
       tonnage: Number(p.tonnage) || 0, farmers: Math.round(Number(p.farmers) || 0), target_amount: target, min_commit: min,
-      period_months: [4, 6, 9, 12].includes(Number(p.period_months)) ? Number(p.period_months) : 6, rate_bps: Math.round((Number(p.rate_pct) || 20) * 100),
+      periods: '4,6,9,12', period_months: 12, rate_bps: rateFor(12),
       closes_at: new Date(Date.now() + 21 * 864e5).toISOString(), status: 'draft', buyer_amount: p.buyer_amount_naira ? Math.round(Number(p.buyer_amount_naira) * 100) : null,
       buyer_due_at: p.buyer_due ? new Date(`${p.buyer_due}T12:00:00Z`).toISOString() : null, created_by: by, created_at: now(),
     }).id;
@@ -310,7 +310,7 @@ export async function runGrowth() {
   const since = new Date(Date.now() - 7 * 864e5).toISOString();
   const stats = siteStats();
   const facts = {
-    open_lots: q.all<any>("SELECT l.title, l.code, l.period_months, l.rate_bps, l.closes_at, c.name AS commodity FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' ORDER BY l.closes_at LIMIT 5").map((l) => ({ ...l, rate_pct: l.rate_bps / 100, link: `${config.baseUrl}/lots/${l.code}` })),
+    open_lots: q.all<any>("SELECT l.title, l.code, l.periods, l.period_months, l.closes_at, c.name AS commodity FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' ORDER BY l.closes_at LIMIT 5").map((l) => { const p = lotPeriods(l); return { title: l.title, code: l.code, commodity: l.commodity, closes_at: l.closes_at, periods: `${p[0]} to ${p[p.length - 1]} months`, rates: `${rateFor(p[0]) / 100}% to ${rateFor(p[p.length - 1]) / 100}% per annum (longer stays earn more)`, link: `${config.baseUrl}/lots/${l.code}` }; }),
     trail_updates_this_week: q.all<any>("SELECT l.title, e.stage, e.note FROM trail_events e JOIN lots l ON l.id=e.lot_id WHERE e.created_at>=? ORDER BY e.id DESC LIMIT 8", since),
     payouts_this_week: Number(q.val("SELECT COUNT(*) FROM trades WHERE status='paid' AND paid_at>=?", since)),
     prices: q.all<any>("SELECT c.name, p.price_per_kg, p.market FROM prices p JOIN commodities c ON c.code=p.commodity WHERE p.status='published' AND p.id IN (SELECT MAX(id) FROM prices WHERE status='published' GROUP BY commodity) LIMIT 8").map((p) => ({ commodity: p.name, naira_per_kg: Math.round(p.price_per_kg / 100), market: p.market })),
@@ -326,12 +326,12 @@ export async function runGrowth() {
   }
   if (!out) {
     runId = logRun('growth', 'weekly', JSON.stringify(facts), 'template', 'demo');
-    const lots = facts.open_lots.map((l) => `- **${l.title}** — ${l.commodity}, ${l.period_months} months at ${l.rate_pct}% per annum. [View the lot](${l.link})`).join('\n') || '- New lots open soon. Join the waitlist on the Lots page.';
+    const lots = facts.open_lots.map((l) => `- **${l.title}** — ${l.commodity}, ${l.periods} at ${l.rates}. [View the lot](${l.link})`).join('\n') || '- New lots open soon. Join the waitlist on the Lots page.';
     const trail = facts.trail_updates_this_week[0];
     out = {
       subject: `This week on the Harvest Trail`,
       body: `## From the field\n${trail ? `${trail.title}: ${String(trail.note || trail.stage).replace(/\.+$/, '')}.` : 'Our field teams are sourcing for the next lots.'}\n\n## Open Trade Lots\n${lots}\n\n## Prices this week\n${facts.prices.map((p) => `- ${p.commodity}: ₦${p.naira_per_kg.toLocaleString('en')}/kg${p.market ? ` (${p.market})` : ''}`).join('\n') || '- See the Prices page.'}\n\n${facts.payouts_this_week ? `${facts.payouts_this_week} Champions were paid this week.` : ''}\n\nTrades are not bank deposits. Read the [risk statement](${config.baseUrl}/legal/risk) before you commit.`,
-      posts: facts.open_lots.slice(0, 3).map((l) => `${l.commodity} Trade Lot now open on ComboTrader: ${l.period_months} months, ${l.rate_pct}% p.a., real buyer on file, every step on the Harvest Trail. ${l.link}`),
+      posts: facts.open_lots.slice(0, 3).map((l) => `${l.commodity} Trade Lot now open on ComboTrader: ${l.periods}, ${l.rates}. Real buyer on file, every step on the Harvest Trail. ${l.link}`),
     };
   }
   propose({ agent: 'growth', kind: 'draft_newsletter', risk: 'low', title: `Newsletter draft: ${out.subject}`, summary: out.body.slice(0, 600), payload: { subject: out.subject, body: out.body }, runId });

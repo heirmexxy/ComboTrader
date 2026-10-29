@@ -105,14 +105,18 @@ function getConsentEarly() { return /(?:^|; )ct_consent=(all|essential)/.test(do
 function parseAmount(s: string) { return Math.round(Number(String(s).replace(/[^\d.]/g, '')) * 100) || 0; }
 function earnings(kobo: number, bps: number, months: number) { return Math.round((kobo * bps * months) / 120000); }
 $$('[data-calc]').forEach((root) => {
-  const bps = Number(root.dataset.rate || 2000);
+  // data-rates = {"4":2000,"6":2250,...} (basis points by months); falls back to one rate
+  let rates: Record<string, number> = {};
+  try { rates = JSON.parse(root.dataset.rates || '{}'); } catch {}
+  const rateOf = (m: number) => Number(rates[String(m)] || root.dataset.rate || 2000);
   const amt = $<HTMLInputElement>('[data-calc-amount]', root)!;
   const tpl = (document.getElementById('calc-by-tpl') as HTMLTemplateElement | null)?.innerHTML || '{date}';
   const update = () => {
     const k = parseAmount(amt.value);
     const m = Number(($<HTMLInputElement>('[data-calc-period]:checked', root) || { value: '12' }).value);
-    const e = earnings(k, bps, m);
+    const e = earnings(k, rateOf(m), m);
     $('[data-calc-earn]', root)!.textContent = fmt(e);
+    const rateEl = $('[data-calc-rate]', root); if (rateEl) rateEl.textContent = String(rateOf(m) / 100);
     $('[data-calc-total]', root)!.textContent = fmt(k + e);
     const d = new Date(); d.setMonth(d.getMonth() + m);
     $('[data-calc-by]', root)!.textContent = tpl.replace('{date}', d.toLocaleDateString(document.documentElement.lang, { day: 'numeric', month: 'short', year: 'numeric' }));
@@ -122,9 +126,16 @@ $$('[data-calc]').forEach((root) => {
   $$('[data-calc-period]', root).forEach((r) => r.addEventListener('change', update));
 });
 $$<HTMLFormElement>('[data-join]').forEach((f) => {
-  const bps = Number(f.dataset.rate), m = Number(f.dataset.months);
   const inp = $<HTMLInputElement>('input[name=amount]', f)!;
-  inp.addEventListener('input', () => { $('[data-join-earn]', f)!.textContent = fmt(earnings(parseAmount(inp.value), bps, m)); });
+  const update = () => {
+    const sel = $<HTMLInputElement>('input[name=months]:checked', f);
+    const m = Number(sel?.value || f.dataset.months || 12), bps = Number(sel?.dataset.rate || f.dataset.rate || 2000);
+    $('[data-join-earn]', f)!.textContent = fmt(earnings(parseAmount(inp.value), bps, m));
+    const dEl = $('[data-join-date]', f);
+    if (dEl) { const d = new Date(); d.setMonth(d.getMonth() + m); dEl.textContent = String(dEl.dataset.tpl || '{date}').replace('{date}', d.toLocaleDateString(document.documentElement.lang, { day: 'numeric', month: 'short', year: 'numeric' })); }
+  };
+  inp.addEventListener('input', update);
+  $$('input[name=months]', f).forEach((r) => r.addEventListener('change', update));
 });
 // Thousands separators while typing amounts
 $$<HTMLInputElement>('input[name=amount][inputmode=numeric]').forEach((i) => i.addEventListener('blur', () => { const k = parseAmount(i.value); if (k) i.value = (k / 100).toLocaleString('en'); }));

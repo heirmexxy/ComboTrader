@@ -23,7 +23,7 @@ export interface Receivable {
 /** One row per lot that has (or should have) a buyer receivable. */
 export function receivables(): Receivable[] {
   const lots = q.all<any>(`SELECT l.*, (SELECT COALESCE(SUM(amount),0) FROM buyer_payments WHERE lot_id=l.id) AS received,
-      (SELECT COALESCE(SUM(amount),0) FROM trades WHERE lot_id=l.id AND status IN ('active','matured')) AS owed_principal,
+      (SELECT COALESCE(SUM(amount + amount * rate_bps * period_months / 120000),0) FROM trades WHERE lot_id=l.id AND status IN ('active','matured')) AS owed_total,
       (SELECT MIN(matures_at) FROM trades WHERE lot_id=l.id AND status IN ('active','matured')) AS champions_due_at
     FROM lots l WHERE l.status IN ('open','filled','active') OR (l.buyer_amount IS NOT NULL AND l.buyer_amount > (SELECT COALESCE(SUM(amount),0) FROM buyer_payments WHERE lot_id=l.id))
     ORDER BY COALESCE(l.buyer_due_at, l.closes_at)`);
@@ -31,7 +31,7 @@ export function receivables(): Receivable[] {
   return lots.map((l) => {
     const outstanding = Math.max(0, (l.buyer_amount || 0) - l.received);
     const overdue = !!(l.buyer_due_at && l.buyer_due_at < t && outstanding > 0);
-    const owed = l.owed_principal + earningsFor(l.owed_principal, l.rate_bps, l.period_months);
+    const owed = Math.round(l.owed_total);
     return {
       id: l.id, code: l.code, title: l.title, buyer_name: l.buyer_name, buyer_type: l.buyer_type, status: l.status,
       buyer_amount: l.buyer_amount, buyer_due_at: l.buyer_due_at, received: l.received, outstanding, overdue,

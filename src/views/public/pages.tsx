@@ -1,9 +1,11 @@
 import { useC } from '../render';
 import { PublicLayout } from '../layout';
-import { Csrf, LotCard, LotTerms, Money, Trail, Sparkline, Empty, Field, Tag, Progress } from '../components';
+import { Csrf, LotCard, LotTerms, Money, Trail, Sparkline, Empty, Field, Tag, Progress, rateRange, periodRange } from '../components';
 import { fmtNGN, earningsFor, addMonths, plusFormat } from '../../lib/util';
 import { fmtDate, fmtNum } from '../../lib/i18n';
-import { lotPct, lotRemaining, type Lot } from '../../lib/trading';
+import { lotPct, lotRemaining, PERIODS, rateFor, type Lot } from '../../lib/trading';
+import { q } from '../../lib/db';
+import { countryName } from '../../lib/geo';
 import type { Circle } from '../../lib/circles';
 import type { PriceRow } from '../../lib/prices';
 import { settings } from '../../lib/settings';
@@ -29,13 +31,14 @@ export function StatsBand({ s }: { s: Stats }) {
   );
 }
 
-export function Calculator({ rateBps = 2000, minKobo = 100000000 }: { rateBps?: number; minKobo?: number }) {
+export function Calculator(_: { rateBps?: number; minKobo?: number } = {}) {
   const c = useC();
-  const amount = Math.max(minKobo, 100000000);
+  const amount = Math.max(settings().min_commit_default, 25000000);
   const months = 12;
-  const earn = earningsFor(amount, rateBps, months);
+  const rates = Object.fromEntries(PERIODS.map((m) => [m, rateFor(m)]));
+  const earn = earningsFor(amount, rates[months], months);
   return (
-    <section className="calc card" data-calc data-rate={rateBps} aria-labelledby="calc-h">
+    <section className="calc card" data-calc data-rates={JSON.stringify(rates)} aria-labelledby="calc-h">
       <h2 id="calc-h">{c.t('calc.h')}</h2>
       <div className="calc-grid">
         <div>
@@ -47,7 +50,7 @@ export function Calculator({ rateBps = 2000, minKobo = 100000000 }: { rateBps?: 
             <legend>{c.t('calc.period')}</legend>
             <div className="seg">
               {[4, 6, 9, 12].map((m) => (
-                <label key={m}><input type="radio" name="calc-period" value={m} defaultChecked={m === months} data-calc-period /><span>{c.t('calc.months', { n: m })}</span></label>
+                <label key={m}><input type="radio" name="calc-period" value={m} defaultChecked={m === months} data-calc-period /><span>{c.t('calc.months', { n: m })}<small className="seg-rate">{rates[m] / 100}%</small></span></label>
               ))}
             </div>
           </fieldset>
@@ -59,7 +62,7 @@ export function Calculator({ rateBps = 2000, minKobo = 100000000 }: { rateBps?: 
           <a className="btn btn-primary" href="/signup">{c.t('calc.cta')}</a>
         </div>
       </div>
-      <p className="muted small">{c.t('calc.note', { rate: rateBps / 100 })}</p>
+      <p className="muted small">{c.t('calc.note', { r4: rates[4] / 100, r6: rates[6] / 100, r9: rates[9] / 100, r12: rates[12] / 100 })}</p>
       <template id="calc-by-tpl">{c.t('calc.by', { date: '{date}' })}</template>
     </section>
   );
@@ -69,7 +72,7 @@ const STEP_ICONS = [LuBanknote, LuHandshake, LuSprout];
 
 export function HowSteps() {
   const c = useC();
-  const s = { min: fmtNGN(100000000), rate: 20 };
+  const s = { min: fmtNGN(settings().min_commit_default), low: rateFor(4) / 100, high: rateFor(12) / 100 };
   return (
     <ol className="steps">
       {[1, 2, 3].map((i) => {
@@ -84,13 +87,13 @@ export function Home({ stats, lots, circles, rateBps, heroDone = [] }: { stats: 
   const c = useC();
   const st = settings();
   return (
-    <PublicLayout title="" description={c.t('home.sub', { rate: rateBps / 100 })}>
+    <PublicLayout title="" description={c.t('home.sub', { low: rateFor(4) / 100, high: rateFor(12) / 100 })}>
       <section className="hero">
         <div className="container hero-grid">
           <div>
             <p className="eyebrow">{c.t('home.eyebrow')}</p>
             <h1>{c.t('home.h1')}</h1>
-            <p className="lead">{c.t('home.sub', { rate: rateBps / 100 })}</p>
+            <p className="lead">{c.t('home.sub', { low: rateFor(4) / 100, high: rateFor(12) / 100 })}</p>
             <div className="cta-row">
               <a className="btn btn-primary btn-lg" href="/signup">{c.t('home.cta_primary')}</a>
               <a className="btn btn-outline-light btn-lg" href="/how-it-works">{c.t('home.cta_secondary')}</a>
@@ -124,7 +127,7 @@ export function Home({ stats, lots, circles, rateBps, heroDone = [] }: { stats: 
             <h2>{c.t('home.guide_h')}</h2>
             <p className="big">{c.t('home.guide_p')}</p>
             <ul className="checks">
-              {[1, 2, 3].map((i) => <li key={i}><LuCheck aria-hidden /> {c.t(`home.guide_${i}`)}</li>)}
+              {[1, 3].map((i) => <li key={i}><LuCheck aria-hidden /> {c.t(`home.guide_${i}`)}</li>)}
             </ul>
             <a href="/why-kitovu" className="arrow-link">{c.t('nav.why')} <LuArrowRight aria-hidden /></a>
           </div>
@@ -171,7 +174,7 @@ export function Home({ stats, lots, circles, rateBps, heroDone = [] }: { stats: 
       <section className="section alt" id="lots">
         <div className="container">
           <div className="section-head"><div><h2>{c.t('home.lots_h')}</h2><p>{c.t('home.lots_p')}</p></div><a href="/lots" className="arrow-link">{c.t('home.lots_all')} <LuArrowRight aria-hidden /></a></div>
-          {lots.length ? <div className="grid-3">{lots.slice(0, 3).map((l) => <LotCard key={l.id} lot={l} />)}</div> : <Empty>{c.t('lot.none')}</Empty>}
+          {lots.length ? <div className="grid-3">{lots.slice(0, 3).map((l) => <LotCard key={l.id} lot={l} />)}</div> : <><Empty>{c.t('lot.none')}</Empty><WaitlistForm /></>}
         </div>
       </section>
 
@@ -199,7 +202,7 @@ export function Home({ stats, lots, circles, rateBps, heroDone = [] }: { stats: 
       <section className="section reach">
         <div className="container two-col">
           <div><h2>{c.t('home.reach_h')}</h2><p className="big">{c.t('home.reach_p')}</p></div>
-          <ul className="countries">{['🇳🇬 Nigeria', '🇧🇯 Bénin', '🇷🇼 Rwanda'].map((x) => <li key={x}>{x}</li>)}</ul>
+          <ul className="countries">{[['🇳🇬', 'NG'], ['🇧🇯', 'BJ'], ['🇷🇼', 'RW']].map(([f, cc]) => <li key={cc}>{f} {countryName(cc, c.lang)}</li>)}</ul>
         </div>
       </section>
 
@@ -251,14 +254,16 @@ export function LotsPage({ lots, commodities }: { lots: Lot[]; commodities: { co
   );
 }
 
-export function WaitlistForm({ commodities, commodity }: { commodities: { code: string; name: string }[]; commodity?: string }) {
+export function WaitlistForm({ commodities, commodity }: { commodities?: { code: string; name: string }[]; commodity?: string }) {
   const c = useC();
+  const list = commodities || q.all<{ code: string; name: string }>('SELECT code, name FROM commodities WHERE active=1 ORDER BY sort, name');
+  const name = commodity ? list.find((x) => x.code === commodity)?.name : '';
   return (
-    <form method="post" action="/waitlist" className="card waitlist">
+    <form method="post" action="/waitlist" className="card waitlist" id="waitlist">
       <Csrf />
-      <h3>{c.t('lot.waitlist', { commodity: commodity ? commodities.find((x) => x.code === commodity)?.name || '' : '…' })}</h3>
+      <h3>{name ? c.t('lot.waitlist', { commodity: name }) : c.t('lot.waitlist_any')}</h3>
       <div className="inline-form">
-        <select name="commodity" defaultValue={commodity} aria-label={c.t('prices.commodity')}>{commodities.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}</select>
+        <select name="commodity" defaultValue={commodity || 'any'} aria-label={c.t('prices.commodity')}><option value="any">{c.t('lot.any_commodity')}</option>{list.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}</select>
         {!c.user && <input type="email" name="email" required placeholder={c.t('footer.email_ph')} aria-label={c.t('auth.email')} />}
         <button className="btn btn-green" type="submit">{c.t('lot.waitlist_btn')}</button>
       </div>
@@ -270,7 +275,7 @@ export function LotDetail({ lot, trail, commodities }: { lot: Lot; trail: any[];
   const c = useC();
   const open = lot.status === 'open';
   return (
-    <PublicLayout title={lot.title} description={`${lot.commodity_name} · ${lot.rate_bps / 100}% p.a. · ${lot.period_months} months`}>
+    <PublicLayout title={lot.title} description={`${lot.commodity_name} · ${rateRange(c, lot)} · ${periodRange(c, lot)}`}>
       <section className="page-head"><div className="container">
         <p className="eyebrow">{lot.commodity_name} · {lot.code}</p>
         <h1>{lot.title}</h1>
@@ -317,7 +322,7 @@ export function CircleCard({ ci, href }: { ci: Circle; href?: string }) {
   return (
     <article className="card circle-card">
       <div className="lot-top"><strong>{ci.name}</strong><Tag tone={toneFor2(ci.status)}>{c.t(`circles.status.${ci.status}`)}</Tag></div>
-      <p className="muted small">{ci.lot_title} · {c.t('lot.rate', { rate: (ci.rate_bps || 0) / 100 })} · {c.t('lot.period', { n: ci.period_months || 0 })}</p>
+      <p className="muted small">{ci.lot_title} · {c.t('lot.rate', { rate: rateFor(ci.period_months || 12) / 100 })} · {c.t('lot.period', { n: ci.period_months || 0 })}</p>
       <Progress pct={pct} />
       <p className="lot-fill"><span>{c.t('circles.slots', { taken: ci.taken || 0, total: ci.slots })}</span><span>{c.t('circles.slot_price', { amount: fmtNGN(ci.slot_price) })}</span></p>
       <p className="muted small">{c.t('circles.deadline', { date: fmtDate(c.lang, ci.deadline) })}</p>
@@ -360,7 +365,7 @@ export function WhyPage({ stats }: { stats: Stats }) {
         <div><h2>{c.t('why.title')}</h2><p className="big">{c.t('why.story')}</p>
           <ul className="checks">{[1, 2, 3].map((i) => <li key={i}><LuCheck aria-hidden /> {c.t(`home.guide_${i}`)}</li>)}</ul></div>
         <div className="backers"><p className="eyebrow dark">{c.t('home.backed_by')}</p><ul>{['USAID', 'Acumen', 'Royal Academy of Engineering', 'Lightsmith Group'].map((b) => <li key={b}>{b}</li>)}</ul>
-          <p className="eyebrow dark mt">{c.t('home.reach_h')}</p><ul>{['Nigeria', 'Bénin', 'Rwanda'].map((x) => <li key={x}>{x}</li>)}</ul></div>
+          <p className="eyebrow dark mt">{c.t('home.reach_h')}</p><ul>{['NG', 'BJ', 'RW'].map((cc) => <li key={cc}>{countryName(cc, c.lang)}</li>)}</ul></div>
       </div></section>
     </PublicLayout>
   );

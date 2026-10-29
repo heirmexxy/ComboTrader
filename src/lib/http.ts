@@ -157,6 +157,7 @@ function parseMultipart(buf: Buffer, boundary: string) {
     const ctype = head.match(/Content-Type:\s*([^\r\n]+)/i)?.[1] || 'application/octet-stream';
     if (name) {
       if (filename !== undefined) { if (filename && data.length) files[name] = { filename, type: ctype, data }; }
+      else if (name.endsWith('[]')) (fields[name.slice(0, -2)] ||= []).push(data.toString());
       else fields[name] = data.toString();
     }
     pos = next;

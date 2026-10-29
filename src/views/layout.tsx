@@ -282,7 +282,7 @@ export const ADMIN_NAV: [string, string, string][] = [
   ['/admin/treasury', 'Treasury', 'finance'], ['/admin/payouts', 'Payouts', 'finance'], ['/admin/plans', 'Plans & gifts', 'finance'], ['/admin/withdrawals', 'Withdrawals', 'finance'], ['/admin/ledger', 'Wallets & ledger', 'finance'],
   ['/admin/champions', 'Champions', 'support'], ['/admin/verification', 'Verification', 'support'], ['/admin/circles', 'Harvest Circles', 'operations'],
   ['/admin/prices', 'Prices', 'operations'], ['/admin/feed', 'Activity feed', 'content'], ['/admin/posts', 'Chronicles (blog)', 'content'],
-  ['/admin/faqs', 'FAQs & page text', 'content'], ['/admin/newsletter', 'Newsletter', 'content'], ['/admin/referrals', 'Referrals', 'finance'],
+  ['/admin/figures', 'Homepage numbers', 'content'], ['/admin/faqs', 'FAQs & page text', 'content'], ['/admin/newsletter', 'Newsletter', 'content'], ['/admin/referrals', 'Referrals', 'finance'],
   ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/agents', 'AI agents', 'any'], ['/admin/whatsapp', 'WhatsApp', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],
   ['/admin/audit', 'Audit log', 'super'], ['/admin/settings', 'Settings', 'super'],
 ];

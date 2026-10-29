@@ -12,7 +12,7 @@ export interface Lot {
   id: number; code: string; commodity: string; title: string; description: string | null; region: string | null;
   buyer_type: string; buyer_name: string | null; contract_ref: string | null; contract_path: string | null;
   tonnage: number; farmers: number; target_amount: number; min_commit: number; period_months: number; rate_bps: number;
-  closes_at: string; status: string; started_at: string | null; matures_at: string | null; circles_enabled: number; created_at: string;
+  closes_at: string; status: string; started_at: string | null; matures_at: string | null; circles_enabled: number; created_at: string; periods?: string;
   commodity_name?: string; funded?: number;
 }
 export interface Trade {
@@ -22,6 +22,25 @@ export interface Trade {
 }
 export type RolloverMode = 'off' | 'principal' | 'all';
 export const isRollover = (v: unknown): v is RolloverMode => v === 'off' || v === 'principal' || v === 'all';
+
+// ---------- Rates by period ----------
+export const PERIODS = [4, 6, 9, 12] as const;
+/** Rate in basis points for a period, from Settings (the longer you stay, the more you earn). */
+export function rateFor(months: number) {
+  const s = settings() as any;
+  const pct = Number(s[`rate_${months}`]);
+  return Math.round((Number.isFinite(pct) && pct > 0 ? pct : 20) * 100);
+}
+/** Periods a lot offers, ascending. */
+export function lotPeriods(lot: { periods?: string | null; period_months?: number }) {
+  const list = String(lot.periods || '').split(',').map(Number).filter((m) => (PERIODS as readonly number[]).includes(m));
+  return list.length ? [...new Set(list)].sort((a, b) => a - b) : [lot.period_months || 12];
+}
+export function lotRates(lot: { periods?: string | null; period_months?: number }) {
+  return lotPeriods(lot).map((months) => ({ months, rateBps: rateFor(months) }));
+}
+/** The longest period a lot offers (the default for plans, circles and gifts). */
+export const lotDefaultPeriod = (lot: { periods?: string | null; period_months?: number }) => lotPeriods(lot).slice(-1)[0];
 
 export const STAGES = ['funded', 'sourcing', 'warehoused', 'delivered', 'buyer_paid', 'champions_paid'] as const;
 
@@ -47,7 +66,7 @@ export function newCertificateNo() {
 }
 
 /** Champion joins a lot from their wallet. */
-export function joinLot(user: User, lotId: number, amount: number, o: { rollover?: RolloverMode } = {}) {
+export function joinLot(user: User, lotId: number, amount: number, o: { rollover?: RolloverMode; months?: number } = {}) {
   return tx(() => {
     const lot = getLot(lotId);
     if (!lot || lot.status !== 'open' || lot.closes_at < now()) throw new TradeError('lots.not_open');
@@ -57,18 +76,21 @@ export function joinLot(user: User, lotId: number, amount: number, o: { rollover
     if (amount < lot.min_commit && amount !== remaining) throw new TradeError('lots.too_small', { amount: fmtNGN(lot.min_commit) });
     const bal = walletBalance(user.id);
     if (bal < amount) throw new TradeError('lots.need_funds', { amount: fmtNGN(amount - bal) });
-    const trade = createTrade(user.id, lot, amount, now(), { rollover: o.rollover });
+    if (o.months !== undefined && !lotPeriods(lot).includes(o.months)) throw new TradeError('lots.bad_period');
+    const trade = createTrade(user.id, lot, amount, now(), { rollover: o.rollover, months: o.months });
     if (lotRemaining(getLot(lotId)!) === 0) q.run("UPDATE lots SET status='filled' WHERE id=? AND status='open'", lotId);
     return trade;
   });
 }
 
 /** Creates a trade and moves the money (wallet or reserved -> lot). */
-export function createTrade(userId: number, lot: Lot, amount: number, startAt: string, o: { circleId?: number; slots?: number; fromAccount?: number; rollover?: RolloverMode; giftId?: number; silent?: boolean } = {}) {
+export function createTrade(userId: number, lot: Lot, amount: number, startAt: string, o: { circleId?: number; slots?: number; fromAccount?: number; rollover?: RolloverMode; giftId?: number; silent?: boolean; months?: number } = {}) {
+  const months = o.months && lotPeriods(lot).includes(o.months) ? o.months : lotDefaultPeriod(lot);
+  const rateBps = rateFor(months);
   const firstTrade = !q.get("SELECT 1 FROM trades WHERE user_id=? AND status!='cancelled'", userId);
   const t = q.insert('trades', {
-    user_id: userId, lot_id: lot.id, circle_id: o.circleId ?? null, slots: o.slots ?? null, amount, rate_bps: lot.rate_bps,
-    period_months: lot.period_months, status: 'active', start_at: startAt, matures_at: addMonths(startAt, lot.period_months),
+    user_id: userId, lot_id: lot.id, circle_id: o.circleId ?? null, slots: o.slots ?? null, amount, rate_bps: rateBps,
+    period_months: months, status: 'active', start_at: startAt, matures_at: addMonths(startAt, months),
     certificate_no: newCertificateNo(), share_token: randomToken(12), created_at: now(),
     rollover: o.rollover ?? (q.val<string>('SELECT rollover_default FROM users WHERE id=?', userId) || 'off'), gift_id: o.giftId ?? null,
   });
@@ -76,7 +98,7 @@ export function createTrade(userId: number, lot: Lot, amount: number, startAt: s
   const user = userById(userId)!;
   activity('trade', userId, { commodity: lot.commodity, lot: lot.code });
   const trade = q.get<Trade>('SELECT * FROM trades WHERE id=?', t.id)!;
-  if (!o.silent) notify(user, 'trade_joined', { lot: lot.title, amount: fmtNGN(amount), earn: fmtNGN(earningsFor(amount, lot.rate_bps, lot.period_months)), date: trade.matures_at.slice(0, 10) }, { link: `/app/trades/${t.id}` });
+  if (!o.silent) notify(user, 'trade_joined', { lot: lot.title, amount: fmtNGN(amount), earn: fmtNGN(earningsFor(amount, rateBps, months)), date: trade.matures_at.slice(0, 10) }, { link: `/app/trades/${t.id}` });
   if (firstTrade) rewardReferrer(user, t.id);
   return trade;
 }
@@ -177,7 +199,8 @@ export function processRollovers() {
     if (lot) {
       const amt = Math.min(amount, lotRemaining(lot));
       try {
-        const t = joinLot(u, lot.id, amt, { rollover: (q.val<string>('SELECT rollover FROM trades WHERE id=?', r.from_trade_id) as RolloverMode) || 'off' });
+        const prev = q.get<{ rollover: RolloverMode; period_months: number }>('SELECT rollover, period_months FROM trades WHERE id=?', r.from_trade_id);
+        const t = joinLot(u, lot.id, amt, { rollover: prev?.rollover || 'off', months: prev && lotPeriods(lot).includes(prev.period_months) ? prev.period_months : undefined });
         q.run("UPDATE rollovers SET status='done', to_trade_id=? WHERE id=?", t.id, r.id);
         q.run('UPDATE trades SET rolled_to=? WHERE id=?', t.id, r.from_trade_id);
         notify(u, 'rollover_done', { amount: fmtNGN(amt), lot: lot.title, date: t.matures_at.slice(0, 10) }, { link: `/app/trades/${t.id}` });
@@ -255,10 +278,11 @@ export function siteStats() {
   const tons = Number(q.val("SELECT COALESCE(SUM(tonnage),0) FROM lots WHERE status='completed'") ?? 0);
   const farmers = Number(q.val("SELECT COALESCE(SUM(farmers),0) FROM lots WHERE status='completed'") ?? 0);
   const paid = Number(q.val("SELECT COALESCE(SUM(amount + earnings),0) FROM trades WHERE status='paid'") ?? 0);
+  const add = s.figures_mode !== 'exact';
   return {
-    champions: s.baseline_champions + champions,
-    tons: s.baseline_tons + tons,
-    payouts: s.baseline_payouts + paid,
-    farmers: s.baseline_farmers + farmers,
+    champions: s.baseline_champions + (add ? champions : 0),
+    tons: s.baseline_tons + (add ? tons : 0),
+    payouts: s.baseline_payouts + (add ? paid : 0),
+    farmers: s.baseline_farmers + (add ? farmers : 0),
   };
 }

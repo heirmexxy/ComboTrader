@@ -11,7 +11,7 @@ import { aiLive, callsToday } from '../lib/ai';
 import { handleInbound, waLive } from '../lib/whatsapp';
 import { planSaved } from '../lib/plans';
 import { importUsers, parseCsv } from '../lib/account';
-import { getLot, allLots } from '../lib/trading';
+import { getLot, allLots, siteStats } from '../lib/trading';
 import { settings, setSetting } from '../lib/settings';
 import { savePublicImage } from '../lib/uploads';
 import { audit } from '../lib/audit';
@@ -238,6 +238,46 @@ post('/admin/champions/import', 'admin:super', (c) => {
   if (rows.length > 20000) return c.redirect('/admin/champions/import', ['error', 'Split files larger than 20,000 rows.']);
   const r = importUsers(rows, c.user!.id, { sendInvites: c.bool('invite') });
   c.redirect('/admin/champions', ['ok', `Imported ${r.created} accounts; ${r.balances} opening balances await a second approval in Wallets & ledger.${r.skipped.length ? ` Skipped ${r.skipped.length}: ${r.skipped.slice(0, 5).join('; ')}${r.skipped.length > 5 ? '…' : ''}` : ''}`.slice(0, 900)]);
+});
+
+// ============ Homepage numbers ============
+get('/admin/figures', 'admin:content', (c) => {
+  const s = settings();
+  const live = {
+    champions: Number(q.val("SELECT COUNT(*) FROM users WHERE role='champion'") ?? 0),
+    tons: Number(q.val("SELECT COALESCE(SUM(tonnage),0) FROM lots WHERE status='completed'") ?? 0),
+    payouts: Number(q.val("SELECT COALESCE(SUM(amount + earnings),0) FROM trades WHERE status='paid'") ?? 0),
+    farmers: Number(q.val("SELECT COALESCE(SUM(farmers),0) FROM lots WHERE status='completed'") ?? 0),
+  };
+  const shown = siteStats();
+  const row = (label: string, name: string, value: string | number, liveV: string, shownV: string, hint: string) => (
+    <tr><td><b>{label}</b><br /><span className="muted small">{hint}</span></td><td><input name={name} defaultValue={value} inputMode="numeric" aria-label={label} /></td><td className="num">{liveV}</td><td className="num"><b>{shownV}</b></td></tr>);
+  page(c, 'Homepage numbers', <>
+    <p className="muted">These four numbers show on the homepage and across the site, with a “+” after them (for example “1,000+ Harvest Champions”).</p>
+    <form method="post" action="/admin/figures" className="card admin-box"><Csrf />
+      <div className="table-wrap"><table className="table">
+        <thead><tr><th>Number</th><th>Your figure</th><th className="num">Platform activity so far</th><th className="num">Shown now</th></tr></thead>
+        <tbody>
+          {row('Harvest Champions', 'baseline_champions', s.baseline_champions, live.champions.toLocaleString('en'), shown.champions.toLocaleString('en') + '+', 'People who have backed trades with Kitovu')}
+          {row('Tons in completed trades', 'baseline_tons', s.baseline_tons, live.tons.toLocaleString('en'), shown.tons.toLocaleString('en') + '+', 'Commodities moved')}
+          {row('Paid out to Champions (₦)', 'baseline_payouts', naira(s.baseline_payouts), fmtNGN(live.payouts), fmtNGN(shown.payouts) + '+', 'Principal and earnings paid')}
+          {row('Farmers served by Kitovu', 'baseline_farmers', s.baseline_farmers, live.farmers.toLocaleString('en'), shown.farmers.toLocaleString('en') + '+', 'Farmers Kitovu has worked with')}
+        </tbody>
+      </table></div>
+      <fieldset className="field"><legend>How to show them</legend>
+        <label className="check"><input type="radio" name="figures_mode" value="add" defaultChecked={s.figures_mode !== 'exact'} /> <span>Your figure <b>plus</b> platform activity (numbers grow by themselves as Champions join and get paid)</span></label>
+        <label className="check"><input type="radio" name="figures_mode" value="exact" defaultChecked={s.figures_mode === 'exact'} /> <span>Exactly your figure (you update it yourself)</span></label>
+      </fieldset>
+      <div className="form-actions"><button className="btn btn-primary" type="submit">Save homepage numbers</button> <a className="btn btn-ghost" href="/" target="_blank">View homepage</a></div>
+    </form>
+  </>);
+});
+post('/admin/figures', 'admin:content', (c) => {
+  const n = (k: string) => Math.max(0, Math.round(Number(String(c.body[k] ?? '').replace(/[₦,\s]/g, '')) || 0));
+  const v = { baseline_champions: n('baseline_champions'), baseline_tons: n('baseline_tons'), baseline_payouts: Math.round(Number(String(c.body.baseline_payouts ?? '').replace(/[₦,\s]/g, '')) * 100) || 0, baseline_farmers: n('baseline_farmers'), figures_mode: c.body.figures_mode === 'exact' ? 'exact' : 'add' };
+  for (const [k, val] of Object.entries(v)) setSetting(k as any, val);
+  audit(c.user!.id, 'settings.figures', undefined, v, c.ip);
+  c.redirect('/admin/figures', ['ok', 'Homepage numbers saved.']);
 });
 
 export const _ = { setSetting, ACTION_KINDS };
