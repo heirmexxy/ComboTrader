@@ -30,10 +30,15 @@ jobs:
           if [ -z "$VPS_HOST" ] || [ -z "$VPS_SSH_KEY" ]; then echo "VPS_HOST / VPS_SSH_KEY not set yet — skipping deploy."; exit 0; fi
           mkdir -p ~/.ssh
           # Strip Windows line endings and stray spaces that creep in when the key is copied from a browser terminal.
-          printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' > ~/.ssh/id_ed25519
+          # Accepts the key as copied (multi-line) or as one base64 line from: base64 -w0 /home/combotrader/.ssh/github_actions
+          if printf '%s' "$VPS_SSH_KEY" | grep -q 'BEGIN OPENSSH'; then
+            printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' > ~/.ssh/id_ed25519
+          else
+            printf '%s' "$VPS_SSH_KEY" | tr -d '\r\n\t ' | base64 -d > ~/.ssh/id_ed25519 2>/dev/null || true
+          fi
           chmod 600 ~/.ssh/id_ed25519
           if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
-            echo "::error::VPS_SSH_KEY is not a readable private key. Re-copy it with: sudo cat /home/combotrader/.ssh/github_actions (all lines, BEGIN to END)"; exit 1
+            echo "::error::VPS_SSH_KEY is not a readable private key. On the server run: base64 -w0 /home/combotrader/.ssh/github_actions — and paste that single line as the secret"; exit 1
           fi
           echo "Key fingerprint: $(ssh-keygen -lf ~/.ssh/id_ed25519 | awk '{print $2}')"
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
