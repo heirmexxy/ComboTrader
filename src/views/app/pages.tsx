@@ -34,7 +34,7 @@ export function AppHome({ d }: { d: HomeData }) {
     <AppLayout title={c.t('app.nav.home')}>
       <div className="page-title"><h1>{c.t('app.hello', { name: u.first_name })}</h1>
         <div className="cta-row"><a className="btn btn-primary" href="/app/wallet#fund">{c.t('app.fund_cta')}</a><a className="btn btn-ghost" href="/app/lots">{c.t('app.lot_cta')}</a></div></div>
-      {!u.phone_verified_at && <div className="flash flash-info">{c.t('app.verify_phone_banner')} <a href="/verify-phone">{c.t('auth.phone_title')}</a></div>}
+      {!u.totp_enabled && <div className="secure-tip" data-secure-tip><LuShieldCheck aria-hidden /><div><b>{c.t('app.secure_title')}</b><p>{c.t('app.secure_body')}</p></div><a className="btn btn-green btn-sm" href="/app/security">{c.t('app.secure_cta')}</a><button type="button" className="linklike small" data-secure-later>{c.t('app.secure_later')}</button></div>}
       <div className="kpis">
         <Kpi label={c.t('app.committed')} icon={<LuSprout aria-hidden />}><Money kobo={d.impact.committed} approxFor /></Kpi>
         <Kpi label={c.t('app.expected')} icon={<LuReceipt aria-hidden />}><Money kobo={d.impact.expected} /></Kpi>
@@ -343,7 +343,8 @@ export function AppProfile({ banks, bankList, countries, blockers = [] }: { bank
           <form method="post" action="/app/profile">
             <Csrf />
             <div className="row-2"><Field label={c.t('auth.first')} name="first_name" required value={u.first_name} /><Field label={c.t('auth.last')} name="last_name" required value={u.last_name} /></div>
-            <p className="muted small">{u.email} · {u.phone || '—'} {u.phone_verified_at ? <LuShieldCheck aria-label="verified" /> : <a href="/verify-phone">{c.t('auth.phone_title')}</a>}</p>
+            <p className="muted small">{u.email}</p>
+            <Field label={c.t('auth.phone')} name="phone" type="tel" value={u.phone || ''} dir="ltr" autoComplete="tel" />
             <div className="row-2"><Select label={c.t('auth.country')} name="country" value={u.country} options={countries.map((x) => ({ value: x.code, label: x.name }))} /><Field label={c.t('auth.city')} name="city" value={u.city} /></div>
             <div className="row-2"><Field label={c.t('profile.kin_name')} name="next_of_kin_name" value={u.next_of_kin_name} /><Field label={c.t('profile.kin_phone')} name="next_of_kin_phone" type="tel" value={u.next_of_kin_phone} dir="ltr" /></div>
             <Select label={c.t('profile.lang')} name="lang" value={u.lang} options={LANGS.map((l) => ({ value: l.code, label: l.label }))} />

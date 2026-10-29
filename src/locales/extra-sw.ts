@@ -1,5 +1,10 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
+  "app.secure_title": "Imarisha akaunti yako",
+  "app.secure_body": "Washa kuingia kwa hatua mbili kwa programu ya uthibitishaji (Google Authenticator au Microsoft Authenticator). Hapo hakuna anayeweza kuingia au kutoa pesa kwa nenosiri lako pekee. Inachukua dakika mbili.",
+  "app.secure_cta": "Iwashe",
+  "app.secure_later": "Baadaye",
+  "agent.onb.secure_2fa": "Habari {name}, una pesa kwenye ComboTrader, kwa hiyo ilinde: washa kuingia kwa hatua mbili kwa programu ya uthibitishaji kwenye Usalama. Inachukua dakika mbili, na hakuna anayeweza kuingia au kutoa pesa kwa nenosiri lako pekee.",
   "mkt.welcome_1.subject": "{name}, hivi ndivyo Kundi la Biashara linavyofanya kazi",
   "mkt.welcome_1.body": "Habari {name},\n\nKaribu ComboTrader. Kila Kundi la Biashara ni oda halisi ya zao ambayo tayari ina mnunuzi aliyesaini. Kitovu inanunua kutoka kwa wakulima, inahifadhi na kusafirisha, nawe unafuatilia kila hatua kwenye Njia ya Mavuno. Siku ya malipo, mtaji na mapato yako yanaingia kwenye pochi yako.",
   "mkt.welcome_1.cta": "Ona jinsi inavyofanya kazi",

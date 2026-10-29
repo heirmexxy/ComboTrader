@@ -1,5 +1,10 @@
 // Nouvelles fonctions — français (à faire relire par un locuteur natif).
 const x: Record<string, string> = {
+  "app.secure_title": "Renforcez votre compte",
+  "app.secure_body": "Activez la connexion en deux étapes avec une application d’authentification (Google Authenticator ou Microsoft Authenticator). Personne ne pourra alors se connecter ni retirer avec votre seul mot de passe. Cela prend deux minutes.",
+  "app.secure_cta": "L’activer",
+  "app.secure_later": "Plus tard",
+  "agent.onb.secure_2fa": "Bonjour {name}, vous avez de l’argent sur ComboTrader : protégez-le en activant la connexion en deux étapes avec une application d’authentification dans Sécurité. Cela prend deux minutes, et personne ne pourra se connecter ni retirer avec votre seul mot de passe.",
   "mkt.welcome_1.subject": "{name}, voici comment fonctionne un lot",
   "mkt.welcome_1.body": "Bonjour {name},\n\nBienvenue sur ComboTrader. Chaque lot est une vraie commande de produit qui a déjà un acheteur signé. Kitovu achète aux agriculteurs, stocke et livre, et vous suivez chaque étape sur la Piste de récolte. À la date de paiement, votre capital et vos gains arrivent dans votre portefeuille.",
   "mkt.welcome_1.cta": "Voir comment ça marche",

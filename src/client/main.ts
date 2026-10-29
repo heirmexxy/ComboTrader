@@ -257,3 +257,9 @@ $$<HTMLElement>('[data-lot-form]').forEach((root) => {
 
 // Admin: selects marked data-autosubmit save as soon as they change.
 $$<HTMLSelectElement>('select[data-autosubmit]').forEach((sel) => sel.addEventListener('change', () => sel.form?.requestSubmit()));
+
+// Dashboard tip to add an authenticator: "Later" hides it for 14 days on this device.
+$$<HTMLElement>('[data-secure-tip]').forEach((tip) => {
+  try { if (Number(localStorage.getItem('ct-secure-later') || 0) > Date.now() - 14 * 864e5) tip.hidden = true; } catch {}
+  tip.querySelector('[data-secure-later]')?.addEventListener('click', () => { tip.hidden = true; try { localStorage.setItem('ct-secure-later', String(Date.now())); } catch {} });
+});

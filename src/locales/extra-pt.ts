@@ -1,5 +1,10 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  "app.secure_title": "Reforce a sua conta",
+  "app.secure_body": "Ative o início de sessão em dois passos com uma aplicação de autenticação (Google Authenticator ou Microsoft Authenticator). Assim ninguém consegue entrar nem levantar dinheiro só com a sua palavra-passe. Demora dois minutos.",
+  "app.secure_cta": "Ativar",
+  "app.secure_later": "Mais tarde",
+  "agent.onb.secure_2fa": "Olá {name}, tem dinheiro na ComboTrader, por isso proteja-o: ative o início de sessão em dois passos com uma aplicação de autenticação em Segurança. Demora dois minutos e ninguém consegue entrar ou levantar só com a sua palavra-passe.",
   "mkt.welcome_1.subject": "{name}, é assim que funciona um lote",
   "mkt.welcome_1.body": "Olá {name},\n\nBem-vindo à ComboTrader. Cada lote é uma encomenda real de um produto que já tem um comprador assinado. A Kitovu compra aos agricultores, armazena e entrega, e acompanha cada passo no Percurso da Colheita. Na data de pagamento, o capital e os ganhos entram na sua carteira.",
   "mkt.welcome_1.cta": "Ver como funciona",

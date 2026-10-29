@@ -566,3 +566,8 @@ main > .flash { margin: 16px auto; max-width: 1140px; }
 .post-preview { display: flex; gap: 14px; align-items: flex-start; }
 .post-preview img { border-radius: 10px; flex-shrink: 0; }
 @media (max-width: 640px) { .post-row, .post-preview { flex-direction: column; } }
+.secure-tip { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: #EEF5EE; border: 1px solid #B9DAB9; border-radius: 12px; padding: 14px 16px; margin: 0 0 18px; }
+.secure-tip > svg { color: var(--green); width: 28px; height: 28px; flex-shrink: 0; }
+.secure-tip > div { flex: 1; min-width: 220px; }
+.secure-tip p { margin: 2px 0 0; font-size: 14px; color: #3d4a40; }
+.secure-tip[hidden] { display: none; }

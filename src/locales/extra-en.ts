@@ -1,5 +1,10 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  "app.secure_title": "Strengthen your account",
+  "app.secure_body": "Turn on two-step sign-in with an authenticator app (Google Authenticator or Microsoft Authenticator). Then no one can sign in or withdraw with your password alone. It takes two minutes.",
+  "app.secure_cta": "Set it up",
+  "app.secure_later": "Later",
+  "agent.onb.secure_2fa": "Hi {name}, you have money on ComboTrader, so please protect it: turn on two-step sign-in with an authenticator app in Security. It takes two minutes, and no one can sign in or withdraw with your password alone.",
   "mkt.welcome_1.subject": "{name}, here is how a Trade Lot works",
   "mkt.welcome_1.body": "Hi {name},\n\nWelcome to ComboTrader. Each Trade Lot is a real commodity order that already has a signed buyer. Kitovu buys from farmers, stores and delivers, and you follow every step on the Harvest Trail. On your payout date your principal and earnings land in your wallet.",
   "mkt.welcome_1.cta": "See how it works",

@@ -1,4 +1,4 @@
-import { phoneCheckRequired } from '../lib/notify';
+import { normalizePhone } from '../lib/util';
 import { get, post } from '../lib/router';
 import { render } from '../views/render';
 import { createElement as h } from 'react';
@@ -27,7 +27,7 @@ const err = (c: Ctx, e: unknown) => (e instanceof TradeError ? c.t(e.key, e.vars
 
 get('/app', 'auth', (c) => {
   const u = c.user!;
-  if (!u.onboarded && !c.isAdmin) return c.redirect(u.phone_verified_at || !phoneCheckRequired() ? '/welcome' : '/verify-phone');
+  if (!u.onboarded && !c.isAdmin) return c.redirect('/welcome');
   const impact = impactFor(u.id);
   render(c, h(V.AppHome, { d: {
     wallet: walletBalance(u.id), reserved: reservedBalance(u.id), impact, rank: rankFor(impact.tons) as any,
@@ -174,8 +174,9 @@ post('/app/profile', 'auth', (c) => {
   const u = c.user!;
   const lang = isLang(c.body.lang) ? c.body.lang : u.lang;
   const country = COUNTRY_CODES.includes(c.str('country', 2)) ? c.str('country', 2) : u.country;
-  q.run(`UPDATE users SET first_name=?, last_name=?, country=?, city=?, next_of_kin_name=?, next_of_kin_phone=?, lang=?, notif_email=?, notif_sms=?, feed_opt_in=? WHERE id=?`,
-    c.str('first_name', 60) || u.first_name, c.str('last_name', 60) || u.last_name, u.kyc_status === 'verified' ? u.country : country, c.str('city', 60),
+  const phone = c.str('phone', 30) ? normalizePhone(c.str('phone', 30), country) : u.phone;
+  q.run(`UPDATE users SET first_name=?, last_name=?, country=?, city=?, phone=?, next_of_kin_name=?, next_of_kin_phone=?, lang=?, notif_email=?, notif_sms=?, feed_opt_in=? WHERE id=?`,
+    c.str('first_name', 60) || u.first_name, c.str('last_name', 60) || u.last_name, u.kyc_status === 'verified' ? u.country : country, c.str('city', 60), /^\+\d{8,15}$/.test(phone || '') ? phone : u.phone,
     c.str('next_of_kin_name', 100), c.str('next_of_kin_phone', 30), lang, c.bool('notif_email'), c.bool('notif_sms'), c.bool('feed_opt_in'), u.id);
   c.setCookie('lang', lang, { maxAge: 365 * 86400 });
   c.redirect('/app/profile', ['ok', c.t('profile.saved')]);

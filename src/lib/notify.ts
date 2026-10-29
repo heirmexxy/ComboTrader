@@ -10,8 +10,6 @@ import { translate } from './i18n';
 export function queueEmail(to: string, subject: string, html: string) {
   q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now() });
 }
-/** The SMS code step at sign-up only runs when SMS can actually be delivered (or codes are shown on screen in demo mode). */
-export const phoneCheckRequired = () => !!config.termiiKey || config.demoMode;
 export function queueSms(to: string, text: string, channel: 'sms' | 'whatsapp' = 'sms') {
   if (!to) return;
   q.insert('outbox', { channel, recipient: to, body: text, created_at: now() });
@@ -42,7 +40,7 @@ export function notify(user: User, key: string, vars: Record<string, string | nu
   if (o.email !== false && user.notif_email) {
     queueEmail(user.email, title, emailShell(title, `<p>${escapeHtml(body)}</p>`, link ? { label: t('msg.open'), url: link } : undefined));
   }
-  if (o.sms && user.notif_sms && user.phone && user.phone_verified_at) queueSms(user.phone, `ComboTrader: ${body}${link ? ' ' + link : ''}`);
+  if (o.sms && user.notif_sms && user.phone) queueSms(user.phone, `ComboTrader: ${body}${link ? ' ' + link : ''}`);
   pushTo(user.id, { title, body, url: o.link || '/app' }).catch(() => {});
 }
 

@@ -6,7 +6,7 @@ import { q, now } from '../lib/db';
 import { createSession, destroySession, issueToken, consumeToken, createUser, userByEmail, rateLimit, passwordProblem, userById } from '../lib/auth';
 import { verifyTotp } from '../lib/totp';
 import { hashPassword, verifyPassword, isEmail, normalizePhone, randomToken, safeEqual, hmac } from '../lib/util';
-import { queueEmail, queueSms, emailShell, notify, phoneCheckRequired } from '../lib/notify';
+import { queueEmail, emailShell, notify } from '../lib/notify';
 import { translate, isLang } from '../lib/i18n';
 import { COUNTRY_CODES } from '../lib/geo';
 import { config } from '../lib/config';
@@ -82,7 +82,7 @@ post('/signup', 'guest', (c) => {
   c.setCookie('ref', '', { maxAge: 0 });
   if (next) c.setCookie('next', next, { maxAge: 3600 });
   if (demoMessaging()) c.setCookie('demo_verify', url, { maxAge: 3600 });
-  c.redirect(phoneCheckRequired() ? '/verify-phone' : '/welcome');
+  c.redirect('/welcome');
 });
 
 // Referral link: /r/CODE
@@ -111,35 +111,9 @@ get('/verify-email/:token', 'public', (c) => {
   c.redirect(c.user ? '/app' : '/login', ['ok', c.t('auth.email_verified')]);
 });
 
-// ---------- Phone verification ----------
-get('/verify-phone', 'auth', (c) => {
-  const u = c.user!;
-  if (u.phone_verified_at || !phoneCheckRequired()) return c.redirect(u.onboarded ? '/app' : '/welcome');
-  const pending = c.cookies.otp_phone;
-  render(c, h(A.VerifyPhonePage, { phone: pending || u.phone || '', sent: !!pending, demoCode: demoSms() ? c.cookies.demo_otp : undefined }));
-});
-post('/verify-phone/send', 'auth', (c) => {
-  const u = c.user!;
-  const phone = normalizePhone(c.str('phone', 30) || u.phone || '', u.country);
-  if (!/^\+\d{8,15}$/.test(phone)) return c.redirect('/verify-phone', ['error', c.t('auth.required')]);
-  if (!rateLimit(`otp:${u.id}`, 5, 3600)) return c.redirect('/verify-phone', ['error', c.t('auth.too_many')]);
-  const code = issueToken('phone_otp', u.id, { minutes: 10, digits: true, data: phone });
-  queueSms(phone, translate(u.lang, 'auth.sms_code', { code }));
-  c.setCookie('otp_phone', phone, { maxAge: 600 });
-  if (demoSms()) c.setCookie('demo_otp', code, { maxAge: 600 });
-  c.redirect('/verify-phone');
-});
-post('/verify-phone', 'auth', (c) => {
-  const u = c.user!;
-  const t = consumeToken('phone_otp', c.str('code', 6), u.id);
-  if (!t) return render(c, h(A.VerifyPhonePage, { phone: c.cookies.otp_phone || u.phone || '', sent: true, error: c.t('auth.bad_code'), demoCode: demoSms() ? c.cookies.demo_otp : undefined }), 422);
-  q.run('UPDATE users SET phone=?, phone_verified_at=? WHERE id=?', t.data, now(), u.id);
-  c.setCookie('otp_phone', '', { maxAge: 0 });
-  c.setCookie('demo_otp', '', { maxAge: 0 });
-  c.redirect(u.onboarded ? '/app/profile' : '/welcome', ['ok', c.t('auth.phone_verified')]);
-});
+// Phone codes by SMS were removed: old links go to Security, where Champions can add an authenticator.
+get('/verify-phone', 'auth', (c) => c.redirect(c.user!.onboarded ? '/app/security' : '/welcome'));
 
-// ---------- Welcome tour ----------
 get('/welcome', 'auth', (c) => render(c, h(A.WelcomeTour)));
 post('/welcome', 'auth', (c) => {
   q.run('UPDATE users SET onboarded=1 WHERE id=?', c.user!.id);
@@ -255,7 +229,7 @@ get('/auth/google/callback', 'public', async (c) => {
   if (u.totp_enabled) { createSession(c, u.id, { remember: true, twofaOk: false }); return c.redirect('/login/2fa'); }
   createSession(c, u.id, { remember: true });
   logLogin(c, u.id, u.email, true);
-  if (fresh || !u.phone_verified_at) return c.redirect(phoneCheckRequired() ? '/verify-phone' : u.onboarded ? '/app' : '/welcome');
+  if (fresh || !u.onboarded) return c.redirect('/welcome');
   const next = safeNext(c.cookies.next);
   c.setCookie('next', '', { maxAge: 0 });
   afterLogin(c, u, next);
