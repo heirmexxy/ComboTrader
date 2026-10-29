@@ -1,5 +1,6 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  "home.stakes_with_d": "O seu ₦1M torna-se ₦{total}M em doze meses. Por trás, colheitas vendidas a preço justo e comida a chegar aos processadores que alimentam o país.",
   "app.nav.market": "Comprar a Campeões",
   "market.title": "Comprar a Campeões",
   "market.intro": "Transações que outros Campeões vendem antes da data de pagamento. Paga o valor acumulado; na data de pagamento a Kitovu paga-lhe o montante total.",

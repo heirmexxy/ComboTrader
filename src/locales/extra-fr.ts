@@ -1,5 +1,6 @@
 // Nouvelles fonctions — français (à faire relire par un locuteur natif).
 const x: Record<string, string> = {
+  "home.stakes_with_d": "Vos 1 M₦ deviennent {total} M₦ en douze mois. Derrière, des récoltes vendues à un prix juste et une nourriture qui atteint les transformateurs qui nourrissent le pays.",
   "app.nav.market": "Acheter aux Champions",
   "market.title": "Acheter aux Champions",
   "market.intro": "Des transactions que d’autres Champions vendent avant la date de paiement. Vous payez la valeur acquise ; à la date de paiement, Kitovu vous verse le montant total.",

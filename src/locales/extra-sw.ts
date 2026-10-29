@@ -1,5 +1,6 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
+  "home.stakes_with_d": "₦1M yako inakuwa ₦{total}M ndani ya miezi kumi na miwili. Nyuma yake, mavuno yanauzwa kwa bei ya haki na chakula kinafika kwa wasindikaji wanaolisha taifa.",
   "app.nav.market": "Nunua kwa Mabingwa",
   "market.title": "Nunua kwa Mabingwa",
   "market.intro": "Biashara ambazo Mabingwa wengine wanauza kabla ya siku ya malipo. Unalipa thamani hadi leo; siku ya malipo Kitovu inakulipa kiasi kamili.",

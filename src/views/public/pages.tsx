@@ -185,7 +185,7 @@ export function Home({ stats, lots, circles, rateBps, heroDone = [] }: { stats: 
           <h2 className="center">{c.t('home.stakes_h')}</h2>
           <div className="grid-2 stakes">
             <div className="card stakes-without"><LuTrendingDown aria-hidden /><h3>{c.t('home.stakes_without_t')}</h3><p>{c.t('home.stakes_without_d')}</p></div>
-            <div className="card stakes-with"><LuTrendingUp aria-hidden /><h3>{c.t('home.stakes_with_t')}</h3><p>{c.t('home.stakes_with_d')}</p></div>
+            <div className="card stakes-with"><LuTrendingUp aria-hidden /><h3>{c.t('home.stakes_with_t')}</h3><p>{c.t('home.stakes_with_d', { total: (() => { const x = String(Math.round((1 + rateFor(12) / 10000) * 100) / 100); return ['fr', 'pt'].includes(c.lang) ? x.replace('.', ',') : x; })() })}</p></div>
           </div>
         </div>
       </section>

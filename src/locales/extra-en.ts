@@ -1,5 +1,6 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  "home.stakes_with_d": "Your ₦1M becomes ₦{total}M in twelve months. Behind it, harvests sold at fair prices and food reaching the processors that feed the nation.",
   "app.nav.market": "Buy from Champions",
   "market.title": "Buy from Champions",
   "market.intro": "Trades other Champions are selling before their payout date. You pay the value to date; on the payout date Kitovu pays you the full amount.",
