@@ -263,3 +263,36 @@ $$<HTMLElement>('[data-secure-tip]').forEach((tip) => {
   try { if (Number(localStorage.getItem('ct-secure-later') || 0) > Date.now() - 14 * 864e5) tip.hidden = true; } catch {}
   tip.querySelector('[data-secure-later]')?.addEventListener('click', () => { tip.hidden = true; try { localStorage.setItem('ct-secure-later', String(Date.now())); } catch {} });
 });
+
+// Marketplace: live "you receive" while choosing units/discount, and live total while choosing units to buy.
+$$<HTMLFormElement>('form[data-sell]').forEach((f) => {
+  const unitValue = Number(f.dataset.unitValue) || 0, fee = Number(f.dataset.fee) || 0;
+  const out = f.querySelector<HTMLElement>('[data-sell-get]');
+  const upd = () => {
+    const n = Math.max(1, Number((f.elements.namedItem('units') as HTMLInputElement)?.value) || 1);
+    const d = Math.max(0, Number((f.elements.namedItem('discount') as HTMLInputElement)?.value) || 0);
+    const price = unitValue * n * (1 - d / 100);
+    if (out) out.textContent = fmt(Math.round(price * (1 - fee / 100)));
+  };
+  f.addEventListener('input', upd); upd();
+});
+$$<HTMLFormElement>('form[data-buy]').forEach((f) => {
+  const unit = Number(f.dataset.unitPrice) || 0;
+  const out = f.querySelector<HTMLElement>('[data-buy-total]');
+  f.addEventListener('input', () => { const n = Math.max(1, Number((f.elements.namedItem('units') as HTMLInputElement)?.value) || 1); if (out) out.textContent = fmt(unit * n); });
+});
+
+// Show/hide password: an eye button inside every password box.
+$$<HTMLInputElement>('input[type="password"]').forEach((inp) => {
+  if (inp.dataset.eye) return; inp.dataset.eye = '1';
+  const wrap = document.createElement('span'); wrap.className = 'pw-wrap';
+  inp.parentNode?.insertBefore(wrap, inp); wrap.appendChild(inp);
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'pw-eye';
+  const eye = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const shut = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.5 18.5 0 0 1 5.1-5.9M9.9 4.2A9.6 9.6 0 0 1 12 4c6.5 0 10 7 10 7a18.6 18.6 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="M2 2l20 20"/></svg>';
+  const set = (shown: boolean) => { inp.type = shown ? 'text' : 'password'; b.innerHTML = shown ? shut : eye; b.setAttribute('aria-label', shown ? boot.s.pwHide || 'Hide password' : boot.s.pwShow || 'Show password'); b.setAttribute('aria-pressed', String(shown)); b.title = b.getAttribute('aria-label') || ''; };
+  b.addEventListener('click', () => { set(inp.type === 'password'); inp.focus(); });
+  // Hide again before the form is sent, so the browser's password manager still recognises it.
+  inp.form?.addEventListener('submit', () => set(false));
+  set(false); wrap.appendChild(b);
+});

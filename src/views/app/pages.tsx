@@ -14,6 +14,7 @@ import { LuWallet, LuSprout, LuCalendar, LuReceipt, LuArrowRight, LuDownload, Lu
 import { FaWhatsapp, FaXTwitter, FaFacebook, FaLinkedin } from 'react-icons/fa6';
 import { AccountRights, RolloverControl } from './more';
 import { qrDataUri } from '../../lib/qr';
+import { SellBox, BoughtNote, type SellInfo } from './market';
 
 function Card({ title, children, className = '' }: { title?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`card ${className}`}>{title && <h2 className="card-title">{title}</h2>}{children}</section>;
@@ -139,7 +140,7 @@ export function AppTrades({ trades }: { trades: TradeRow[] }) {
   );
 }
 
-export function TradeDetail({ t, trail, tons, farmers }: { t: TradeRow & { buyer_type: string; rate_bps: number }; trail: any[]; tons: number; farmers: number }) {
+export function TradeDetail({ t, trail, tons, farmers, market }: { t: TradeRow & { buyer_type: string; rate_bps: number }; trail: any[]; tons: number; farmers: number; market?: SellInfo }) {
   const c = useC();
   const earn = t.earnings ?? earningsFor(t.amount, t.rate_bps, t.period_months) + lateEarnings(t as any);
   const card = `${config.baseUrl}/card/${t.share_token}.png`;
@@ -156,6 +157,8 @@ export function TradeDetail({ t, trail, tons, farmers }: { t: TradeRow & { buyer
         <Kpi label={c.t('trades.started')}>{fmtDate(c.lang, t.start_at)}</Kpi>
         <Kpi label={c.t('trades.matures')}>{fmtDate(c.lang, t.matures_at)}</Kpi>
       </div>
+      {market?.bought && <BoughtNote b={market.bought} />}
+      {market && t.status === 'active' && <SellBox m={market} tradeId={t.id} />}
       <div className="grid-2 top">
         <Card title={c.t('trades.trail')}>{trail.length ? <Trail events={trail} /> : <><Trail events={[]} /><p className="muted">{c.t('trades.trail_none')}</p></>}</Card>
         <div>
@@ -247,7 +250,7 @@ export function AppWallet({ d }: { d: WalletData }) {
   const u = c.user!;
   const bank = d.banks.find((b) => b.country === 'NG' && b.name_match);
   const intl = d.banks.find((b) => b.country !== 'NG');
-  const jk = (k: string, memo: string | null) => c.t(`jk.${k === 'withdraw_paid' ? 'withdraw_hold' : k === 'payout' ? 'principal' : k}`, { lot: memo || '' });
+  const jk = (k: string, memo: string | null, amount = 0) => c.t(`jk.${k === 'withdraw_paid' ? 'withdraw_hold' : k === 'payout' ? 'principal' : k === 'market' ? (amount < 0 ? 'market_buy' : 'market_sell') : k}`, { lot: memo || '' });
   return (
     <AppLayout title={c.t('wallet.title')}>
       <div className="page-title"><h1>{c.t('wallet.title')}</h1></div>
@@ -295,7 +298,7 @@ export function AppWallet({ d }: { d: WalletData }) {
         <p className="btn-row"><a href="/app/wallet/statement.csv" className="small"><LuDownload aria-hidden /> {c.t('wallet.statement')}</a> <a href={`/app/wallet/statement.pdf?year=${new Date().getUTCFullYear()}`} className="small"><LuDownload aria-hidden /> {c.t('rights.statement', { year: new Date().getUTCFullYear() })}</a></p>
         {d.statement.length === 0 ? <p className="muted">{c.t('app.none')}</p> : <div className="table-wrap"><table className="table">
           <thead><tr><th>{c.t('wallet.date')}</th><th>{c.t('wallet.desc')}</th><th className="num">{c.t('wallet.amount_col')}</th></tr></thead>
-          <tbody>{d.statement.map((r, i) => <tr key={i}><td>{fmtDate(c.lang, r.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td><td>{jk(r.kind, r.memo)}</td><td className={`num ${r.amount < 0 ? 'neg' : 'pos'}`} dir="ltr">{r.amount < 0 ? '−' : '+'}{fmtNGN(Math.abs(r.amount))}</td></tr>)}</tbody>
+          <tbody>{d.statement.map((r, i) => <tr key={i}><td>{fmtDate(c.lang, r.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td><td>{jk(r.kind, r.memo, r.amount)}</td><td className={`num ${r.amount < 0 ? 'neg' : 'pos'}`} dir="ltr">{r.amount < 0 ? '−' : '+'}{fmtNGN(Math.abs(r.amount))}</td></tr>)}</tbody>
         </table></div>}
       </Card>
     </AppLayout>

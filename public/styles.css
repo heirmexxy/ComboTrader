@@ -571,3 +571,15 @@ main > .flash { margin: 16px auto; max-width: 1140px; }
 .secure-tip > div { flex: 1; min-width: 220px; }
 .secure-tip p { margin: 2px 0 0; font-size: 14px; color: #3d4a40; }
 .secure-tip[hidden] { display: none; }
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { width: 100%; padding-inline-end: 48px !important; }
+.pw-eye { position: absolute; inset-inline-end: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0; padding: 6px; color: #5b6b5e; cursor: pointer; border-radius: 8px; line-height: 0; }
+.pw-eye:hover { color: var(--green); background: #EEF2EC; }
+.pw-eye:focus-visible { outline: 3px solid var(--gold); }
+.market-box .row-2 { margin-bottom: 4px; }
+.offer h3 { margin: 4px 0 2px; font-size: 18px; }
+.offer-terms { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 12px 0; font-size: 14px; }
+.offer-terms > div { min-width: 0; }
+.offer-terms dt { color: #5b6b5e; font-size: 12.5px; }
+.offer-terms dd { margin: 2px 0 0; font-weight: 600; }
+.offer-terms dd .tag { margin-inline-start: 4px; }

@@ -445,6 +445,8 @@ export async function runRisk() {
     signals.push({ user_id: r.user_id, name: '', type: 'fast_in_out', signal: `funded ${fmtNGN(r.funded)} and asked to withdraw within 48 hours without trading` });
   for (const r of q.all<any>(`SELECT referrer_id, COUNT(*) n FROM referral_rewards WHERE created_at>=? GROUP BY referrer_id HAVING n>=5`, since))
     signals.push({ user_id: r.referrer_id, name: '', type: 'referral_burst', signal: `${r.n} referral rewards in 30 days` });
+  for (const r of q.all<any>(`SELECT seller_id, buyer_id, COUNT(*) n FROM trade_sales WHERE created_at>=? GROUP BY seller_id, buyer_id HAVING n>=3`, since))
+    for (const id of [r.seller_id, r.buyer_id]) signals.push({ user_id: id, name: '', type: 'market_pair', signal: `${r.n} marketplace sales between users ${r.seller_id} and ${r.buyer_id} in 30 days` });
   const fresh = signals.filter((s) => !q.get("SELECT 1 FROM agent_actions WHERE agent='risk' AND target_user_id=? AND created_at>=?", s.user_id, since));
   // Learned weights: a signal type people keep rejecting (5+ reviews, under 20% confirmed) is only raised alongside another signal.
   const weak = (t: string) => { const l = bestLesson('risk', 'signal', t); return !!l && l.wins + l.losses >= 5 && l.wins / (l.wins + l.losses) < 0.2; };

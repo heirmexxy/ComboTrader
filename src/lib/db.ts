@@ -691,6 +691,36 @@ CREATE TABLE campaign_sends (
 );
 UPDATE settings SET value = substr(value, 1, length(value) - 1) || ',social,email\"' WHERE key='agents_enabled' AND value NOT LIKE '%social%';
 `,
+`
+-- Marketplace: Champions sell whole trades or units of them (each unit at least the unit size) to other Champions before term.
+ALTER TABLE trades ADD COLUMN acquired_at TEXT;        -- when the current holder bought it on the marketplace
+ALTER TABLE trades ADD COLUMN acquired_price INTEGER;  -- what the current holder paid for it
+ALTER TABLE trades ADD COLUMN parent_trade_id INTEGER; -- the trade this one was split from
+CREATE TABLE trade_listings (
+  id INTEGER PRIMARY KEY,
+  trade_id INTEGER NOT NULL REFERENCES trades(id),
+  seller_id INTEGER NOT NULL REFERENCES users(id),
+  unit_amount INTEGER NOT NULL,     -- principal per unit (kobo)
+  units_total INTEGER NOT NULL,
+  units_left INTEGER NOT NULL,
+  discount_bps INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'listed', -- listed | sold | cancelled | expired
+  close_reason TEXT,
+  created_at TEXT NOT NULL,
+  closed_at TEXT
+);
+CREATE INDEX trade_listings_status ON trade_listings(status);
+CREATE TABLE trade_sales (
+  id INTEGER PRIMARY KEY,
+  listing_id INTEGER NOT NULL,
+  trade_id INTEGER NOT NULL,        -- the seller's trade
+  new_trade_id INTEGER NOT NULL,    -- the buyer's trade (same id when the whole trade changed hands)
+  seller_id INTEGER NOT NULL, buyer_id INTEGER NOT NULL,
+  units INTEGER NOT NULL,
+  principal INTEGER NOT NULL, price INTEGER NOT NULL, fee INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

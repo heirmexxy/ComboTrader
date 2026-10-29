@@ -9,6 +9,7 @@ import { runPlans } from './plans';
 import { AGENT_JOBS } from './agents';
 import { scoreOutcomes } from './learning';
 import { watchdog } from './watchdog';
+import { expireListings } from './market';
 import { runSocial, runEmail, publishDueSocial } from './marketing';
 import { trackHtmlLinks } from './tracking';
 import { treasurySnapshot } from './treasury';
@@ -46,8 +47,8 @@ export const JOBS: Record<string, () => Promise<string>> = {
     return `${p} posts published, ${sent} newsletter emails queued`;
   },
   async lifecycle() {
-    const a = closeExpiredLots(), b = markMatured(), p = autoPayDue(), r = processRollovers(), c = expireCircles(), d = await autoSendSmallWithdrawals();
-    return `${a} lots closed, ${b} trades matured, ${p} payouts credited, ${r} rolled over, ${c} circles expired, ${d} withdrawals auto-sent`;
+    const a = closeExpiredLots(), b = markMatured(), p = autoPayDue(), r = processRollovers(), c = expireCircles(), d = await autoSendSmallWithdrawals(), m = expireListings();
+    return `${a} lots closed, ${b} trades matured, ${p} payouts credited, ${r} rolled over, ${c} circles expired, ${d} withdrawals auto-sent, ${m} listings closed`;
   },
   async prices() {
     if (!settings().price_crawler_enabled) return 'crawler switched off (manual prices only)';

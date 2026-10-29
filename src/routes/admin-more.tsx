@@ -1,5 +1,6 @@
 // Admin: Treasury (coverage of Champion payouts), AI agents inbox, WhatsApp, Plans & gifts, user import.
 import { get, post } from '../lib/router';
+import { translate } from '../lib/i18n';
 import { render } from '../views/render';
 import { AdminLayout } from '../views/layout';
 import { Box, Kpis, Table, Act, F, Form, N, D, S, naira } from '../views/admin/ui';
@@ -11,6 +12,8 @@ import { aiLive, callsToday, agentMode } from '../lib/ai';
 import { lessonScore, scoreOutcomes, type Lesson } from '../lib/learning';
 import { CHANNELS, CHANNEL_NAMES, CHANNEL_SETUP, channelReady, wantedChannels, runSocial, runEmail, CAMPAIGN_KEYS, publishDueSocial, type Channel } from '../lib/marketing';
 import { savePublicImage as saveImg } from '../lib/uploads';
+import { marketOn, openListings, quote, buyUnits, houseUser } from '../lib/market';
+import { userById as uById } from '../lib/auth';
 import { testModeAvailable, simulatedPayments, addSampleLots, clearTestData, testTables } from '../lib/testmode';
 import { randomToken, isEmail } from '../lib/util';
 import { handleInbound, waLive } from '../lib/whatsapp';
@@ -300,14 +303,14 @@ get('/admin/marketing', 'admin:content', (c) => {
       <fieldset className="field"><legend>Post to</legend>{CHANNELS.map((ch) => <label key={ch} className="check"><input type="checkbox" name="social_channels[]" value={ch} defaultChecked={wantedChannels().includes(ch)} /> <span>{CHANNEL_NAMES[ch]}</span></label>)}</fieldset>
       <F label="Answer comments and DMs that ask how to join" name="social_auto_reply" type="checkbox" value={s.social_auto_reply} />
       <F label="A post “worked” at this many clicks in a week" name="social_click_goal" type="number" value={s.social_click_goal} />
-      <fieldset className="field"><legend>Email campaigns on</legend>{['welcome', 'maturity', 'paid_out', 'winback', 'new_lot'].map((k) => <label key={k} className="check"><input type="checkbox" name="email_campaigns[]" value={k} defaultChecked={on.includes(k)} /> <span>{k.replace('_', ' ')}</span></label>)}</fieldset>
+      <fieldset className="field"><legend>Email campaigns on</legend>{['welcome', 'maturity', 'paid_out', 'winback', 'new_lot', 'market'].map((k) => <label key={k} className="check"><input type="checkbox" name="email_campaigns[]" value={k} defaultChecked={on.includes(k)} /> <span>{k.replace('_', ' ')}</span></label>)}</fieldset>
       <F label="Test two subject lines on every newsletter" name="newsletter_ab" type="checkbox" value={s.newsletter_ab} />
     </Form></Box>
   </>);
 });
 const CAMPAIGN_DESC: Record<string, string> = {
   welcome_1: 'Day 1 after sign-up: how a Trade Lot works', welcome_2: 'Day 4: choose your period, rates', welcome_3: 'Day 8: Harvest Circles, Plans, referrals',
-  maturity: '7–10 days before a payout: choose Keep Growing or wallet', paid_out: 'A few days after a payout, if the money is still idle', winback: 'No trade for 60+ days (once a quarter)', new_lot: 'When a lot opens: Champions who have funded before',
+  maturity: '7–10 days before a payout: choose Keep Growing or wallet', paid_out: 'A few days after a payout, if the money is still idle', winback: 'No trade for 60+ days (once a quarter)', new_lot: 'When a lot opens: Champions who have funded before', market: 'Trades for sale on the marketplace: Champions with enough idle wallet money (every two weeks at most)',
 };
 post('/admin/marketing/post-now', 'admin:content', async (c) => {
   let r: string; try { r = await runSocial(true); } catch (e: any) { r = `error: ${e.message}`; }
@@ -340,10 +343,66 @@ post('/admin/marketing/settings', 'admin:content', (c) => {
   setSetting('social_channels', list('social_channels', CHANNELS));
   setSetting('social_auto_reply', c.bool('social_auto_reply'));
   setSetting('social_click_goal', Math.max(1, c.int('social_click_goal') || 10));
-  setSetting('email_campaigns', list('email_campaigns', ['welcome', 'maturity', 'paid_out', 'winback', 'new_lot']));
+  setSetting('email_campaigns', list('email_campaigns', ['welcome', 'maturity', 'paid_out', 'winback', 'new_lot', 'market']));
   setSetting('newsletter_ab', c.bool('newsletter_ab'));
   audit(c.user!.id, 'marketing.settings', undefined, undefined, c.ip);
   c.back('/admin/marketing', ['ok', 'Saved.']);
+});
+
+// ============ Marketplace ============
+get('/admin/marketplace', 'admin:operations', (c) => {
+  const s = settings();
+  const since = new Date(Date.now() - 30 * 864e5).toISOString();
+  const listings = openListings().map((l) => ({ ...l, q1: quote(l, l, 1), seller: uById(l.seller_id) }));
+  const sales = q.all<any>(`SELECT s.*, l.title AS lot_title, su.first_name AS sf, su.last_name AS sl, bu.first_name AS bf, bu.last_name AS bl, bu.role AS brole FROM trade_sales s JOIN trades t ON t.id=s.new_trade_id JOIN lots l ON l.id=t.lot_id
+    JOIN users su ON su.id=s.seller_id JOIN users bu ON bu.id=s.buyer_id ORDER BY s.id DESC LIMIT 30`);
+  const sold30 = q.get<any>('SELECT COUNT(*) n, COALESCE(SUM(price),0) v, COALESCE(SUM(fee),0) f FROM trade_sales WHERE created_at>=?', since);
+  const house = q.get<any>("SELECT COUNT(*) n, COALESCE(SUM(t.amount),0) p FROM trades t JOIN users u ON u.id=t.user_id WHERE u.role='house' AND t.status IN ('active','matured')");
+  const spent = -Number(q.val("SELECT COALESCE(SUM(e.amount),0) FROM entries e JOIN ledger_accounts a ON a.id=e.account_id WHERE a.code='kitovu:market_purchases'") ?? 0);
+  page(c, 'Marketplace', <>
+    <p className="muted">Champions sell trades (whole, or in units of at least {fmtNGN(s.market_unit)}) to other Champions before the payout date, at the value to date less any discount (up to {s.market_max_discount_pct}%). The seller pays a {Number(s.market_fee_bps) / 100}% fee. Kitovu still pays whoever holds the trade on the payout date, so coverage does not change. Kitovu can buy like any other buyer, with no commitment to do so.</p>
+    <Kpis items={[['Status', marketOn() ? (s.marketplace_mode === 'on' ? 'Live' : 'On (test mode)') : 'Off'], ['For sale now', listings.length, fmtNGN(listings.reduce((a, l) => a + l.unit_amount * l.units_left, 0)) + ' principal'],
+      ['Sold (30 days)', sold30.n, `${fmtNGN(sold30.v)} · fees ${fmtNGN(sold30.f)}`], ['Held by Kitovu', house.n, `${fmtNGN(house.p)} principal · ${fmtNGN(spent)} spent buying`]]} />
+    {c.can('super') && <Box title="Switch" actions={<div className="btn-row">{(['off', 'on'] as const).map((m) => <Act key={m} action="/admin/marketplace/mode" fields={{ mode: m }} label={m === 'on' ? 'Live' : 'Off'} tone={s.marketplace_mode === m ? 'primary' : 'ghost'} />)}</div>}>
+      <p className="small">Off: hidden from Champions (existing listings stay paused). Live: Champions see “Buy from Champions” and can sell eligible trades. While test mode is on (Admin → Testing), the marketplace is on for testing whatever this switch says.</p>
+      <Form action="/admin/marketplace/settings" submit="Save rules">
+        <F label="Unit size (₦)" name="market_unit" value={naira(s.market_unit)} hint="Smallest piece of a trade a buyer can take. A ₦2,500,000 trade is 10 units at ₦250,000." />
+        <F label="Fee (% of sale price, paid by the seller)" name="market_fee_pct" type="number" step="0.1" value={Number(s.market_fee_bps) / 100} />
+        <F label="Largest discount a seller may offer (%)" name="market_max_discount_pct" type="number" step="0.5" value={s.market_max_discount_pct} />
+        <F label="Days a trade must be held before selling" name="market_min_hold_days" type="number" value={s.market_min_hold_days} />
+        <F label="No selling in the last … days before payout" name="market_cutoff_days" type="number" value={s.market_cutoff_days} />
+      </Form>
+    </Box>}
+    <Box title="For sale now">{listings.length ? <Table rows={listings} cols={[
+      ['Trade', (l) => <><b>{l.lot_title}</b><br /><span className="muted small">{l.seller ? `${l.seller.first_name} ${l.seller.last_name}` : ''} · pays <D v={l.matures_at} /></span></>],
+      ['Units', (l) => `${l.units_left} of ${l.units_total} × ${fmtNGN(l.unit_amount)}`],
+      ['Price per unit now', (l) => <>{fmtNGN(l.q1.price)}{l.discount_bps ? <span className="muted small"> (−{l.discount_bps / 100}%)</span> : null}<br /><span className="muted small">buyer return {l.q1.annualPct}% a year</span></>],
+      ['', (l) => c.can('finance') ? <form method="post" action={`/admin/marketplace/${l.id}/buy`} className="inline" data-confirm="Buy these units with Kitovu's money? Kitovu will hold the trade and be paid on the payout date."><Csrf />
+        <input name="units" type="number" min={1} max={l.units_left} defaultValue={l.units_left} aria-label="Units" style={{ width: 70 }} /> <button className="btn btn-ghost btn-sm" type="submit">Buy as Kitovu</button></form> : null],
+    ]} /> : <p className="muted">Nothing for sale.</p>}</Box>
+    <Box title="Recent sales">{sales.length ? <Table rows={sales} cols={[['When', (x) => <D v={x.created_at} time />], ['Trade', (x) => x.lot_title], ['Seller → buyer', (x) => `${x.sf} ${x.sl} → ${x.brole === 'house' ? 'Kitovu' : `${x.bf} ${x.bl}`}`],
+      ['Units', (x) => x.units], ['Principal', (x) => <N k={x.principal} />], ['Price', (x) => <N k={x.price} />], ['Fee', (x) => <N k={x.fee} />]]} /> : <p className="muted">No sales yet.</p>}</Box>
+  </>);
+});
+post('/admin/marketplace/mode', 'admin:super', (c) => {
+  const m = c.str('mode') === 'on' ? 'on' : 'off';
+  setSetting('marketplace_mode', m); audit(c.user!.id, 'market.mode', m, undefined, c.ip);
+  c.back('/admin/marketplace', ['ok', m === 'on' ? 'The marketplace is live.' : 'The marketplace is off.']);
+});
+post('/admin/marketplace/settings', 'admin:super', (c) => {
+  const unit = parseNaira(c.body.market_unit);
+  if (unit < 1000000) return c.back('/admin/marketplace', ['error', 'The unit size must be at least ₦10,000.']);
+  setSetting('market_unit', unit);
+  setSetting('market_fee_bps', Math.round(Math.min(10, Math.max(0, Number(c.body.market_fee_pct) || 0)) * 100));
+  setSetting('market_max_discount_pct', Math.min(20, Math.max(0, Number(c.body.market_max_discount_pct) || 0)));
+  setSetting('market_min_hold_days', Math.min(365, Math.max(0, c.int('market_min_hold_days'))));
+  setSetting('market_cutoff_days', Math.min(90, Math.max(0, c.int('market_cutoff_days'))));
+  audit(c.user!.id, 'market.settings', undefined, undefined, c.ip);
+  c.back('/admin/marketplace', ['ok', 'Saved.']);
+});
+post('/admin/marketplace/:id/buy', 'admin:finance', (c) => {
+  try { const r = buyUnits(c.user!, Number(c.params.id), c.int('units'), { asKitovu: true, by: c.user!.id }); c.back('/admin/marketplace', ['ok', `Kitovu bought ${fmtNGN(r.principal)} of principal for ${fmtNGN(r.price)}. It is paid on the payout date like any trade.`]); }
+  catch (e: any) { c.back('/admin/marketplace', ['error', e.key ? translate('en', e.key, e.vars) : e.message]); }
 });
 
 // ============ Testing ============
@@ -359,7 +418,7 @@ get('/admin/testing', 'admin:super', (c) => {
           <Act action="/admin/testing/mode" fields={{ on: s.test_mode ? 0 : 1 }} label={s.test_mode ? 'Turn test mode off' : 'Turn test mode on'} tone={s.test_mode ? 'ghost' : 'green'} />
           <Act action="/admin/testing/sample-lots" label="Add 4 sample Trade Lots and Harvest Circles" />
         </div>
-        <p className="muted small">While test mode is on, Harvest Circles are open to every Champion (whatever the Circles setting), every sample lot allows circles, and the soybean and sesame lots come with two open sample circles each. Sample lots and circles are marked “TEST ·”. While test mode is on, every page shows a “payments are simulated” banner. Adding the live Paystack key later switches test mode off automatically.</p>
+        <p className="muted small">While test mode is on, the Marketplace (selling trades to other Champions) is on with no minimum holding period and Harvest Circles are open to every Champion (whatever the Circles setting), every sample lot allows circles, and the soybean and sesame lots come with two open sample circles each. Sample lots and circles are marked “TEST ·”. While test mode is on, every page shows a “payments are simulated” banner. Adding the live Paystack key later switches test mode off automatically.</p>
       </>}
     </Box>
     <Box title="Clear all test data">

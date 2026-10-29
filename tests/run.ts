@@ -589,6 +589,69 @@ await t('/join form records a consented lead with its source', async () => {
 });
 function fmtTest(k: number) { return `₦${new Intl.NumberFormat('en-NG').format(k / 100)}`; }
 
+console.log('\nMarketplace');
+await t('marketplace: value to date, units, partial and whole sales, fee, ledger, Kitovu as buyer, payout to the buyer', async () => {
+  const mkt = await import('../src/lib/market');
+  const { balance } = await import('../src/lib/ledger');
+  // Pricing
+  const tt = { start_at: '2026-01-01T00:00:00.000Z', matures_at: '2027-01-01T00:00:00.000Z', rate_bps: 3000, period_months: 12 };
+  eq(mkt.valueToDate(tt, 100_000_000, new Date('2026-07-02T12:00:00.000Z').getTime()), 100_000_000 + 15_000_000, 'half way: half the earnings');
+  eq(mkt.unitsOf(250_000_000).units, 10); eq(mkt.unitsOf(260_000_000).unitAmount, 26_000_000); eq(mkt.unitsOf(30_000_000).units, 1);
+  // Off by default
+  setSetting('marketplace_mode', 'off'); setSetting('test_mode', false);
+  const seller = mkUser('seller@t.ng'), buyer = mkUser('buyer@t.ng'), b2 = mkUser('buyer2@t.ng');
+  await fund(seller.id, 2_500_000_00); await fund(buyer.id, 2_000_000_00); await fund(b2.id, 3_000_000_00);
+  const lid = mkLot('T-MKT', { target_amount: 10_000_000_00, min_commit: 250_000_00, periods: '12', period_months: 12 });
+  const tr = joinLot(userById(seller.id)!, lid, 2_500_000_00, { months: 12 });
+  eq(mkt.cannotList(tr, userById(seller.id)!), 'market.off');
+  setSetting('marketplace_mode', 'on');
+  eq(mkt.cannotList(q.get('SELECT * FROM trades WHERE id=?', tr.id), userById(seller.id)!), 'market.too_soon');
+  q.run('UPDATE trades SET start_at=?, matures_at=? WHERE id=?', addDays(now(), -122), addDays(now(), 243), tr.id);
+  const lotBal = balance(`lot:${lid}`);
+  const listingId = mkt.listTrade(userById(seller.id)!, tr.id, 10, 2);
+  const l = q.get<any>('SELECT * FROM trade_listings WHERE id=?', listingId);
+  eq(l.units_total, 10); eq(l.unit_amount, 250_000_00); eq(l.discount_bps, 200);
+  throws(() => mkt.buyUnits(userById(seller.id)!, listingId, 1), 'market.own');
+  // Partial: 3 units
+  const sBefore = walletBalance(seller.id), bBefore = walletBalance(buyer.id);
+  const r1 = mkt.buyUnits(userById(buyer.id)!, listingId, 3);
+  eq(r1.principal, 750_000_00); eq(q.val('SELECT amount FROM trades WHERE id=?', tr.id), 1_750_000_00);
+  eq(q.val('SELECT user_id FROM trades WHERE id=?', r1.tradeId), buyer.id); eq(q.val('SELECT acquired_price FROM trades WHERE id=?', r1.tradeId), r1.price);
+  eq(walletBalance(buyer.id), bBefore - r1.price); eq(walletBalance(seller.id), sBefore + r1.price - r1.fee);
+  eq(r1.fee, Math.round(r1.price / 100), '1% fee');
+  const vtd = mkt.valueToDate(q.get<any>('SELECT * FROM trades WHERE id=?', r1.tradeId), 750_000_00);
+  eq(Math.abs(r1.price - Math.round(vtd * 0.98)) <= 100, true, 'price is value to date less 2%'); eq(vtd > 820_000_00 && vtd < 830_000_00, true, 'about ₦825,000 after 122 days');
+  eq(q.val('SELECT units_left FROM trade_listings WHERE id=?', listingId), 7);
+  eq(balance(`lot:${lid}`), lotBal, 'money stays in the lot'); eq(trialBalance(), 0);
+  // Whole: the remaining 7 units go to buyer 2 by moving the trade itself
+  const certBefore = q.val('SELECT certificate_no FROM trades WHERE id=?', tr.id);
+  const r2 = mkt.buyUnits(userById(b2.id)!, listingId, 7);
+  eq(r2.tradeId, tr.id); eq(q.val('SELECT user_id FROM trades WHERE id=?', tr.id), b2.id);
+  eq(q.val('SELECT certificate_no FROM trades WHERE id=?', tr.id) !== certBefore, true, 'new certificate for the new holder');
+  eq(q.val('SELECT status FROM trade_listings WHERE id=?', listingId), 'sold');
+  throws(() => mkt.buyUnits(userById(buyer.id)!, listingId, 1), 'market.gone');
+  // Buyer can't afford
+  throws(() => mkt.listTrade(userById(buyer.id)!, r1.tradeId, 3, 0), 'market.too_soon');
+  q.run('UPDATE trades SET acquired_at=? WHERE id=?', addDays(now(), -31), r1.tradeId);
+  const l2 = mkt.listTrade(userById(buyer.id)!, r1.tradeId, 3, 0);
+  const poor = mkUser('poor@t.ng');
+  throws(() => mkt.buyUnits(userById(poor.id)!, l2, 1), 'lots.need_funds');
+  // Kitovu buys one unit like any buyer
+  const rk = mkt.buyUnits(userById(1)!, l2, 1, { asKitovu: true, by: 1 });
+  eq(q.val('SELECT role FROM users WHERE id=(SELECT user_id FROM trades WHERE id=?)', rk.tradeId), 'house');
+  eq(balance('kitovu:market_purchases'), -rk.price); eq(trialBalance(), 0);
+  // Listings close when the trade becomes ineligible
+  q.run("UPDATE trades SET original_matures_at=matures_at WHERE id=?", r1.tradeId);
+  eq(mkt.expireListings() >= 1, true); eq(q.val('SELECT status FROM trade_listings WHERE id=?', l2), 'expired');
+  // On the payout date the holder is paid the full amount
+  q.run('UPDATE trades SET matures_at=? WHERE id=?', addDays(now(), -0.01), tr.id);
+  const b2Before = walletBalance(b2.id);
+  payTrade(tr.id, 1);
+  eq(walletBalance(b2.id), b2Before + 1_750_000_00 + earningsFor(1_750_000_00, 3000, 12)); eq(trialBalance(), 0);
+  setSetting('marketplace_mode', 'off');
+  throws(() => mkt.buyUnits(userById(b2.id)!, l2, 1), 'market.off');
+});
+
 console.log('\nWatchdog');
 await t('watchdog: emails super admins once when a problem starts, stays quiet while it lasts, and says when it is resolved', async () => {
   const wd = await import('../src/lib/watchdog');

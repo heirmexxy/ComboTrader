@@ -18,6 +18,7 @@ import { translate, isLang, type Lang } from './i18n';
 import { fmtNGN, randomToken, hmac, lagosNow } from './util';
 import { siteStats, rateFor, lotPeriods, stageLabel } from './trading';
 import { walletBalance } from './ledger';
+import { marketOn, openListings, quote } from './market';
 
 // ================= Channels =================
 export const CHANNELS = ['facebook', 'instagram', 'linkedin', 'x', 'telegram'] as const;
@@ -376,12 +377,12 @@ export async function runSocial(force = false) {
 }
 
 // ================= Email marketing =================
-export const CAMPAIGN_KEYS = ['welcome_1', 'welcome_2', 'welcome_3', 'maturity', 'paid_out', 'winback', 'new_lot'] as const;
+export const CAMPAIGN_KEYS = ['welcome_1', 'welcome_2', 'welcome_3', 'maturity', 'paid_out', 'winback', 'new_lot', 'market'] as const;
 type Recipient = { user_id: number; ref: string; vars: Record<string, string> };
 const campaignOn = (c: string) => String(settings().email_campaigns).split(',').map((x) => x.trim()).includes(c.replace(/_\d$/, ''));
 const CAMPAIGN_LINK: Record<string, (r: Recipient) => string> = {
   welcome_1: () => '/how-it-works', welcome_2: () => '/app/lots', welcome_3: () => '/app/circles',
-  maturity: (r) => `/app/trades/${r.ref}`, paid_out: () => '/app/lots', winback: () => '/app/lots', new_lot: (r) => `/lots/${r.ref}`,
+  maturity: (r) => `/app/trades/${r.ref}`, paid_out: () => '/app/lots', winback: () => '/app/lots', new_lot: (r) => `/lots/${r.ref}`, market: () => '/app/market',
 };
 const d = (days: number) => new Date(Date.now() + days * 864e5).toISOString();
 /** Who each lifecycle email goes to today (each person gets each email once per trade, lot or quarter). */
@@ -405,6 +406,16 @@ export function campaignAudience(c: string): Recipient[] {
       if (!q.get("SELECT 1 FROM lots WHERE status='open' AND closes_at>?", now())) return [];
       return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND EXISTS (SELECT 1 FROM trades t WHERE t.user_id=u.id) AND NOT EXISTS (SELECT 1 FROM trades t WHERE t.user_id=u.id AND (t.status IN ('active','matured') OR t.created_at>=?)) AND ${notSent(`'${qtr}'`)} LIMIT 300`, d(-60))
         .map((u) => ({ user_id: u.id, ref: qtr, vars: { ...name(u), low: String(rateFor(4) / 100), high: String(rateFor(12) / 100) } }));
+    }
+    case 'market': {
+      // Every two weeks at most: Champions with enough idle money to buy at least one unit for sale.
+      if (!marketOn()) return [];
+      const offers = openListings().map((l) => quote(l, l, 1));
+      if (!offers.length) return [];
+      const cheapest = Math.min(...offers.map((o) => o.price)), best = Math.max(...offers.map((o) => o.annualPct));
+      const period = String(Math.floor(Date.now() / (14 * 864e5)));
+      return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND ${notSent(`'${period}'`)} LIMIT 500`).filter((u) => walletBalance(u.id) >= cheapest && !q.get("SELECT 1 FROM trade_listings WHERE seller_id=? AND status='listed'", u.id))
+        .map((u) => ({ user_id: u.id, ref: period, vars: { ...name(u), n: String(offers.length), pct: String(best) } }));
     }
     case 'new_lot': {
       const lot = q.get<any>("SELECT * FROM lots WHERE status='open' AND closes_at>? AND COALESCE(opened_at, created_at)>=? ORDER BY COALESCE(opened_at, created_at) DESC", now(), d(-3));

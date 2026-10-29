@@ -38,7 +38,7 @@ The Platform is operated by **Kitovu Technology Company Limited**, a company reg
 ## 5. Trade Lots and trades
 5.1 Each Trade Lot is tied to a buyer order that Kitovu has on file. The buyer's identity may be kept confidential for commercial reasons.
 
-5.2 You choose the amount you commit, within the Lot's minimum and the amount remaining. Once you confirm, the amount moves from your wallet into the trade and is **locked until the payout date**. Early exit is not available.
+5.2 You choose the amount you commit, within the Lot's minimum and the amount remaining. Once you confirm, the amount moves from your wallet into the trade and is **locked until the payout date**. Kitovu does not buy trades back. Where the Marketplace is available, you may sell your trade to another Champion before the payout date (section 5.10); otherwise early exit is not available.
 
 5.3 Earnings are calculated at the rate for the period you choose when you join (shown on the Lot and on your Trade Certificate), pro-rated by months, and paid with your principal on the payout date shown on your Trade Certificate.
 
@@ -53,6 +53,8 @@ The Platform is operated by **Kitovu Technology Company Limited**, a company reg
 5.8 **Harvest Plan.** A Harvest Plan saves a fixed amount each month toward a target you set. Saved money is held for you and is yours: you may move it to your wallet at any time. If you pay by card, you authorise us, through Paystack, to charge that card on your chosen day each month until the plan reaches its target, you pause it, or you stop it. When the plan reaches its target, we join the next suitable Trade Lot for you on its terms at that time. Plan savings do not earn anything until they are in a trade.
 
 5.9 **Gift a Harvest.** You may fund a trade as a gift. The trade stays yours until the recipient claims it with the private link; on claiming, the trade and its payout belong to the recipient, who is bound by these Terms. If the gift is never claimed, or you cancel it, the trade and its payout remain yours. Gifts cannot be reversed once claimed.
+
+5.10 **Marketplace (selling a trade before the payout date).** Where we make it available, you may offer an active trade you hold to other Champions, as a whole or in units (each unit at least the unit size shown). The price is the trade's value to date (your principal plus earnings built up day by day from the start date to the day of sale), less any discount you choose up to the limit shown. When a buyer accepts, the price is paid from the buyer's wallet: you receive it at once less the marketplace fee (currently 1% of the price, shown before you list), and the units you sold, with all rights to their principal and earnings on the payout date, pass to the buyer, who receives a new Trade Certificate. Kitovu pays whoever holds the trade on the payout date; the payout date, rate and risks do not change. A trade can be listed only after you have held it for the minimum period and not in the final days before the payout date (both shown on the Marketplace); unclaimed gifts and trades with a delayed payout date cannot be listed. There is no guarantee that anyone will buy. Kitovu may buy like any other buyer but has no obligation to. We may pause or close the Marketplace, cancel listings, or refuse a sale to prevent fraud or comply with the law; a completed sale cannot be reversed.
 
 ## 6. Harvest Trail and information
 We post updates on each trade's progress. Updates are provided in good faith to keep you informed and do not change the terms of your trade.

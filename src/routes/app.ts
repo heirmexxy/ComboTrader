@@ -1,3 +1,6 @@
+import { marketOn, cannotList, unitsOf, quote, canListFrom, listTrade, cancelListing, buyUnits, openListings, listingsBy } from '../lib/market';
+import * as M from '../views/app/market';
+import type { SellInfo } from '../views/app/market';
 import { normalizePhone } from '../lib/util';
 import { get, post } from '../lib/router';
 import { render } from '../views/render';
@@ -14,10 +17,10 @@ import { certificatePdf } from '../lib/cards';
 import { settings } from '../lib/settings';
 import * as paystack from '../lib/paystack';
 import { verifyTotp, newTotpSecret, otpauthUrl } from '../lib/totp';
-import { hashPassword, verifyPassword, parseNaira, addDays, hmac, safeEqual, fmtNGN } from '../lib/util';
+import { hashPassword, verifyPassword, parseNaira, addDays, hmac, safeEqual, fmtNGN, earningsFor } from '../lib/util';
 import { passwordProblem, rateLimit, userById } from '../lib/auth';
 import { countryOptions, COUNTRY_CODES } from '../lib/geo';
-import { isLang } from '../lib/i18n';
+import { isLang, fmtDate } from '../lib/i18n';
 import { savePrivateFile } from '../lib/uploads';
 import { audit } from '../lib/audit';
 import { notify } from '../lib/notify';
@@ -74,7 +77,39 @@ function myTrade(c: Ctx) {
 get('/app/trades/:id', 'auth', (c) => {
   const t = myTrade(c);
   const share = t.amount / t.target_amount;
-  render(c, h(V.TradeDetail, { t, trail: trailFor(t.lot_id), tons: share * t.tonnage, farmers: Math.max(1, Math.round(share * t.farmers)) }));
+  render(c, h(V.TradeDetail, { t, trail: trailFor(t.lot_id), tons: share * t.tonnage, farmers: Math.max(1, Math.round(share * t.farmers)), market: sellInfo(t, c.user!) }));
+});
+function sellInfo(t: any, u: any): SellInfo {
+  const s = settings();
+  const reason = cannotList(t, u);
+  const listing = q.get<any>("SELECT * FROM trade_listings WHERE trade_id=? AND seller_id=? AND status='listed'", t.id, u.id);
+  const un = unitsOf(t.amount);
+  const qa = quote({ unit_amount: un.unitAmount, discount_bps: 0 }, t, un.units);
+  return { reason: listing ? null : reason, reasonVars: { date: fmtDate(c0(u), canListFrom(t)) }, units: un.units, unitAmount: un.unitAmount, feePct: Number(s.market_fee_bps) / 100, maxDisc: Number(s.market_max_discount_pct),
+    quoteAll: qa, listing, bought: t.acquired_price ? { at: t.acquired_at, price: t.acquired_price, payout: t.amount + earningsFor(t.amount, t.rate_bps, t.period_months) } : null };
+}
+const c0 = (u: any) => (isLang(u.lang) ? u.lang : 'en');
+post('/app/trades/:id/sell', 'auth', (c) => {
+  const t = myTrade(c);
+  try { listTrade(c.user!, t.id, c.int('units'), Number(c.body.discount) || 0); c.redirect(`/app/trades/${t.id}`, ['ok', c.t('market.listed')]); }
+  catch (e) { c.redirect(`/app/trades/${t.id}`, ['error', err(c, e)]); }
+});
+// ---------- Marketplace ----------
+function marketGuard() { if (!marketOn()) throw new HttpError(404, 'Not found'); }
+get('/app/market', 'auth', (c) => {
+  marketGuard();
+  const offers = openListings(c.user!.id).map((l) => ({ ...l, q1: quote(l, l, 1) }));
+  render(c, h(M.MarketPage, { offers, mine: listingsBy(c.user!.id), wallet: walletBalance(c.user!.id) }));
+});
+post('/app/market/:id/buy', 'auth', (c) => {
+  marketGuard();
+  if (!c.bool('agree')) return c.redirect('/app/market', ['error', c.t('lots.agree_terms')]);
+  try { const r = buyUnits(c.user!, Number(c.params.id), c.int('units')); c.redirect(`/app/trades/${r.tradeId}`, ['ok', c.t('market.bought')]); }
+  catch (e) { c.redirect('/app/market', ['error', err(c, e)]); }
+});
+post('/app/market/:id/cancel', 'auth', (c) => {
+  try { cancelListing(c.user!, Number(c.params.id)); c.back('/app/market', ['ok', c.t('market.cancelled')]); }
+  catch (e) { c.back('/app/market', ['error', err(c, e)]); }
 });
 get('/app/trades/:id/certificate.pdf', 'auth', async (c) => {
   const t = myTrade(c);

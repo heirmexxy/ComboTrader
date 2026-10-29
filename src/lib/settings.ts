@@ -19,7 +19,13 @@ export const DEFAULTS = {
   baseline_payouts: 5000000000, // ₦50M
   baseline_farmers: 25000,
   watchdog_state: '{}', // internal: problems the watchdog has already emailed about
-  test_mode: false, // simulated payments + sample lots on a real server, only while no live Paystack key is set
+  test_mode: false,
+  marketplace_mode: 'off' as 'off' | 'on', // Champions selling trades to each other before term (test mode turns it on for testing)
+  market_unit: 25000000, // kobo: ₦250,000 — smallest piece of a trade that can be sold
+  market_fee_bps: 100, // 1% of the sale price, paid by the seller
+  market_max_discount_pct: 5, // sellers may price up to this much below value to date
+  market_min_hold_days: 30, // days a trade must be held before it can be listed
+  market_cutoff_days: 14, // no listing (or buying) in the last days before the payout date // simulated payments + sample lots on a real server, only while no live Paystack key is set
   figures_mode: 'add' as 'add' | 'exact', // add: number typed + live platform activity; exact: show exactly the number typed
   rank_thresholds: '1,5,20', // tons for Sprout, Harvester, Granary Keeper
   support_phone: '+234 000 000 0000',
@@ -49,7 +55,7 @@ export const DEFAULTS = {
   social_channels: 'facebook,instagram,linkedin,x,telegram', // where posts go (connected channels publish; others become copy-ready)
   social_auto_reply: true, // answer comments/DMs that ask how to join, with the /join link
   social_click_goal: 10, // a post "worked" if it gets this many clicks (or one sign-up) in a week
-  email_campaigns: 'welcome,maturity,paid_out,winback,new_lot', // lifecycle emails the Email agent may send
+  email_campaigns: 'welcome,maturity,paid_out,winback,new_lot,market', // lifecycle emails the Email agent may send
   newsletter_ab: true, // test two subject lines on every newsletter
   agent_mode: 'ai' as 'ai' | 'rules', // ai: use Claude when ANTHROPIC_API_KEY is set; rules: learned rules and templates only
   agent_modes: '{}', // per-agent override, e.g. {"growth":"rules"}

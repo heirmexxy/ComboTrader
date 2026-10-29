@@ -1,3 +1,4 @@
+import { marketOn } from '../lib/market';
 import { simulated } from '../lib/paystack';
 import type { ReactNode } from 'react';
 import { useC, jsonScript } from './render';
@@ -11,7 +12,7 @@ import { walletBalance } from '../lib/ledger';
 import { q } from '../lib/db';
 import crypto from 'node:crypto';
 import { FaXTwitter, FaFacebook, FaLinkedin, FaInstagram } from 'react-icons/fa6';
-import { LuMenu, LuGlobe, LuBell, LuHouse, LuWheat, LuReceipt, LuWallet, LuGift, LuUser, LuLock, LuLifeBuoy, LuUsersRound, LuLogOut, LuSettings, LuDownload, LuPause, LuPiggyBank, LuHeartHandshake, LuArrowLeft } from 'react-icons/lu';
+import { LuArrowLeftRight, LuMenu, LuGlobe, LuBell, LuHouse, LuWheat, LuReceipt, LuWallet, LuGift, LuUser, LuLock, LuLifeBuoy, LuUsersRound, LuLogOut, LuSettings, LuDownload, LuPause, LuPiggyBank, LuHeartHandshake, LuArrowLeft } from 'react-icons/lu';
 
 export const ASSET_V = String(Date.now()).slice(-8);
 
@@ -61,7 +62,7 @@ function Boot({ withFeed = true }: { withFeed?: boolean }) {
   }
   const boot = {
     lang: c.lang, csrf: c.csrf, feed: withFeed && settings().feed_enabled, tawk, vapid: config.vapidPublic || null, loggedIn: !!c.user,
-    s: { install: c.t('install.banner'), installBtn: c.t('install.button'), later: c.t('install.later'), copied: c.t('ref.copied'), close: c.t('feed.close'),
+    s: { install: c.t('install.banner'), installBtn: c.t('install.button'), later: c.t('install.later'), copied: c.t('ref.copied'), pwShow: c.t('pw.show'), pwHide: c.t('pw.hide'), close: c.t('feed.close'),
       pushOn: c.t('notif.push_on'), pushNo: c.t('notif.push_unsupported'), months: c.t('common.months'), pause: c.t('ticker.pause'), play: c.t('ticker.play'),
       cookieText: c.t('cookie.text'), cookieAccept: c.t('cookie.accept'), cookieEssential: c.t('cookie.essential'), cookieMore: c.t('cookie.more'),
       ios1: c.t('install.ios_1'), ios2: c.t('install.ios_2'), ios3: c.t('install.ios_3'), iosH: c.t('install.ios_h') },
@@ -220,7 +221,7 @@ export function PublicLayout({ title, description, children, noindex, image }: {
 }
 
 const APP_NAV: [string, string, any][] = [
-  ['/app', 'app.nav.home', LuHouse], ['/app/lots', 'app.nav.lots', LuWheat], ['/app/trades', 'app.nav.trades', LuReceipt],
+  ['/app', 'app.nav.home', LuHouse], ['/app/lots', 'app.nav.lots', LuWheat], ['/app/market', 'app.nav.market', LuArrowLeftRight], ['/app/trades', 'app.nav.trades', LuReceipt],
   ['/app/circles', 'app.nav.circles', LuUsersRound], ['/app/plans', 'app.nav.plans', LuPiggyBank], ['/app/gifts', 'app.nav.gifts', LuHeartHandshake], ['/app/wallet', 'app.nav.wallet', LuWallet], ['/app/referrals', 'app.nav.refer', LuGift],
   ['/app/profile', 'app.nav.profile', LuUser], ['/app/security', 'app.nav.security', LuLock], ['/app/support', 'app.nav.support', LuLifeBuoy],
 ];
@@ -230,7 +231,7 @@ export function AppLayout({ title, children }: { title: string; children: ReactN
   const u = c.user!;
   const unread = Number(q.val('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL', u.id) ?? 0);
   const st = settings();
-  const nav = APP_NAV.filter(([href]) => (href !== '/app/circles' || circlesVisibleTo(u)) && (href !== '/app/plans' || st.plans_enabled) && (href !== '/app/gifts' || st.gifts_enabled));
+  const nav = APP_NAV.filter(([href]) => (href !== '/app/market' || marketOn()) && (href !== '/app/circles' || circlesVisibleTo(u)) && (href !== '/app/plans' || st.plans_enabled) && (href !== '/app/gifts' || st.gifts_enabled));
   const isActive = (href: string) => (href === '/app' ? c.path === '/app' : c.path.startsWith(href));
   return (
     <Html title={title} noindex bodyClass="app-body">
@@ -281,7 +282,7 @@ export function AppLayout({ title, children }: { title: string; children: ReactN
 export const ADMIN_NAV: [string, string, string][] = [
   ['/admin', 'Overview', 'any'], ['/admin/lots', 'Trade Lots', 'operations'], ['/admin/trail', 'Harvest Trail', 'operations'],
   ['/admin/treasury', 'Treasury', 'finance'], ['/admin/payouts', 'Payouts', 'finance'], ['/admin/plans', 'Plans & gifts', 'finance'], ['/admin/withdrawals', 'Withdrawals', 'finance'], ['/admin/ledger', 'Wallets & ledger', 'finance'],
-  ['/admin/champions', 'Champions', 'support'], ['/admin/verification', 'Verification', 'support'], ['/admin/circles', 'Harvest Circles', 'operations'],
+  ['/admin/champions', 'Champions', 'support'], ['/admin/verification', 'Verification', 'support'], ['/admin/circles', 'Harvest Circles', 'operations'], ['/admin/marketplace', 'Marketplace', 'operations'],
   ['/admin/prices', 'Prices', 'operations'], ['/admin/feed', 'Activity feed', 'content'], ['/admin/posts', 'Chronicles (blog)', 'content'],
   ['/admin/figures', 'Homepage numbers', 'content'], ['/admin/faqs', 'FAQs & page text', 'content'], ['/admin/newsletter', 'Newsletter', 'content'], ['/admin/referrals', 'Referrals', 'finance'],
   ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/agents', 'AI agents', 'any'], ['/admin/marketing', 'Marketing', 'content'], ['/admin/prospects', 'Prospects', 'content'], ['/admin/whatsapp', 'WhatsApp', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],

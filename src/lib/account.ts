@@ -86,9 +86,11 @@ export function statementData(uid: number, year: number) {
   const earnings = paidTrades.reduce((s, t) => s + (t.earnings || 0), 0);
   const principalBack = paidTrades.reduce((s, t) => s + t.amount, 0);
   const referrals = sum("AND j.kind='referral'");
+  const marketSold = sum("AND j.kind='market' AND e.amount>0");
+  const marketBought = -sum("AND j.kind='market' AND e.amount<0");
   const adjustments = sum("AND j.kind='adjust'");
   const active = q.all<any>(`SELECT t.certificate_no, t.amount, t.matures_at, l.title FROM trades t JOIN lots l ON l.id=t.lot_id WHERE t.user_id=? AND t.start_at<? AND (t.paid_at IS NULL OR t.paid_at>=?) AND t.status!='cancelled' ORDER BY t.matures_at`, uid, to, to);
-  return { year, opening, closing, funded, traded, withdrawn: Math.max(0, withdrawn), earnings, principalBack, referrals, adjustments, paidTrades, active };
+  return { year, opening, closing, funded, traded, withdrawn: Math.max(0, withdrawn), earnings, principalBack, referrals, adjustments, marketSold, marketBought, paidTrades, active };
 }
 
 export async function statementPdf(u: User, year: number) {
@@ -115,6 +117,8 @@ export async function statementPdf(u: User, year: number) {
   row('Principal returned from trades', N(d.principalBack));
   row('Earnings paid', N(d.earnings), true);
   if (d.referrals) row('Referral rewards', N(d.referrals));
+  if (d.marketBought) row('Paid for trades bought from other Champions', `- ${N(d.marketBought)}`);
+  if (d.marketSold) row('Received for trades sold to other Champions (after fee)', N(d.marketSold));
   if (d.adjustments) row('Adjustments', N(d.adjustments));
   row('Withdrawn to bank', `- ${N(d.withdrawn)}`);
   row('Closing wallet balance (31 December)', N(d.closing), true);
