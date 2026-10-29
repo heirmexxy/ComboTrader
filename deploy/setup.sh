@@ -78,7 +78,7 @@ if [ -f /etc/caddy/Caddyfile ] && grep -q "# BEGIN combotrader" /etc/caddy/Caddy
 SYS_NODE=$(command -v node || true); SYS_NODE_V=""
 [ -n "$SYS_NODE" ] && SYS_NODE_V=$("$SYS_NODE" -v 2>/dev/null | tr -d v)
 if [ -x "$NODE_DIR/bin/node" ]; then NODE_PLAN="use ComboTrader's own Node.js in $NODE_DIR"; NODE_BIN="$NODE_DIR/bin"
-elif [ -n "$SYS_NODE_V" ] && ver_ge "$SYS_NODE_V" 22.13.0; then NODE_PLAN="use the existing Node.js $SYS_NODE_V (left as it is)"; NODE_BIN=$(dirname "$SYS_NODE")
+elif [ -n "$SYS_NODE_V" ] && ver_ge "$SYS_NODE_V" 22.13.0 && runuser -u nobody -- "$SYS_NODE" -v >/dev/null 2>&1; then NODE_PLAN="use the existing Node.js $SYS_NODE_V at $SYS_NODE (left as it is)"; NODE_BIN=$(dirname "$SYS_NODE")
 else NODE_PLAN="install a private Node.js 22 in $NODE_DIR (your system Node.js ${SYS_NODE_V:-none} is not touched)"; NODE_BIN="$NODE_DIR/bin"; fi
 
 if [ -f "$APP_DIR/.env" ] && grep -q '^PORT=' "$APP_DIR/.env" && [ -z "${PORT:-}" ]; then
