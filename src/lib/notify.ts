@@ -10,6 +10,8 @@ import { translate } from './i18n';
 export function queueEmail(to: string, subject: string, html: string) {
   q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now() });
 }
+/** The SMS code step at sign-up only runs when SMS can actually be delivered (or codes are shown on screen in demo mode). */
+export const phoneCheckRequired = () => !!config.termiiKey || config.demoMode;
 export function queueSms(to: string, text: string, channel: 'sms' | 'whatsapp' = 'sms') {
   if (!to) return;
   q.insert('outbox', { channel, recipient: to, body: text, created_at: now() });

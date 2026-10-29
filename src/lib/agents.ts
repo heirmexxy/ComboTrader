@@ -11,7 +11,7 @@ import { completeJson, aiLive, useAI, AiUnavailable, POLICY, logRun } from './ai
 import { learn, bestLesson, lessonsFor, parseLesson, used, trackOutcome, scoreLesson, similarity, keyOf, fill, lessonScore, type Lesson } from './learning';
 import { lotTitle, lotDescription, nextLotCode } from './lotgen';
 import { settings } from './settings';
-import { notify, queueEmail, emailShell, escapeHtml } from './notify';
+import { notify, queueEmail, emailShell, escapeHtml, phoneCheckRequired } from './notify';
 import { audit } from './audit';
 import { userById } from './auth';
 import { walletBalance } from './ledger';
@@ -341,10 +341,10 @@ export async function runOnboarding(limit = 25) {
   const cases: { u: User; situation: string; link: string; key: string; ref: string }[] = [];
   const add = (rows: any[], key: string, situation: string, link: string) => { for (const r of rows) if (cases.length < limit && !cases.some((x) => x.u.id === r.id)) cases.push({ u: r, situation, link, key, ref: `${key}:${now().slice(0, 7)}` }); };
   const anyOpen = !!q.get("SELECT 1 FROM lots WHERE status='open' AND closes_at>?", now());
-  add(q.all<any>("SELECT * FROM users WHERE role='champion' AND status='active' AND phone_verified_at IS NULL AND created_at<=? AND created_at>=?", d(1), d(14)), 'phone', 'signed up but has not confirmed their phone number', '/verify-phone');
+  if (phoneCheckRequired()) add(q.all<any>("SELECT * FROM users WHERE role='champion' AND status='active' AND phone_verified_at IS NULL AND created_at<=? AND created_at>=?", d(1), d(14)), 'phone', 'signed up but has not confirmed their phone number', '/verify-phone');
   add(q.all<any>("SELECT * FROM users WHERE status='active' AND kyc_status='rejected'"), 'kyc', 'identity check failed; they can try again or contact support', '/app/profile#kyc');
   add(q.all<any>("SELECT DISTINCT u.* FROM users u JOIN payments p ON p.user_id=u.id WHERE u.status='active' AND p.status IN ('pending','failed') AND p.created_at>=? AND p.created_at<=? AND NOT EXISTS (SELECT 1 FROM payments s WHERE s.user_id=u.id AND s.status='success' AND s.created_at>=p.created_at)", d(3), d(0.1)), 'payment', 'started a payment that did not complete', '/app/wallet#fund');
-  add(q.all<any>("SELECT * FROM users u WHERE role='champion' AND status='active' AND phone_verified_at IS NOT NULL AND created_at<=? AND created_at>=? AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id)", d(3), d(30)), 'fund', 'confirmed their account but has not added money yet; explain how a Trade Lot works and that the minimum is shown on each lot', '/app/wallet#fund');
+  add(q.all<any>(`SELECT * FROM users u WHERE role='champion' AND status='active' AND ${phoneCheckRequired() ? 'phone_verified_at IS NOT NULL AND ' : ''}created_at<=? AND created_at>=? AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id)`, d(3), d(30)), 'fund', 'confirmed their account but has not added money yet; explain how a Trade Lot works and that the minimum is shown on each lot', '/app/wallet#fund');
   if (anyOpen) add(q.all<any>("SELECT DISTINCT u.* FROM users u JOIN payments p ON p.user_id=u.id AND p.status='success' WHERE u.status='active' AND p.paid_at<=? AND NOT EXISTS (SELECT 1 FROM trades t WHERE t.user_id=u.id)", d(2)), 'first_lot', 'added money to their wallet but has not joined a Trade Lot yet; lots are open now', '/app/lots');
   add(q.all<any>("SELECT DISTINCT u.* FROM users u JOIN plans p ON p.user_id=u.id WHERE u.status='active' AND p.status='paused'"), 'plan', 'Harvest Plan is paused after failed card charges', '/app/plans');
   add(q.all<any>("SELECT DISTINCT u.* FROM users u JOIN gifts g ON g.giver_id=u.id WHERE g.status='sent' AND g.created_at<=?", d(7)), 'gift', 'sent a Harvest gift that has not been claimed after a week; they could resend the link', '/app/gifts');

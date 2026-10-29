@@ -1,3 +1,4 @@
+import { phoneCheckRequired } from '../lib/notify';
 import { get, post } from '../lib/router';
 import { render } from '../views/render';
 import { createElement as h } from 'react';
@@ -26,7 +27,7 @@ const err = (c: Ctx, e: unknown) => (e instanceof TradeError ? c.t(e.key, e.vars
 
 get('/app', 'auth', (c) => {
   const u = c.user!;
-  if (!u.onboarded && !c.isAdmin) return c.redirect(u.phone_verified_at ? '/welcome' : '/verify-phone');
+  if (!u.onboarded && !c.isAdmin) return c.redirect(u.phone_verified_at || !phoneCheckRequired() ? '/welcome' : '/verify-phone');
   const impact = impactFor(u.id);
   render(c, h(V.AppHome, { d: {
     wallet: walletBalance(u.id), reserved: reservedBalance(u.id), impact, rank: rankFor(impact.tons) as any,

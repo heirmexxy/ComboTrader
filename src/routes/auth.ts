@@ -6,7 +6,7 @@ import { q, now } from '../lib/db';
 import { createSession, destroySession, issueToken, consumeToken, createUser, userByEmail, rateLimit, passwordProblem, userById } from '../lib/auth';
 import { verifyTotp } from '../lib/totp';
 import { hashPassword, verifyPassword, isEmail, normalizePhone, randomToken, safeEqual, hmac } from '../lib/util';
-import { queueEmail, queueSms, emailShell, notify } from '../lib/notify';
+import { queueEmail, queueSms, emailShell, notify, phoneCheckRequired } from '../lib/notify';
 import { translate, isLang } from '../lib/i18n';
 import { COUNTRY_CODES } from '../lib/geo';
 import { config } from '../lib/config';
@@ -82,7 +82,7 @@ post('/signup', 'guest', (c) => {
   c.setCookie('ref', '', { maxAge: 0 });
   if (next) c.setCookie('next', next, { maxAge: 3600 });
   if (demoMessaging()) c.setCookie('demo_verify', url, { maxAge: 3600 });
-  c.redirect('/verify-phone');
+  c.redirect(phoneCheckRequired() ? '/verify-phone' : '/welcome');
 });
 
 // Referral link: /r/CODE
@@ -114,7 +114,7 @@ get('/verify-email/:token', 'public', (c) => {
 // ---------- Phone verification ----------
 get('/verify-phone', 'auth', (c) => {
   const u = c.user!;
-  if (u.phone_verified_at) return c.redirect(u.onboarded ? '/app' : '/welcome');
+  if (u.phone_verified_at || !phoneCheckRequired()) return c.redirect(u.onboarded ? '/app' : '/welcome');
   const pending = c.cookies.otp_phone;
   render(c, h(A.VerifyPhonePage, { phone: pending || u.phone || '', sent: !!pending, demoCode: demoSms() ? c.cookies.demo_otp : undefined }));
 });
@@ -255,7 +255,7 @@ get('/auth/google/callback', 'public', async (c) => {
   if (u.totp_enabled) { createSession(c, u.id, { remember: true, twofaOk: false }); return c.redirect('/login/2fa'); }
   createSession(c, u.id, { remember: true });
   logLogin(c, u.id, u.email, true);
-  if (fresh || !u.phone_verified_at) return c.redirect('/verify-phone');
+  if (fresh || !u.phone_verified_at) return c.redirect(phoneCheckRequired() ? '/verify-phone' : u.onboarded ? '/app' : '/welcome');
   const next = safeNext(c.cookies.next);
   c.setCookie('next', '', { maxAge: 0 });
   afterLogin(c, u, next);
