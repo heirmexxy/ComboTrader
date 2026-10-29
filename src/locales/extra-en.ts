@@ -1,5 +1,6 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  'app.nav.site': 'Back to website',
   'sec.scan': "Open Google Authenticator, Microsoft Authenticator or Authy, tap + (add account), choose “Scan a QR code” and point your camera at the code below. Then enter the 6-digit code the app shows.", 'sec.qr_alt': "QR code for your authenticator app", 'sec.qr_manual': "Can't scan? Choose “Enter a setup key” in the app, type ComboTrader as the name and this key (time-based):",
   'app.nav.plans': 'Harvest Plan', 'app.nav.gifts': 'Gift a Harvest',
   // Harvest Plan

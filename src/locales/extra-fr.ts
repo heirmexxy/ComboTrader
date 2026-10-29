@@ -1,5 +1,6 @@
 // Nouvelles fonctions — français (à faire relire par un locuteur natif).
 const x: Record<string, string> = {
+  'app.nav.site': 'Retour au site',
   'sec.scan': "Ouvrez Google Authenticator, Microsoft Authenticator ou Authy, touchez + (ajouter un compte), choisissez « Scanner un code QR » et visez le code ci-dessous. Saisissez ensuite le code à 6 chiffres affiché par l’application.", 'sec.qr_alt': "Code QR pour votre application d’authentification", 'sec.qr_manual': "Impossible de scanner ? Choisissez « Saisir une clé » dans l’application, nommez-la ComboTrader et tapez cette clé (basée sur le temps) :",
   'app.nav.plans': 'Plan Récolte', 'app.nav.gifts': 'Offrir une récolte',
   'plan.title': 'Plan Récolte', 'plan.eyebrow': 'Épargnez chaque mois, rejoignez un lot une fois l’objectif atteint',

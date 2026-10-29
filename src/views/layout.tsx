@@ -10,7 +10,7 @@ import { walletBalance } from '../lib/ledger';
 import { q } from '../lib/db';
 import crypto from 'node:crypto';
 import { FaXTwitter, FaFacebook, FaLinkedin, FaInstagram } from 'react-icons/fa6';
-import { LuMenu, LuGlobe, LuBell, LuHouse, LuWheat, LuReceipt, LuWallet, LuGift, LuUser, LuLock, LuLifeBuoy, LuUsersRound, LuLogOut, LuSettings, LuDownload, LuPause, LuPiggyBank, LuHeartHandshake } from 'react-icons/lu';
+import { LuMenu, LuGlobe, LuBell, LuHouse, LuWheat, LuReceipt, LuWallet, LuGift, LuUser, LuLock, LuLifeBuoy, LuUsersRound, LuLogOut, LuSettings, LuDownload, LuPause, LuPiggyBank, LuHeartHandshake, LuArrowLeft } from 'react-icons/lu';
 
 export const ASSET_V = String(Date.now()).slice(-8);
 
@@ -246,6 +246,7 @@ export function AppLayout({ title, children }: { title: string; children: ReactN
                 <li className="muted small">{u.email}</li>
                 {nav.slice(6).map(([href, k, I]) => <li key={href}><a href={href}><I aria-hidden /> {c.t(k)}</a></li>)}
                 {c.isAdmin && <li><a href="/admin"><LuSettings aria-hidden /> {c.t('app.nav.admin')}</a></li>}
+                <li><a href="/"><LuArrowLeft aria-hidden /> {c.t('app.nav.site')}</a></li>
                 <li><form method="post" action="/logout"><Csrf /><button className="linklike" type="submit"><LuLogOut aria-hidden /> {c.t('nav.logout')}</button></form></li>
               </ul>
             </details>
@@ -257,6 +258,7 @@ export function AppLayout({ title, children }: { title: string; children: ReactN
           {nav.map(([href, k, I]) => <a key={href} href={href} aria-current={isActive(href) ? 'page' : undefined}><I aria-hidden /> {c.t(k)}</a>)}
           {c.isAdmin && <a href="/admin"><LuSettings aria-hidden /> {c.t('app.nav.admin')}</a>}
           <a href="/install" className="muted"><LuDownload aria-hidden /> {c.t('nav.install')}</a>
+          <a href="/" className="muted"><LuArrowLeft aria-hidden /> {c.t('app.nav.site')}</a>
         </nav>
         <main id="main" className="app-main">
           {config.paystackDemo && <div className="demo-banner">{c.t('app.demo_banner')}</div>}
@@ -295,6 +297,7 @@ export function AdminLayout({ title, children, actions }: { title: string; child
           <a href="/admin" className="brand"><Logo /> <span className="admin-tag">Admin</span></a>
           <div className="header-actions">
             {config.paystackDemo && <span className="tag tag-terra">Paystack demo mode</span>}
+            <a href="/" className="small">View website</a>
             <a href="/app" className="small">Champion view</a>
             <span className="small muted">{c.user!.first_name} · {c.user!.admin_roles}</span>
             <form method="post" action="/logout"><Csrf /><button className="btn btn-ghost btn-sm" type="submit">Log out</button></form>

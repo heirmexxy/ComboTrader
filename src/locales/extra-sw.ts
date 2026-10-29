@@ -1,5 +1,6 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
+  'app.nav.site': 'Rudi kwenye tovuti',
   'sec.scan': "Fungua Google Authenticator, Microsoft Authenticator au Authy, gusa + (ongeza akaunti), chagua “Changanua msimbo wa QR” na elekeza kamera kwenye msimbo hapa chini. Kisha weka msimbo wa tarakimu 6 unaoonyeshwa na programu.", 'sec.qr_alt': "Msimbo wa QR wa programu yako ya uthibitisho", 'sec.qr_manual': "Huwezi kuchanganua? Chagua “Weka ufunguo” kwenye programu, andika ComboTrader kama jina na ufunguo huu (wa muda):",
   'app.nav.plans': 'Mpango wa Mavuno', 'app.nav.gifts': 'Zawadi ya Mavuno',
   'plan.title': 'Mpango wa Mavuno', 'plan.eyebrow': 'Weka akiba kila mwezi, jiunge na kundi ukifikia lengo',
