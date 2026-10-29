@@ -589,6 +589,28 @@ await t('/join form records a consented lead with its source', async () => {
 });
 function fmtTest(k: number) { return `₦${new Intl.NumberFormat('en-NG').format(k / 100)}`; }
 
+console.log('\nWatchdog');
+await t('watchdog: emails super admins once when a problem starts, stays quiet while it lasts, and says when it is resolved', async () => {
+  const wd = await import('../src/lib/watchdog');
+  const { config } = await import('../src/lib/config');
+  const old = [config.emailProvider, config.emailApiKey];
+  (config as any).emailProvider = 'resend'; (config as any).emailApiKey = 're_test';
+  const boss = mkUser('wd@t.ng'); q.run("UPDATE users SET role='admin', admin_roles='super' WHERE id=?", boss.id);
+  const stuck = q.insert('outbox', { channel: 'email', recipient: 'x@y.ng', subject: 's', body: 'b', status: 'queued', attempts: 4, error: 'Email 403: domain not verified', created_at: now() }).id;
+  const mails = () => q.all<any>("SELECT subject FROM outbox WHERE recipient='wd@t.ng' AND subject LIKE 'ComboTrader health%'");
+  const before = mails().length;
+  await wd.watchdog(); await wd.watchdog();
+  const after = mails();
+  eq(after.length - before, 1, 'one alert, not one per run'); eq(after[after.length - 1].subject.includes('Email and SMS sending'), true);
+  q.run("UPDATE outbox SET status='sent' WHERE id=?", stuck);
+  q.run("UPDATE outbox SET status='sent' WHERE recipient='wd@t.ng'");
+  await wd.watchdog();
+  eq(mails().some((m) => m.subject === 'ComboTrader health: resolved'), true);
+  (config as any).emailProvider = old[0]; (config as any).emailApiKey = old[1];
+  const checks = await wd.runChecks();
+  eq(checks.some((c) => c.key === 'disk') && checks.some((c) => c.key === 'memory'), true);
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');

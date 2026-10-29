@@ -8,6 +8,7 @@ import { closeExpiredLots, markMatured, siteStats, autoPayDue, processRollovers,
 import { runPlans } from './plans';
 import { AGENT_JOBS } from './agents';
 import { scoreOutcomes } from './learning';
+import { watchdog } from './watchdog';
 import { runSocial, runEmail, publishDueSocial } from './marketing';
 import { trackHtmlLinks } from './tracking';
 import { treasurySnapshot } from './treasury';
@@ -63,6 +64,7 @@ export const JOBS: Record<string, () => Promise<string>> = {
   },
   async growth() { return AGENT_JOBS.growth(); },
   async social() { return runSocial(false); },
+  async watchdog() { return watchdog(); },
   async social_publish() { const n = await publishDueSocial(); return `${n} posts published`; },
   async reconcile() { return reconcile(); },
   async weekly() { return weeklySummary(); },
@@ -88,6 +90,8 @@ export function startScheduler() {
       if (q.get("SELECT 1 FROM social_posts WHERE status='scheduled' AND scheduled_at<=?", now())) await runJob('social_publish');
       const l = lastRun('lifecycle');
       if (!l || Date.now() - new Date(l).getTime() > 10 * 60e3) await runJob('lifecycle');
+      const w = lastRun('watchdog');
+      if (!w || Date.now() - new Date(w).getTime() > 10 * 60e3) await runJob('watchdog');
       if (dueDaily('prices', 6)) await runJob('prices');
       if (dueDaily('nudges', 9)) await runJob('nudges');
       if (dueDaily('plans', 9)) await runJob('plans');

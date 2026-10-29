@@ -19,6 +19,7 @@ import { userById, userByEmail } from '../lib/auth';
 import { savePublicImage, savePrivateFile, privatePath } from '../lib/uploads';
 import { parseNaira, slugify, fmtNGN, earningsFor } from '../lib/util';
 import { lotPrefixes, nextLotCode, lotTitle, lotDescription } from '../lib/lotgen';
+import { runChecks } from '../lib/watchdog';
 import { LANGS, allKeys, fileValue, clearOverrides, isLang, type Lang } from '../lib/i18n';
 import { CATEGORIES } from '../views/public/blog';
 import { LEGAL } from '../content/legal';
@@ -35,7 +36,8 @@ const csv = (c: Ctx, name: string, rows: Record<string, unknown>[]) => {
 const who = (id: number | null) => (id ? q.val<string>("SELECT first_name || ' ' || last_name FROM users WHERE id=?", id) || `#${id}` : '—');
 
 // ============ Overview ============
-get('/admin', 'admin:any', (c) => {
+get('/admin', 'admin:any', async (c) => {
+  const health = c.can('super') ? await runChecks() : [];
   const since7 = new Date(Date.now() - 7 * 864e5).toISOString(), since30 = new Date(Date.now() - 30 * 864e5).toISOString();
   const committed = Number(q.val("SELECT COALESCE(SUM(amount),0) FROM trades WHERE status IN ('active','matured')"));
   const float = Number(q.val("SELECT COALESCE(SUM(e.amount),0) FROM entries e JOIN ledger_accounts a ON a.id=e.account_id WHERE a.kind='wallet'"));
@@ -71,6 +73,9 @@ get('/admin', 'admin:any', (c) => {
         ]} />
       </Box>
     </div>
+    {health.length > 0 && <Box title="System health" actions={<span className="small muted">Checked every 10 minutes; problems are emailed to super admins. Outages are watched from outside by GitHub.</span>}>
+      <Table rows={health} cols={[['Check', (h) => <b>{h.name}</b>], ['Status', (h) => <span className={`tag ${h.ok ? 'tag-green' : 'tag-terra'}`}>{h.ok ? 'OK' : 'Needs attention'}</span>], ['Detail', (h) => <span className="small">{h.detail}</span>]]} />
+    </Box>}
   </>);
 });
 post('/admin/jobs/:name', 'admin:super', async (c) => {

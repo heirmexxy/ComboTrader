@@ -1,0 +1,73 @@
+# Outside uptime check: every 5 minutes GitHub asks the site whether it is healthy (/healthz checks the database and the
+# scheduler) and loads the home page. If it fails three times in a row (90 seconds), it opens an issue labelled
+# "site-down" that mentions the owner, so GitHub emails and pushes a notification. When the site is back, the issue is
+# closed with a comment (another notification). Change SITE when the domain moves.
+name: Uptime check
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  issues: write
+  contents: read
+concurrency: uptime
+env:
+  SITE: https://beta.combotrader.com.ng
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check the site
+        id: check
+        run: |
+          ok=0; detail=""
+          for i in 1 2 3; do
+            code=$(curl -s -o /tmp/h.json -w '%{http_code}' --max-time 20 "$SITE/healthz" || true)
+            if [ "$code" = "200" ]; then
+              home=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SITE/" || true)
+              if [ "$home" = "200" ]; then ok=1; break; fi
+              detail="Health check passed but the home page returned HTTP ${home:-000}."
+            else
+              detail="Health check returned HTTP ${code:-000} (000 means no answer at all). Body: $(head -c 300 /tmp/h.json 2>/dev/null | tr -d '\n')"
+            fi
+            [ $i -lt 3 ] && sleep 30
+          done
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          { echo "detail<<END_OF_DETAIL"; echo "$detail"; echo "END_OF_DETAIL"; } >> "$GITHUB_OUTPUT"
+      - name: Open or close the alert
+        uses: actions/github-script@v7
+        env:
+          OK: ${{ steps.check.outputs.ok }}
+          DETAIL: ${{ steps.check.outputs.detail }}
+        with:
+          script: |
+            const label = 'site-down';
+            const site = process.env.SITE;
+            const open = (await github.rest.issues.listForRepo({ ...context.repo, state: 'open', labels: label })).data;
+            const at = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+            if (process.env.OK === '1') {
+              for (const i of open) {
+                const mins = Math.round((Date.now() - new Date(i.created_at).getTime()) / 60000);
+                await github.rest.issues.createComment({ ...context.repo, issue_number: i.number, body: `✅ ${site} is back up (${at}), after about ${mins} minutes.` });
+                await github.rest.issues.update({ ...context.repo, issue_number: i.number, state: 'closed' });
+              }
+              return;
+            }
+            if (open.length) {
+              core.info('Still down; an alert is already open.');
+              return;
+            }
+            try { await github.rest.issues.createLabel({ ...context.repo, name: label, color: 'B60205', description: 'Opened automatically by the uptime check' }); } catch (e) { /* exists */ }
+            await github.rest.issues.create({
+              ...context.repo, labels: [label],
+              title: `🔴 ComboTrader is down (${site})`,
+              body: [
+                `@${context.repo.owner} the uptime check could not reach ${site} three times in a row (${at}).`, '',
+                `**What it saw:** ${process.env.DETAIL || 'no details'}`, '',
+                '**First things to try on the VPS (one line at a time):**',
+                '```', 'sudo systemctl status combotrader --no-pager | head -5', 'sudo journalctl -u combotrader -n 40 --no-pager', 'sudo systemctl restart combotrader', '```',
+                'If the server itself does not answer, open the VPS in Hostinger hPanel and check that it is running.', '',
+                'This issue closes itself when the site is back.',
+              ].join('\n'),
+            });
