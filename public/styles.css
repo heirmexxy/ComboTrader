@@ -27,7 +27,7 @@ code { background: var(--cream); padding: 1px 5px; border-radius: 5px; font-size
 .big { font-size: 18px; }
 .mt { margin-top: 24px; }
 .nowrap { white-space: nowrap; }
-.sr-only, .hp { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sr-only, .hp { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; border: 0 !important; margin: -1px !important; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .skip { position: absolute; inset-inline-start: 8px; top: -60px; background: var(--gold); color: var(--green); padding: 8px 14px; border-radius: 8px; z-index: 100; font-weight: 700; }
 .skip:focus { top: 8px; }
 :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
@@ -555,3 +555,14 @@ main > .flash { margin: 16px auto; max-width: 1140px; }
 .rate-table td, .rate-table th { white-space: nowrap; }
 .agent-mode { margin-top: 6px; }
 .agent-mode select { min-width: 170px; padding: 5px 8px; font-size: 13px; }
+.check-list { list-style: none; padding: 0; margin: 0 0 20px; display: grid; gap: 12px; }
+.check-list li { position: relative; padding-inline-start: 30px; }
+.check-list li::before { content: '✓'; position: absolute; inset-inline-start: 0; top: 0; color: var(--green); font-weight: 700; }
+.check-list.big li { font-size: 17px; }
+.post-row { display: flex; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.post-row img, .post-noimg { width: 120px; height: 120px; object-fit: cover; border-radius: 10px; flex-shrink: 0; background: #EEF2EC; }
+.post-body { flex: 1; min-width: 0; }
+.post-channel { margin: 4px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.post-preview { display: flex; gap: 14px; align-items: flex-start; }
+.post-preview img { border-radius: 10px; flex-shrink: 0; }
+@media (max-width: 640px) { .post-row, .post-preview { flex-direction: column; } }

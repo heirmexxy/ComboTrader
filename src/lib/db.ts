@@ -625,6 +625,72 @@ CREATE TABLE prospects (
 CREATE UNIQUE INDEX prospects_name ON prospects(name, location);
 UPDATE settings SET value = substr(value, 1, length(value) - 1) || ',prospector"' WHERE key='agents_enabled' AND value NOT LIKE '%prospector%';
 `,
+`
+-- Marketing: consent, where people came from, tracked links, social posts, inbound social messages, email campaigns.
+ALTER TABLE users ADD COLUMN marketing_opt_in INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN acq_source TEXT;
+ALTER TABLE users ADD COLUMN acq_campaign TEXT;
+ALTER TABLE leads ADD COLUMN campaign TEXT;
+ALTER TABLE leads ADD COLUMN interest TEXT;
+ALTER TABLE newsletters ADD COLUMN subject_b TEXT;
+ALTER TABLE newsletters ADD COLUMN ab_scored INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE lots ADD COLUMN opened_at TEXT;
+UPDATE lots SET opened_at = created_at WHERE status IN ('open','filled','active','completed');
+CREATE TABLE links (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  url TEXT NOT NULL,
+  channel TEXT NOT NULL,          -- facebook | instagram | linkedin | x | telegram | email | newsletter | manual
+  campaign TEXT NOT NULL,
+  lesson_id INTEGER,
+  clicks INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE link_clicks (
+  id INTEGER PRIMARY KEY,
+  link_id INTEGER NOT NULL,
+  user_id INTEGER, lead_id INTEGER,
+  visitor TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX link_clicks_link ON link_clicks(link_id);
+CREATE TABLE social_posts (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,             -- lot | trail | prices | learn | milestone | custom
+  ref TEXT,                       -- what it is about (lot code, trail event id…) so it is not repeated
+  text TEXT NOT NULL,
+  image_path TEXT,
+  link_id INTEGER,
+  channels TEXT NOT NULL,         -- channels to publish to
+  status TEXT NOT NULL DEFAULT 'draft', -- draft | scheduled | published | partly | failed
+  scheduled_at TEXT, published_at TEXT,
+  results TEXT,                   -- JSON per channel: {id|error|manual}
+  lesson_id INTEGER,
+  text_short TEXT,
+  scored INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE social_inbox (
+  id INTEGER PRIMARY KEY,
+  channel TEXT NOT NULL,          -- facebook | instagram | facebook_ads
+  kind TEXT NOT NULL,             -- comment | message | lead_form
+  external_id TEXT NOT NULL UNIQUE,
+  author TEXT, text TEXT,
+  reply TEXT, replied_at TEXT,
+  lead_id INTEGER,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE campaign_sends (
+  id INTEGER PRIMARY KEY,
+  campaign TEXT NOT NULL,         -- welcome_1 | welcome_2 | welcome_3 | maturity | paid_out | winback | new_lot
+  ref TEXT NOT NULL DEFAULT '',   -- trade or lot it was about
+  user_id INTEGER NOT NULL,
+  lesson_id INTEGER,
+  sent_at TEXT NOT NULL,
+  UNIQUE (campaign, ref, user_id)
+);
+UPDATE settings SET value = substr(value, 1, length(value) - 1) || ',social,email\"' WHERE key='agents_enabled' AND value NOT LIKE '%social%';
+`,
 ];
 
 export function openDb(file = config.dbFile) {

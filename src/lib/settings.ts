@@ -41,7 +41,14 @@ export const DEFAULTS = {
   // WhatsApp companion
   whatsapp_enabled: true,
   // AI agents
-  agents_enabled: 'support,onboarding,treasury,risk,growth,ops,prospector',
+  agents_enabled: 'support,onboarding,treasury,risk,growth,ops,prospector,social,email',
+  social_posts_per_week: 3, // the Social agent plans this many posts a week (Mon, Wed, Fri…)
+  social_post_hour: 10, // Lagos time
+  social_channels: 'facebook,instagram,linkedin,x,telegram', // where posts go (connected channels publish; others become copy-ready)
+  social_auto_reply: true, // answer comments/DMs that ask how to join, with the /join link
+  social_click_goal: 10, // a post "worked" if it gets this many clicks (or one sign-up) in a week
+  email_campaigns: 'welcome,maturity,paid_out,winback,new_lot', // lifecycle emails the Email agent may send
+  newsletter_ab: true, // test two subject lines on every newsletter
   agent_mode: 'ai' as 'ai' | 'rules', // ai: use Claude when ANTHROPIC_API_KEY is set; rules: learned rules and templates only
   agent_modes: '{}', // per-agent override, e.g. {"growth":"rules"}
   prospect_segments: 'Staff cooperative societies,Church and mosque groups,Diaspora associations,Alumni associations,Investment clubs,Professional associations,Market and trade associations',

@@ -9,6 +9,8 @@ import { coverage, receivables, latestCash, treasurySnapshot } from '../lib/trea
 import { AGENTS, ACTION_KINDS, AGENT_JOBS, agentOn, executeAction, rejectAction, opsTrailDraft, opsLotDraft, researchProspects, syncLeads, type AgentName } from '../lib/agents';
 import { aiLive, callsToday, agentMode } from '../lib/ai';
 import { lessonScore, scoreOutcomes, type Lesson } from '../lib/learning';
+import { CHANNELS, CHANNEL_NAMES, CHANNEL_SETUP, channelReady, wantedChannels, runSocial, runEmail, CAMPAIGN_KEYS, publishDueSocial, type Channel } from '../lib/marketing';
+import { savePublicImage as saveImg } from '../lib/uploads';
 import { randomToken, isEmail } from '../lib/util';
 import { handleInbound, waLive } from '../lib/whatsapp';
 import { planSaved } from '../lib/plans';
@@ -100,12 +102,14 @@ function payloadView(a: any) {
   if (a.kind === 'draft_newsletter') return <><b>{p.subject}</b><pre className="pre">{p.body}</pre></>;
   if (a.kind === 'social_posts') return <>{(p.posts || []).map((x: string, i: number) => <pre key={i} className="pre">{x}</pre>)}</>;
   if (a.kind === 'admin_alert') return <pre className="pre">{p.body}</pre>;
+  if (a.kind === 'publish_social') { const post = q.get<any>('SELECT image_path, channels FROM social_posts WHERE id=?', p.post_id); return <div className="post-preview">{post?.image_path && <img src={`/uploads/${post.image_path}`} alt="" width={180} height={180} />}<div><pre className="pre">{p.text}</pre><p className="muted small">Goes to: {String(post?.channels || '').split(',').filter(Boolean).map((ch) => `${CHANNEL_NAMES[ch as Channel]}${channelReady(ch) ? '' : ' (copy & post)'}`).join(', ') || 'no channels selected'} · {'{link}'} becomes a tracked link per channel</p></div></div>; }
+  if (a.kind === 'send_campaign') return <><b>{p.title}</b><pre className="pre">{p.body}</pre><p className="muted small">{(p.recipients || []).length} recipients · placeholders like {'{name}'} are filled per person · tracked button + unsubscribe link added</p></>;
   if (a.kind === 'send_invite' || a.kind === 'send_outreach') return <><b>{p.title}</b><pre className="pre">{p.body}</pre>{p.lesson_id && <p className="muted small">From learned template #{p.lesson_id}</p>}</>;
   if (a.kind === 'save_prospects') return <Table rows={p.organisations || []} cols={[['Organisation', (o: any) => <><b>{o.name}</b><br /><span className="muted small">{o.location}</span></>], ['Contact', (o: any) => <span className="small">{o.email || o.phone || '—'}{o.website && <><br /><a href={o.website} target="_blank" rel="noopener">{o.website}</a></>}</span>], ['Why', (o: any) => <span className="small">{o.why}</span>]]} />;
   return <pre className="pre">{JSON.stringify(p, null, 2)}</pre>;
 }
 /** Which payload field an admin may edit before approving. */
-const EDITABLE: Record<string, string> = { send_message: 'body', reply_ticket: 'reply', trail_update: 'note', draft_newsletter: 'body', send_invite: 'body', send_outreach: 'body' };
+const EDITABLE: Record<string, string> = { send_message: 'body', reply_ticket: 'reply', trail_update: 'note', draft_newsletter: 'body', send_invite: 'body', send_outreach: 'body', publish_social: 'text', send_campaign: 'body' };
 
 get('/admin/agents', 'admin:any', (c) => {
   const status = String(c.query.status || 'proposed');
@@ -168,7 +172,7 @@ get('/admin/agents', 'admin:any', (c) => {
 post('/admin/agents/:id/approve', 'admin:any', (c) => {
   const a = q.get<any>('SELECT * FROM agent_actions WHERE id=?', Number(c.params.id));
   if (!a) throw new HttpError(404, 'Not found');
-  const need: Record<string, string> = { reply_ticket: 'support', send_message: 'support', trail_update: 'operations', draft_lot: 'operations', draft_newsletter: 'content', flag_account: 'support', admin_alert: 'finance', send_invite: 'content', send_outreach: 'content', save_prospects: 'content' };
+  const need: Record<string, string> = { reply_ticket: 'support', send_message: 'support', trail_update: 'operations', draft_lot: 'operations', draft_newsletter: 'content', flag_account: 'support', admin_alert: 'finance', send_invite: 'content', send_outreach: 'content', save_prospects: 'content', publish_social: 'content', send_campaign: 'content' };
   if (need[a.kind] && !c.can(need[a.kind])) throw new HttpError(403, `Needs the ${need[a.kind]} role`);
   const field = EDITABLE[a.kind];
   const edited = field && c.str('edit', 20000) ? { [field]: c.str('edit', 20000) } : undefined;
@@ -231,6 +235,115 @@ get('/admin/agents/learning', 'admin:any', (c) => {
 post('/admin/agents/lessons/:id/toggle', 'admin:any', (c) => { q.run('UPDATE agent_lessons SET active=1-active, updated_at=? WHERE id=?', now(), Number(c.params.id)); audit(c.user!.id, 'lesson.toggle', c.params.id, undefined, c.ip); c.back('/admin/agents/learning', ['ok', 'Updated.']); });
 post('/admin/agents/lessons/:id/delete', 'admin:any', (c) => { q.run('DELETE FROM agent_lessons WHERE id=?', Number(c.params.id)); audit(c.user!.id, 'lesson.delete', c.params.id, undefined, c.ip); c.back('/admin/agents/learning', ['ok', 'Deleted.']); });
 post('/admin/agents/learning/score', 'admin:any', (c) => c.back('/admin/agents/learning', ['ok', `Scored: ${scoreOutcomes()}`]));
+
+// ============ Marketing (RevOps) ============
+get('/admin/marketing', 'admin:content', (c) => {
+  const s = settings();
+  const since = new Date(Date.now() - 30 * 864e5).toISOString();
+  const clicks = Number(q.val('SELECT COUNT(*) FROM link_clicks WHERE created_at>=?', since) ?? 0);
+  const leads = Number(q.val('SELECT COUNT(*) FROM leads WHERE created_at>=?', since) ?? 0);
+  const bySource = q.all<any>(`SELECT COALESCE(acq_source,'unknown') src, COUNT(*) n, SUM(CASE WHEN EXISTS (SELECT 1 FROM trades t WHERE t.user_id=u.id) THEN 1 ELSE 0 END) traded FROM users u WHERE role='champion' AND created_at>=? GROUP BY src ORDER BY n DESC`, since);
+  const signups = bySource.reduce((a, r) => a + r.n, 0), traded = bySource.reduce((a, r) => a + r.traded, 0);
+  const posts = q.all<any>('SELECT * FROM social_posts ORDER BY id DESC LIMIT 15');
+  const inbox = q.all<any>('SELECT * FROM social_inbox ORDER BY id DESC LIMIT 20');
+  const camps = CAMPAIGN_KEYS.map((k) => ({ k, sent: Number(q.val('SELECT COUNT(*) FROM campaign_sends WHERE campaign=? AND sent_at>=?', k, since) ?? 0), clicks: Number(q.val('SELECT COALESCE(SUM(clicks),0) FROM links WHERE campaign=? AND created_at>=?', `email-${k}`, since) ?? 0),
+    worked: Number(q.val("SELECT COUNT(*) FROM lesson_outcomes WHERE situation=? AND won=1 AND sent_at>=?", `email:${k}`, since) ?? 0), variants: Number(q.val("SELECT COUNT(*) FROM agent_lessons WHERE agent='email' AND key=? AND active=1", `email:${k}`) ?? 0) }));
+  const on = String(s.email_campaigns).split(',');
+  const meta = `${config.baseUrl}/webhooks/meta`;
+  page(c, 'Marketing', <>
+    <p className="muted">The Social and Email agents work with or without AI. Without AI they use templates and the versions that have worked best; with AI, Claude writes new versions and the winners become templates. Every post and email uses tracked links, so you can see what brings clicks and sign-ups.</p>
+    <Kpis items={[['Tracked clicks', clicks, 'last 30 days'], ['New leads', leads, 'last 30 days'], ['New Champions', signups, `${traded} have traded`], ['Social agent', agentMode('social') === 'ai' && aiLive() ? 'AI' : 'Rules', `${s.social_posts_per_week} posts a week`], ['Email agent', agentMode('email') === 'ai' && aiLive() ? 'AI' : 'Rules', `${on.length} campaigns on`]]} />
+    <div className="btn-row">
+      <Act action="/admin/marketing/post-now" label="Write a post now" tone="green" />
+      <Act action="/admin/agents/run/email" label="Prepare due emails now" />
+      <a className="btn btn-ghost btn-sm" href="/admin/agents?agent=social">Posts waiting for approval</a>
+      <a className="btn btn-ghost btn-sm" href="/admin/agents?agent=email">Emails waiting for approval</a>
+    </div>
+    <div className="grid-2 top">
+      <Box title="Where new Champions came from (30 days)">{bySource.length ? <Table rows={bySource} cols={[['Source', (r) => r.src], ['Sign-ups', (r) => r.n], ['Traded', (r) => r.traded]]} /> : <p className="muted">No sign-ups yet in this period.</p>}</Box>
+      <Box title="Channels">
+        <Table rows={[...CHANNELS]} cols={[['Channel', (ch) => <><b>{CHANNEL_NAMES[ch]}</b>{!wantedChannels().includes(ch) && <span className="tag tag-grey">not used</span>}</>],
+          ['Status', (ch) => channelReady(ch) ? <span className="tag tag-green">connected: posts publish automatically</span> : <span className="small">Copy &amp; post: ready-made text and image below. To connect, add {CHANNEL_SETUP[ch]} to the server settings file.</span>]]} />
+        <p className="small">Comments, DMs and lead forms: in your Meta app, subscribe the Page (fields <code>feed</code>, <code>messages</code>, <code>leadgen</code>) and Instagram (<code>comments</code>, <code>messages</code>) to <code>{meta}</code> with the verify token in META_VERIFY_TOKEN. Your ads and posts can also point to <a href="/join" target="_blank">{config.baseUrl}/join</a>, which captures leads with consent.</p>
+      </Box>
+    </div>
+    <Box title="Social posts">{posts.length ? posts.map((p) => {
+      const res: Record<string, any> = JSON.parse(p.results || '{}');
+      const links = q.all<any>('SELECT channel, clicks, id FROM links WHERE campaign=?', `post-${p.id}`);
+      return <div key={p.id} className="post-row">
+        {p.image_path ? <img src={`/uploads/${p.image_path}`} alt="" width={120} height={120} loading="lazy" /> : <div className="post-noimg" />}
+        <div className="post-body">
+          <p className="small"><S s={p.status} /> <span className="tag tag-grey">{p.kind}</span> {p.scheduled_at && <>for <D v={p.scheduled_at} time /></>} {links.length > 0 && <> · {links.reduce((a, l) => a + l.clicks, 0)} clicks</>}</p>
+          <pre className="pre">{String(p.text).replace('{link}', '🔗')}</pre>
+          {Object.entries(res).filter(([k]) => !k.startsWith('_')).map(([ch, r]: any) => <div key={ch} className="small post-channel"><b>{CHANNEL_NAMES[ch as Channel] || ch}:</b>{' '}
+            {r.id ? <>published ✓</> : r.manual ? (r.done ? <>posted by hand ✓</> : <><button type="button" className="btn btn-ghost btn-sm" data-copy={r.text}>Copy text</button> {p.image_path && <a className="btn btn-ghost btn-sm" href={`/uploads/${p.image_path}`} download>Download image</a>} <Act action={`/admin/marketing/posts/${p.id}/done`} fields={{ channel: ch }} label="Mark as posted" /></>) : r.error ? <span className="error">failed: {r.error}</span> : null}
+            {' '}<span className="muted">{links.find((l) => l.channel === ch)?.clicks ?? 0} clicks</span></div>)}
+        </div></div>;
+    }) : <p className="muted">No posts yet. Click “Write a post now”, or wait for the next posting day.</p>}</Box>
+    <div className="grid-2 top">
+      <Box title="Write a post yourself"><Form action="/admin/marketing/posts" multipart submit="Schedule post">
+        <F label="Text" name="text" type="textarea" rows={4} required hint="Put {link} where the tracked link should go (added at the end if you leave it out)." />
+        <div className="field"><label htmlFor="a-image">Image (needed for Instagram)</label><input id="a-image" type="file" name="image" accept="image/*" /></div>
+        <F label="Link goes to" name="url" value="/join" hint="e.g. /join, /lots/SB-2611, /how-it-works" />
+        <F label="Publish at (Lagos time, empty = now)" name="when" type="datetime-local" />
+      </Form></Box>
+      <Box title="Comments, DMs and lead forms">{inbox.length ? <Table rows={inbox} cols={[['', (m) => <><span className="tag tag-grey">{m.channel} · {m.kind}</span> <span className="muted small"><D v={m.created_at} time /></span><br /><span className="small">{m.author && <b>{m.author}: </b>}{String(m.text || '').slice(0, 200)}</span>{m.reply && <p className="small muted">↳ {m.reply.slice(0, 200)}</p>}</>]]} /> : <p className="muted">Nothing yet. Once the Meta webhook is connected, comments asking how to join get a reply with the /join link, DMs get an answer, and lead-form sign-ups become leads.</p>}</Box>
+    </div>
+    <Box title="Email campaigns (to Champions)">
+      <Table rows={camps} cols={[['Campaign', (r) => <><b>{r.k.replace('_', ' ')}</b><br /><span className="muted small">{CAMPAIGN_DESC[r.k]}</span></>], ['Sent (30 days)', (r) => r.sent], ['Clicks', (r) => r.clicks], ['Worked', (r) => r.sent ? `${r.worked}` : '—'], ['Versions being tested', (r) => r.variants]]} />
+      <p className="muted small">“Worked” means the person clicked or made a trade within a week. With two or more versions, each is tried about 15 times, then the best one is used. Champions can unsubscribe from these emails; messages about their own trades still arrive.</p>
+    </Box>
+    <Box title="Settings" id="settings"><Form action="/admin/marketing/settings" submit="Save">
+      <F label="Social posts per week" name="social_posts_per_week" type="number" value={s.social_posts_per_week} hint="New Trade Lots are always posted the day they open." />
+      <F label="Posting hour (Lagos time, 0–23)" name="social_post_hour" type="number" value={s.social_post_hour} />
+      <fieldset className="field"><legend>Post to</legend>{CHANNELS.map((ch) => <label key={ch} className="check"><input type="checkbox" name="social_channels[]" value={ch} defaultChecked={wantedChannels().includes(ch)} /> <span>{CHANNEL_NAMES[ch]}</span></label>)}</fieldset>
+      <F label="Answer comments and DMs that ask how to join" name="social_auto_reply" type="checkbox" value={s.social_auto_reply} />
+      <F label="A post “worked” at this many clicks in a week" name="social_click_goal" type="number" value={s.social_click_goal} />
+      <fieldset className="field"><legend>Email campaigns on</legend>{['welcome', 'maturity', 'paid_out', 'winback', 'new_lot'].map((k) => <label key={k} className="check"><input type="checkbox" name="email_campaigns[]" value={k} defaultChecked={on.includes(k)} /> <span>{k.replace('_', ' ')}</span></label>)}</fieldset>
+      <F label="Test two subject lines on every newsletter" name="newsletter_ab" type="checkbox" value={s.newsletter_ab} />
+    </Form></Box>
+  </>);
+});
+const CAMPAIGN_DESC: Record<string, string> = {
+  welcome_1: 'Day 1 after sign-up: how a Trade Lot works', welcome_2: 'Day 4: choose your period, rates', welcome_3: 'Day 8: Harvest Circles, Plans, referrals',
+  maturity: '7–10 days before a payout: choose Keep Growing or wallet', paid_out: 'A few days after a payout, if the money is still idle', winback: 'No trade for 60+ days (once a quarter)', new_lot: 'When a lot opens: Champions who have funded before',
+};
+post('/admin/marketing/post-now', 'admin:content', async (c) => {
+  let r: string; try { r = await runSocial(true); } catch (e: any) { r = `error: ${e.message}`; }
+  audit(c.user!.id, 'social.post_now', undefined, r, c.ip);
+  c.redirect('/admin/agents?agent=social', ['ok', `Social: ${r}. Approve it below to publish.`]);
+});
+post('/admin/marketing/posts', 'admin:content', async (c) => {
+  let text = c.str('text', 3000); if (!text) return c.back('/admin/marketing', ['error', 'Write the post text.']);
+  if (!text.includes('{link}')) text += ' {link}';
+  const image = c.files.image ? await saveImg(c.files.image, 1080) : null;
+  const w = c.str('when', 20);
+  const when = w ? new Date(`${w}:00+01:00`).toISOString() : now();
+  const id = q.insert('social_posts', { kind: 'custom', ref: `custom:${Date.now()}`, text, text_short: text.length > 250 ? `${text.replace('{link}', '').slice(0, 220).replace(/\s+\S*$/, '')}… {link}` : text, image_path: image, channels: wantedChannels().join(','), status: 'scheduled', scheduled_at: when, created_at: now(),
+    results: JSON.stringify({ _url: c.str('url', 200) || '/join' }) }).id;
+  audit(c.user!.id, 'social.custom_post', `post:${id}`, undefined, c.ip);
+  if (when <= now()) await publishDueSocial();
+  c.redirect('/admin/marketing', ['ok', when <= now() ? 'Post published (copy-and-post channels are ready below).' : 'Post scheduled.']);
+});
+post('/admin/marketing/posts/:id/done', 'admin:content', (c) => {
+  const p = q.get<any>('SELECT * FROM social_posts WHERE id=?', Number(c.params.id)); if (!p) throw new HttpError(404, 'Not found');
+  const res = JSON.parse(p.results || '{}'); const ch = c.str('channel', 20);
+  if (res[ch]) res[ch].done = now();
+  q.run('UPDATE social_posts SET results=? WHERE id=?', JSON.stringify(res), p.id);
+  c.back('/admin/marketing', ['ok', 'Marked as posted.']);
+});
+post('/admin/marketing/settings', 'admin:content', (c) => {
+  const list = (k: string, allowed: readonly string[]) => (Array.isArray(c.body[k]) ? c.body[k] : [c.body[k]]).filter((x: unknown) => typeof x === 'string' && allowed.includes(x)).join(',');
+  setSetting('social_posts_per_week', Math.min(14, Math.max(0, c.int('social_posts_per_week'))));
+  setSetting('social_post_hour', Math.min(23, Math.max(0, c.int('social_post_hour'))));
+  setSetting('social_channels', list('social_channels', CHANNELS));
+  setSetting('social_auto_reply', c.bool('social_auto_reply'));
+  setSetting('social_click_goal', Math.max(1, c.int('social_click_goal') || 10));
+  setSetting('email_campaigns', list('email_campaigns', ['welcome', 'maturity', 'paid_out', 'winback', 'new_lot']));
+  setSetting('newsletter_ab', c.bool('newsletter_ab'));
+  audit(c.user!.id, 'marketing.settings', undefined, undefined, c.ip);
+  c.back('/admin/marketing', ['ok', 'Saved.']);
+});
 
 // ============ Prospects (finding new Champions) ============
 const ORG_STATUSES = ['new', 'contacted', 'replied', 'meeting', 'won', 'lost', 'do_not_contact'];

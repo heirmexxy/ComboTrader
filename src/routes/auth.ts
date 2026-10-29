@@ -12,6 +12,7 @@ import { COUNTRY_CODES } from '../lib/geo';
 import { config } from '../lib/config';
 import { HttpError, type Ctx, type User } from '../lib/http';
 import { audit } from '../lib/audit';
+import { sourceOf } from '../lib/tracking';
 
 const safeNext = (n: unknown) => { const s = String(n || ''); return s.startsWith('/') && !s.startsWith('//') ? s : ''; };
 const demoMessaging = () => config.demoMode && !(config.emailProvider && config.emailApiKey);
@@ -40,6 +41,14 @@ function afterLogin(c: Ctx, u: User, next?: string) {
   c.redirect(next || '/app');
 }
 
+/** Records where a new Champion came from (first tracked link or UTM source, else referral or direct). */
+function attribute(c: Ctx, id: number) {
+  const src = sourceOf(c);
+  const u = userById(id);
+  q.run('UPDATE users SET acq_source=?, acq_campaign=? WHERE id=?', src?.source || (u?.referred_by ? 'referral' : 'direct'), src?.campaign || null, id);
+  q.run("UPDATE leads SET status='signed_up', user_id=? WHERE email=? AND status!='unsubscribed'", id, u?.email || '');
+}
+
 // ---------- Sign up ----------
 get('/signup', 'guest', (c) => render(c, h(A.SignupPage, { v: { ref: c.cookies.ref || '' }, next: safeNext(c.query.next) })));
 post('/signup', 'guest', (c) => {
@@ -64,6 +73,7 @@ post('/signup', 'guest', (c) => {
     city: v.city, phone: normalizePhone(v.phone, v.country), lang: isLang(c.body.lang) ? c.body.lang : c.lang, referredBy: referrer?.id ?? null,
     feedOptIn: v.feed_opt_in === 'on',
   });
+  attribute(c, id);
   const u = userById(id)!;
   createSession(c, id, { remember: true });
   logLogin(c, id, u.email, true);
@@ -236,6 +246,7 @@ get('/auth/google/callback', 'public', async (c) => {
   if (!u) {
     const ref = c.cookies.ref ? q.get<{ id: number }>('SELECT id FROM users WHERE referral_code=?', c.cookies.ref) : undefined;
     const id = createUser({ email: claims.email, first_name: claims.given_name || 'Champion', last_name: claims.family_name || '', country: 'NG', lang: c.lang, googleId: claims.sub, referredBy: ref?.id ?? null });
+    attribute(c, id);
     u = userById(id)!;
     notify(u, 'welcome', {}, { link: '/app', email: false });
     fresh = true;

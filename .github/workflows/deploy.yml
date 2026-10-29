@@ -1,4 +1,4 @@
-# Tests every push. On main, deploys to the Hostinger VPS once these repository secrets exist:
+# Tests every push. The server also updates itself every 2 minutes (deploy/auto-update-on.sh). On main, this also deploys to the Hostinger VPS once these repository secrets exist:
 #   VPS_HOST (server IP), VPS_SSH_KEY (private key whose public half is in /home/combotrader/.ssh/authorized_keys)
 name: Test and deploy
 on:
@@ -38,8 +38,8 @@ jobs:
           fi
           chmod 600 ~/.ssh/id_ed25519
           if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
-            echo "::error::VPS_SSH_KEY is not a readable private key. On the server run: base64 -w0 /home/combotrader/.ssh/github_actions — and paste that single line as the secret"; exit 1
+            echo "::warning::VPS_SSH_KEY is not a readable private key, so this push was not deployed over SSH. If the server's automatic updates are on (deploy/auto-update-on.sh), it will pick up this version within 2 minutes."; exit 0
           fi
           echo "Key fingerprint: $(ssh-keygen -lf ~/.ssh/id_ed25519 | awk '{print $2}')"
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 combotrader@"$VPS_HOST" '/srv/combotrader/deploy/update.sh'
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 combotrader@"$VPS_HOST" '/srv/combotrader/deploy/update.sh' || { echo "::warning::SSH deploy did not complete; the server's automatic updates will retry within 2 minutes."; exit 0; }

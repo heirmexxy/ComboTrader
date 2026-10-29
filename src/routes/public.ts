@@ -11,7 +11,8 @@ import { settings } from '../lib/settings';
 import { faqsFor, postsFor, postBySlug, md } from '../lib/content';
 import { feedItems } from '../lib/feed';
 import { isLang, translate } from '../lib/i18n';
-import { isEmail, randomToken } from '../lib/util';
+import { isEmail, randomToken, hmac, safeEqual } from '../lib/util';
+import { followLink, sourceOf } from '../lib/tracking';
 import { queueEmail, emailShell } from '../lib/notify';
 import { config } from '../lib/config';
 import { HttpError, type Ctx } from '../lib/http';
@@ -47,6 +48,29 @@ get('/why-kitovu', 'public', (c) => render(c, h(P.WhyPage, { stats: siteStats() 
 get('/faqs', 'public', (c) => render(c, h(P.FaqsPage, { faqs: faqsFor(c.lang) })));
 get('/install', 'public', (c) => render(c, h(P.InstallPage)));
 get('/calculator', 'public', (c) => render(c, h(P.CalculatorPage)));
+// Lead page for social posts and ads.
+get('/join', 'public', (c) => render(c, h(P.JoinPage, { sent: c.query.sent === '1', commodities: q.all<any>('SELECT code, name FROM commodities WHERE active=1 ORDER BY sort') })));
+post('/join', 'public', (c) => {
+  if (c.str('website')) return c.redirect('/join?sent=1');
+  if (!rateLimit(`join:${c.ip}`, 10, 3600)) throw new HttpError(429, c.t('auth.too_many'));
+  const email = c.str('email', 200).toLowerCase();
+  if (!isEmail(email) || !c.str('name') || !c.bool('consent')) return c.redirect('/join#join-form', ['error', c.t('auth.required')]);
+  const src = sourceOf(c);
+  const interest = c.str('interest', 40) || 'any';
+  const existing = q.get<any>('SELECT * FROM leads WHERE email=?', email);
+  if (existing) q.run("UPDATE leads SET consent=1, interest=?, status=CASE WHEN status='unsubscribed' THEN 'new' ELSE status END WHERE id=?", interest, existing.id);
+  else q.insert('leads', { email, phone: c.str('phone', 30) || null, name: c.str('name', 60).split(' ')[0], lang: c.lang, source: src?.source || 'website', campaign: src?.campaign || null, interest, consent: 1, token: randomToken(16), created_at: now() });
+  if (interest !== 'any' || !q.get("SELECT 1 FROM waitlist WHERE email=? AND notified_at IS NULL", email)) q.insert('waitlist', { email, commodity: interest, created_at: now() });
+  c.redirect('/join?sent=1');
+});
+// Tracked links from posts and emails.
+get('/go/:code', 'public', (c) => { const to = followLink(c, c.params.code.slice(0, 12)); c.redirect(to || '/'); });
+// Marketing opt-out for Champions (service messages about their own trades still arrive).
+get('/email/stop/:token', 'public', (c) => {
+  const [id, s] = c.params.token.split('.');
+  if (id && s && safeEqual(hmac(`stop:${id}`).slice(0, 16), s)) { q.run('UPDATE users SET marketing_opt_in=0 WHERE id=?', Number(id)); return c.redirect('/', ['ok', c.t('agent.unsubscribed')]); }
+  c.redirect('/', ['error', c.t('agent.unsub_unknown')]);
+});
 get('/contact', 'public', (c) => render(c, h(P.ContactPage, { sent: c.query.sent === '1' })));
 post('/contact', 'public', (c) => {
   if (c.str('website')) return c.redirect('/contact?sent=1'); // honeypot

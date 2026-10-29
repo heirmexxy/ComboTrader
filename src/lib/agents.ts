@@ -30,6 +30,8 @@ export const AGENTS = {
   risk: { name: 'Risk', what: 'Looks for shared bank accounts, shared devices, fast in-and-out money and referral rings; proposes flags for review.' },
   growth: { name: 'Growth', what: 'Drafts the weekly newsletter and social posts from real lots, Trail updates, prices and payouts. Never contacts people who have not opted in.' },
   ops: { name: 'Ops copilot', what: 'Turns field notes into Harvest Trail updates and contract summaries into draft lots, for an admin to approve.' },
+  social: { name: 'Social media', what: 'Plans and writes posts from real lots, Trail updates, prices and how-to topics; makes the images; publishes to Facebook, Instagram, LinkedIn, X and Telegram (or prepares them to copy); answers comments and DMs that ask how to join; captures Facebook/Instagram lead-form sign-ups.' },
+  email: { name: 'Email marketing', what: 'Sends lifecycle emails to Champions: welcome series, payout reminders, “your money is back” offers, new-lot alerts and win-backs; tests newsletter subject lines. Every email is tracked and has an unsubscribe link.' },
   prospector: { name: 'Prospector', what: 'Finds new Champions: invites people who joined the waitlist, newsletter, contact form or WhatsApp; asks happy Champions to refer friends; researches organisations (cooperatives, faith groups, diaspora associations) and drafts outreach. Follows up, stops on unsubscribe.' },
 } as const;
 export type AgentName = keyof typeof AGENTS;
@@ -96,8 +98,7 @@ const EXECUTORS: Record<string, (p: any, by: number | null) => string> = {
   },
   /** Creates a newsletter DRAFT (never sends). */
   draft_newsletter(p, by) {
-    const id = q.insert('newsletters', { subject: String(p.subject).slice(0, 150), body: String(p.body).slice(0, 20000), segment: 'all', status: 'draft', created_by: by, created_at: now() }).id;
-    if (p.subject && !p._rules) learn({ agent: 'growth', kind: 'post', key: 'subject', content: { text: String(p.subject) }, source: p._edited ? 'human' : 'ai', active: false });
+    const id = q.insert('newsletters', { subject: String(p.subject).slice(0, 150), subject_b: p.subject_b ? String(p.subject_b).slice(0, 150) : null, body: String(p.body).slice(0, 20000), segment: 'all', status: 'draft', created_by: by, created_at: now() }).id;
     return `newsletter draft #${id} created — review it in Newsletter`;
   },
   /** Adds a review note to a Champion record (no account change). */
@@ -163,6 +164,10 @@ const EXECUTORS: Record<string, (p: any, by: number | null) => string> = {
   },
 };
 export const ACTION_KINDS = Object.keys(EXECUTORS);
+/** Other modules (marketing) add their own action executors here. */
+export function registerExecutors(more: Record<string, (p: any, by: number | null) => string>) {
+  for (const [k, fn] of Object.entries(more)) { EXECUTORS[k] = fn; if (!ACTION_KINDS.includes(k)) ACTION_KINDS.push(k); }
+}
 
 export function propose(a: ActionInput) {
   const id = q.insert('agent_actions', { run_id: a.runId ?? null, agent: a.agent, kind: a.kind, risk: a.risk, title: a.title.slice(0, 200), summary: a.summary?.slice(0, 2000) ?? null, payload: JSON.stringify(a.payload), target_user_id: a.targetUserId ?? null, status: 'proposed', created_at: now() }).id;
@@ -480,12 +485,12 @@ export async function runGrowth() {
     prices: q.all<any>("SELECT c.name, p.price_per_kg, p.market FROM prices p JOIN commodities c ON c.code=p.commodity WHERE p.status='published' AND p.id IN (SELECT MAX(id) FROM prices WHERE status='published' GROUP BY commodity) LIMIT 8").map((p) => ({ commodity: p.name, naira_per_kg: Math.round(p.price_per_kg / 100), market: p.market })),
     totals: { champions: stats.champions, tons: stats.tons, farmers: stats.farmers },
   };
-  let out: { subject: string; body: string; posts: string[]; post_templates?: string[] } | null = null;
+  let out: { subject: string; subject_b?: string; body: string; posts: string[]; post_templates?: string[] } | null = null;
   let runId: number | null = null, rules = false;
   if (useAI('growth')) {
     try {
       const r = await completeJson<typeof out>('growth', { trigger: 'weekly', maxTokens: 3500, system: `${POLICY}\nYou are ComboTrader's content writer for the "Harvest Champions Chronicles" newsletter. Using ONLY the facts given, write: a newsletter (subject ≤ 60 chars; body in Markdown, 150–300 words: one story from the Trail, open lots with links, a price snapshot, a closing line pointing to the risk statement at ${config.baseUrl}/legal/risk) and three social posts (≤ 240 chars each, no hashtags spam, no earnings promises beyond the stated rate). ` +
-        `Also give "post_templates": the three posts rewritten with placeholders {commodity}, {periods}, {rates}, {link} instead of the specific lot details, so they can be reused for any lot. Return {"subject":string,"body":string,"posts":[string,string,string],"post_templates":[string,string,string]}.`, input: facts });
+        `Also give "post_templates": the three posts rewritten with placeholders {commodity}, {periods}, {rates}, {link} instead of the specific lot details, so they can be reused for any lot. Also give "subject_b": a second subject line with a different angle, to A/B test. Return {"subject":string,"subject_b":string,"body":string,"posts":[string,string,string],"post_templates":[string,string,string]}.`, input: { ...facts, subject_lines_that_won: lessonsFor('growth', 'post', { key: 'subject' }).filter((l) => l.wins > 0).slice(0, 5).map((l) => parseLesson(l)?.text) } });
       out = r.data; runId = r.runId;
     } catch (e) { if (!(e instanceof AiUnavailable)) audit(null, 'agent.growth_error', undefined, String((e as Error).message)); }
   }
@@ -495,8 +500,10 @@ export async function runGrowth() {
     const learnedPosts = lessonsFor('growth', 'post', { key: 'lot_post' }).sort((a, b) => String(a.last_used_at || '').localeCompare(String(b.last_used_at || '')));
     const lots = facts.open_lots.map((l) => `- **${l.title}** — ${l.commodity}, ${l.periods} at ${l.rates}. [View the lot](${l.link})`).join('\n') || '- New lots open soon. Join the waitlist on the Lots page.';
     const trail = facts.trail_updates_this_week[0];
+    const learnedSubject = lessonsFor('growth', 'post', { key: 'subject' }).filter((l) => l.wins > l.losses).sort((a, b) => lessonScore(b) - lessonScore(a))[0];
     out = {
       subject: `This week on the Harvest Trail`,
+      subject_b: parseLesson<{ text: string }>(learnedSubject)?.text?.replace(/\d[\d,.]*/g, '').trim() || (facts.open_lots[0] ? `New: ${facts.open_lots[0].commodity} Trade Lot and news from the field` : 'News from the field and prices this week'),
       body: `## From the field\n${trail ? `${trail.title}: ${String(trail.note || trail.stage).replace(/\.+$/, '')}.` : 'Our field teams are sourcing for the next lots.'}\n\n## Open Trade Lots\n${lots}\n\n## Prices this week\n${facts.prices.map((p) => `- ${p.commodity}: ₦${p.naira_per_kg.toLocaleString('en')}/kg${p.market ? ` (${p.market})` : ''}`).join('\n') || '- See the Prices page.'}\n\n${facts.payouts_this_week ? `${facts.payouts_this_week} Champions were paid this week.` : ''}\n\nTrades are not bank deposits. Read the [risk statement](${config.baseUrl}/legal/risk) before you commit.`,
       posts: facts.open_lots.slice(0, 3).map((l, i) => {
         const t = learnedPosts[i] ? parseLesson<{ text: string }>(learnedPosts[i])?.text : null;
@@ -505,7 +512,7 @@ export async function runGrowth() {
       }),
     };
   }
-  propose({ agent: 'growth', kind: 'draft_newsletter', risk: 'low', title: `Newsletter draft: ${out.subject}`, summary: out.body.slice(0, 600), payload: { subject: out.subject, body: out.body, ...(rules ? { _rules: true } : {}) }, runId });
+  propose({ agent: 'growth', kind: 'draft_newsletter', risk: 'low', title: `Newsletter draft: ${out.subject}`, summary: out.body.slice(0, 600), payload: { subject: out.subject, subject_b: out.subject_b && out.subject_b !== out.subject ? out.subject_b : null, body: out.body, ...(rules ? { _rules: true } : {}) }, runId });
   if (out.posts?.length) propose({ agent: 'growth', kind: 'social_posts', risk: 'low', title: 'Social posts for this week', summary: out.posts.join('\n\n'), payload: { posts: out.posts, templates: (out.post_templates || []).filter((t) => typeof t === 'string' && t.includes('{link}')) }, runId });
   return 'newsletter and posts drafted';
 }
@@ -646,7 +653,7 @@ export async function runProspector() {
     if (!t) { t = { title: translate(u.lang, 'agent.ref_title'), body: translate(u.lang, 'agent.ref_body', { name: '{name}', link: '{link}' }) }; id = learn({ agent: 'prospector', kind: 'template', key: 'refer', lang: u.lang, content: t, source: 'rules' }); }
     const link = `${config.baseUrl}/r/${u.referral_code}`;
     propose({ agent: 'prospector', kind: 'send_message', risk: 'low', title: `Ask ${u.first_name} ${u.last_name} to invite friends`, targetUserId: u.id,
-      payload: { user_id: u.id, title: fill(t.title, { name: u.first_name, link }), body: fill(t.body, { name: u.first_name, link }), link: '/app/refer', situation: 'refer', lesson_id: id, _agent: 'prospector' } });
+      payload: { user_id: u.id, title: fill(t.title, { name: u.first_name, link }), body: fill(t.body, { name: u.first_name, link }), link: '/app/referrals', situation: 'refer', lesson_id: id, _agent: 'prospector' } });
     asked++; budget--;
   }
   if (asked) out.push(`${asked} referral asks drafted`);

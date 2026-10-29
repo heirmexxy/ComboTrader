@@ -1,3 +1,4 @@
+import { captureSource } from './lib/tracking';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -77,6 +78,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     const cookieLang = c.cookies.lang;
     c.lang = c.user?.lang && isLang(c.user.lang) ? c.user.lang : isLang(cookieLang) ? cookieLang : detectLang(req.headers['accept-language']);
     c.t = (k, v) => translate(c.lang, k, v);
+    if (c.method === 'GET' && c.query.utm_source) captureSource(c);
 
     const m = match(c.method, p);
     if (m === 'method') throw new HttpError(405, 'Method not allowed');

@@ -491,6 +491,102 @@ await t('prospector research: web-search reply is parsed and organisations saved
     eq(q.val("SELECT email FROM prospects WHERE name='Bad'"), null, 'invalid email dropped');
   } finally { globalThis.fetch = realFetch; (config as any).anthropicKey = old; }
 });
+const learning = await import('../src/lib/learning');
+console.log('\nMarketing agents (Social + Email)');
+const mk = await import('../src/lib/marketing');
+const tracking = await import('../src/lib/tracking');
+await t('social (rules): plans a post for the newest open lot, makes a JPEG card, prepares copy-and-post when no channel is connected', async () => {
+  setSetting('agent_mode', 'rules');
+  const r = await mk.runSocial(true);
+  eq(r.includes('drafted'), true);
+  const post = q.get<any>('SELECT * FROM social_posts ORDER BY id DESC');
+  eq(post.kind, 'lot'); eq(String(post.text).includes('{link}'), true); eq(String(post.image_path).endsWith('.jpg'), true);
+  const act = q.get<any>("SELECT * FROM agent_actions WHERE kind='publish_social' ORDER BY id DESC");
+  agents.executeAction(act.id, 1);
+  q.run("UPDATE social_posts SET scheduled_at=? WHERE id=?", addDays(now(), -0.01), post.id);
+  eq(await mk.publishDueSocial(), 1);
+  const res = JSON.parse(String(q.val('SELECT results FROM social_posts WHERE id=?', post.id)));
+  eq(res.facebook.manual, true); eq(String(res.facebook.text).includes('/go/'), true, 'tracked link in copy text');
+  eq(q.val('SELECT status FROM social_posts WHERE id=?', post.id), 'partly');
+  setSetting('agent_mode', 'ai');
+});
+await t('social: a connected channel publishes (Telegram, mocked) and a post is scored by clicks a week later', async () => {
+  const { config } = await import('../src/lib/config');
+  const real = globalThis.fetch; let called = '';
+  (config as any).telegramBotToken = 'tg'; (config as any).telegramChannel = '@ct';
+  globalThis.fetch = (async (u: string) => { called = String(u); return new Response(JSON.stringify({ ok: true, result: { message_id: 77 } }), { status: 200 }); }) as any;
+  try {
+    const id = q.insert('social_posts', { kind: 'custom', ref: 'custom:t', text: 'Hello {link}', text_short: 'Hello {link}', channels: 'telegram', status: 'scheduled', scheduled_at: addDays(now(), -0.01), lesson_id: learning.learn({ agent: 'social', kind: 'post', key: 'post:custom', content: { text: 'Hello {link}' }, source: 'human' }), created_at: now(), results: '{"_url":"/join"}' }).id;
+    await mk.publishDueSocial();
+    eq(called.includes('/bottg/sendMessage'), true); eq(q.val('SELECT status FROM social_posts WHERE id=?', id), 'published');
+    const link = q.get<any>('SELECT * FROM links WHERE campaign=?', `post-${id}`);
+    q.run('UPDATE links SET clicks=25 WHERE id=?', link.id);
+    q.run('UPDATE social_posts SET published_at=? WHERE id=?', addDays(now(), -8), id);
+    await mk.runSocial(false);
+    eq(q.val('SELECT wins FROM agent_lessons WHERE id=(SELECT lesson_id FROM social_posts WHERE id=?)', id), 1);
+  } finally { globalThis.fetch = real; (config as any).telegramBotToken = ''; (config as any).telegramChannel = ''; }
+});
+await t('social inbound: lead form becomes a lead; a comment asking how to join gets a private reply once', async () => {
+  const { config } = await import('../src/lib/config');
+  const real = globalThis.fetch; const calls: string[] = [];
+  (config as any).fbPageToken = 'tok'; (config as any).fbPageId = 'PAGE';
+  globalThis.fetch = (async (u: string, init?: any) => { calls.push(String(u)); if (String(u).includes('/L1?')) return new Response(JSON.stringify({ field_data: [{ name: 'email', values: ['ad@lead.ng'] }, { name: 'full_name', values: ['Bisi Ade'] }] }), { status: 200 }); return new Response(JSON.stringify({ id: 'x' }), { status: 200 }); }) as any;
+  try {
+    await mk.handleMetaWebhook({ object: 'page', entry: [{ changes: [{ field: 'leadgen', value: { leadgen_id: 'L1', form_id: 'F' } }, { field: 'feed', value: { item: 'comment', verb: 'add', comment_id: 'C1', message: 'How do I join?', from: { id: 'U9', name: 'Tunde' } } }] }] });
+    await mk.handleMetaWebhook({ object: 'page', entry: [{ changes: [{ field: 'feed', value: { item: 'comment', verb: 'add', comment_id: 'C1', message: 'How do I join?', from: { id: 'U9' } } }] }] });
+    eq(q.val("SELECT source FROM leads WHERE email='ad@lead.ng'"), 'facebook_ads'); eq(q.val("SELECT consent FROM leads WHERE email='ad@lead.ng'"), 1);
+    eq(calls.filter((u) => u.includes('C1/private_replies')).length, 1);
+    eq(String(q.val("SELECT reply FROM social_inbox WHERE external_id='c:C1'")).includes('/go/'), true);
+  } finally { globalThis.fetch = real; (config as any).fbPageToken = ''; (config as any).fbPageId = ''; }
+});
+await t('X posting header is OAuth 1.0a HMAC-SHA1', () => {
+  const h = mk.xAuthHeader('POST', 'https://api.x.com/2/tweets', { key: 'k', secret: 's', token: 't', tokenSecret: 'ts' }, 'nonce', '1700000000');
+  eq(h.startsWith('OAuth '), true); eq(/oauth_signature="[^"]+"/.test(h), true); eq(h.includes('oauth_signature_method="HMAC-SHA1"'), true);
+});
+await t('email (rules): welcome email goes once, with tracked button and unsubscribe; a click counts as "worked"', async () => {
+  const u = mkUser('welcome@t.ng');
+  q.run('UPDATE users SET created_at=? WHERE id=?', addDays(now(), -2), u.id);
+  setSetting('agent_mode', 'rules');
+  const r = await mk.runEmail(); setSetting('agent_mode', 'ai');
+  eq(r.includes('welcome_1'), true);
+  const act = q.get<any>("SELECT * FROM agent_actions WHERE kind='send_campaign' AND payload LIKE '%welcome_1%' ORDER BY id DESC");
+  eq(agents.executeAction(act.id, 1).includes('sent'), true);
+  const mail = String(q.val('SELECT body FROM outbox WHERE recipient=? ORDER BY id DESC', 'welcome@t.ng'));
+  eq(mail.includes('/go/'), true); eq(mail.includes('/email/stop/'), true);
+  eq(agents.executeAction(agents.propose({ agent: 'email', kind: 'send_campaign', risk: 'low', title: 't', payload: JSON.parse(act.payload) }), 1), '0 emails sent', 'never twice');
+  const code = mail.match(/\/go\/([A-Za-z0-9]+)\?r=([^"]+)/)!;
+  const ctx: any = { query: { r: code[2] }, cookies: {}, user: null, setCookie() {} };
+  tracking.followLink(ctx, code[1]);
+  eq(q.val('SELECT user_id FROM link_clicks ORDER BY id DESC'), u.id, 'click credited to the person');
+  learning.scoreOutcomes();
+  eq(Number(q.val("SELECT wins FROM agent_lessons WHERE agent='email' AND key='email:welcome_1' AND lang='en' ORDER BY wins DESC")) >= 1, true);
+});
+await t('email (AI): writes a challenger version to A/B test, keeping the placeholders', async () => {
+  const { config } = await import('../src/lib/config');
+  const real = globalThis.fetch; (config as any).anthropicKey = 'k';
+  globalThis.fetch = (async () => new Response(JSON.stringify({ content: [{ type: 'text', text: '{"title":"Your payout from {lot} lands {date}","body":"Hi {name}, {lot} pays on {date}. Choose wallet or Keep Growing."}' }], usage: {} }), { status: 200 })) as any;
+  try {
+    const u = mkUser('mature@t.ng'); await fund(u.id, 300_000_00);
+    const tr = joinLot(userById(u.id)!, mkLot('T-MAT'), 100_000_00);
+    q.run('UPDATE trades SET matures_at=? WHERE id=?', addDays(now(), 8), tr.id);
+    await mk.runEmail();
+    eq(Number(q.val("SELECT COUNT(*) FROM agent_lessons WHERE agent='email' AND key='email:maturity' AND lang='en' AND active=1")), 2);
+  } finally { globalThis.fetch = real; (config as any).anthropicKey = ''; }
+});
+await t('newsletter A/B: two subjects, half each, tracked separately', async () => {
+  const jobs = await import('../src/lib/jobs');
+  for (let i = 0; i < 4; i++) q.insert('subscribers', { email: `nl${i}@t.ng`, status: 'confirmed', token: `nt${i}`, created_at: now() });
+  const id = q.insert('newsletters', { subject: 'Subject A', subject_b: 'Subject B', body: 'Read [more](https://example.org/x)', status: 'draft', created_at: now() }).id;
+  const n = jobs.sendNewsletter(id);
+  eq(n >= 4, true);
+  const subs = q.all<any>("SELECT subject FROM outbox WHERE recipient LIKE 'nl%@t.ng'").map((r) => r.subject);
+  eq(subs.includes('Subject A') && subs.includes('Subject B'), true);
+  eq(!!q.get('SELECT 1 FROM links WHERE campaign=?', `nl-${id}-b`), true);
+});
+await t('/join form records a consented lead with its source', async () => {
+  q.insert('leads', { email: 'joinpage@lead.ng', lang: 'en', source: 'instagram', campaign: 'post-1#1', consent: 1, token: 'tj', created_at: now() });
+  eq(q.val("SELECT source FROM leads WHERE email='joinpage@lead.ng'"), 'instagram');
+});
 function fmtTest(k: number) { return `₦${new Intl.NumberFormat('en-NG').format(k / 100)}`; }
 
 console.log('\nLanguages');

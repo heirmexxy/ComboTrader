@@ -1,4 +1,5 @@
 // Champion routes for Harvest Plan, Gift a Harvest, Keep Growing, impact receipts, data rights, statements and WhatsApp.
+import { handleMetaWebhook, metaSignatureValid } from '../lib/marketing';
 import { get, post } from '../lib/router';
 import { render } from '../views/render';
 import * as M from '../views/app/more';
@@ -131,6 +132,19 @@ get('/app/wallet/statement.pdf', 'auth', async (c) => {
 });
 
 // ---------- WhatsApp Cloud API webhook ----------
+// Facebook Page + Instagram webhooks: lead forms, comments, DMs (Social agent).
+get('/webhooks/meta', 'public', (c) => {
+  const qy = c.query;
+  if (qy['hub.mode'] === 'subscribe' && config.metaVerifyToken && qy['hub.verify_token'] === config.metaVerifyToken) return c.send(200, String(qy['hub.challenge'] || ''));
+  c.send(403, 'forbidden');
+});
+post('/webhooks/meta', 'public', async (c) => {
+  if (!metaSignatureValid(c.rawBody, c.req.headers['x-hub-signature-256'] as string)) return c.send(401, 'bad signature');
+  let body: any;
+  try { body = JSON.parse(c.rawBody.toString()); } catch { return c.send(400, 'bad json'); }
+  c.send(200, 'ok');
+  handleMetaWebhook(body).catch((e) => audit(null, 'social.webhook_error', undefined, String(e?.message || e)));
+});
 get('/webhooks/whatsapp', 'public', (c) => {
   const qy = c.query;
   if (qy['hub.mode'] === 'subscribe' && config.waVerifyToken && qy['hub.verify_token'] === config.waVerifyToken) return c.send(200, String(qy['hub.challenge'] || ''));

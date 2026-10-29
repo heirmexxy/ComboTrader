@@ -384,6 +384,41 @@ export function FaqsPage({ faqs }: { faqs: { q: string; a: string }[] }) {
   );
 }
 
+/** /join — the page social posts and ads point to: a short pitch and a lead form (with consent), or straight to sign-up. */
+export function JoinPage({ sent, commodities }: { sent?: boolean; commodities: { code: string; name: string }[] }) {
+  const c = useC();
+  return (
+    <PublicLayout title={c.t('join.title')} description={c.t('join.intro')}>
+      <PageHead title={c.t('join.title')} intro={c.t('join.intro')} />
+      <section className="section"><div className="container two-col top">
+        <div>
+          <ul className="check-list big">
+            <li>{c.t('join.p1')}</li><li>{c.t('join.p2', { low: rateFor(4) / 100, high: rateFor(12) / 100 })}</li><li>{c.t('join.p3')}</li>
+          </ul>
+          <p><a className="btn btn-primary btn-lg" href="/signup">{c.t('join.signup')}</a></p>
+          <p className="muted small"><a href="/legal/risk">{c.t('footer.risk')}</a> · <a href="/how-it-works">{c.t('nav.how')}</a></p>
+        </div>
+        <div className="card" id="join-form">
+          {sent ? <><p className="big">{c.t('join.thanks')}</p><p><a className="btn btn-primary" href="/signup">{c.t('join.signup')}</a></p></> : (
+            <form method="post" action="/join">
+              <Csrf />
+              <h2 className="h3">{c.t('join.form_title')}</h2>
+              <Field label={c.t('contact.name')} name="name" required autoComplete="given-name" />
+              <Field label={c.t('contact.email')} name="email" type="email" required autoComplete="email" />
+              <Field label={c.t('join.phone')} name="phone" type="tel" autoComplete="tel" />
+              <div className="field"><label htmlFor="f-interest">{c.t('join.interest')}</label>
+                <select id="f-interest" name="interest"><option value="any">{c.t('lot.any_commodity')}</option>{commodities.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}</select></div>
+              <label className="check"><input type="checkbox" name="consent" required /> <span>{c.t('join.consent')}</span></label>
+              <input type="text" name="website" className="hp" tabIndex={-1} autoComplete="off" aria-hidden="true" />
+              <button className="btn btn-green btn-block" type="submit">{c.t('join.send')}</button>
+            </form>
+          )}
+        </div>
+      </div></section>
+    </PublicLayout>
+  );
+}
+
 export function ContactPage({ sent }: { sent?: boolean }) {
   const c = useC();
   const s = settings();

@@ -25,7 +25,7 @@ export function seedDemo() {
   }
 
   if (!q.val('SELECT COUNT(*) FROM lots')) {
-    const lot = (o: any) => q.insert('lots', { status: 'open', farmers: 0, circles_enabled: 0, created_by: adminId, created_at: now(), ...o }).id;
+    const lot = (o: any) => q.insert('lots', { status: 'open', farmers: 0, circles_enabled: 0, created_by: adminId, created_at: now(), opened_at: now(), ...o }).id;
     const sb = lot({ code: 'SB-2611', commodity: 'soybean', title: 'Soybean for a feed mill, Kaduna', region: 'Benue & Nasarawa', buyer_type: 'Animal feed mill, Kaduna', buyer_name: '[Demo buyer]', contract_ref: 'DEMO-SB-001', tonnage: 120, farmers: 85, target_amount: 9000000000, min_commit: 25000000, period_months: 12, rate_bps: 3000, periods: "4,6,9,12", closes_at: addDays(now(), 21), description: 'Soybean bought from cooperatives in Benue and Nasarawa for a signed feed-mill order.', circles_enabled: 1 });
     lot({ code: 'PR-2612', commodity: 'paddy_rice', title: 'Paddy rice for a rice miller', region: 'Kebbi & Niger', buyer_type: 'Integrated rice miller', buyer_name: '[Demo buyer]', contract_ref: 'DEMO-PR-002', tonnage: 200, farmers: 140, target_amount: 13000000000, min_commit: 25000000, period_months: 12, rate_bps: 3000, periods: "4,6,9,12", closes_at: addDays(now(), 30), description: 'Dry-season paddy for a miller with a standing offtake agreement.' });
     lot({ code: 'SS-2610', commodity: 'sesame', title: 'Export-grade sesame', region: 'Nasarawa & Jigawa', buyer_type: 'Sesame exporter, Lagos', buyer_name: '[Demo buyer]', contract_ref: 'DEMO-SS-003', tonnage: 40, farmers: 60, target_amount: 6000000000, min_commit: 25000000, period_months: 12, rate_bps: 3000, periods: "4,6,9,12", closes_at: addDays(now(), 12) });

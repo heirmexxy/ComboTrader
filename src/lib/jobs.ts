@@ -8,6 +8,8 @@ import { closeExpiredLots, markMatured, siteStats, autoPayDue, processRollovers,
 import { runPlans } from './plans';
 import { AGENT_JOBS } from './agents';
 import { scoreOutcomes } from './learning';
+import { runSocial, runEmail, publishDueSocial } from './marketing';
+import { trackHtmlLinks } from './tracking';
 import { treasurySnapshot } from './treasury';
 import { reportError } from './alerts';
 import { autoSendSmallWithdrawals } from './wallet';
@@ -56,10 +58,12 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async agents() {
     const out: string[] = [];
     try { out.push(`learning: ${scoreOutcomes()}`); } catch (e: any) { out.push(`learning: error ${e.message}`); }
-    for (const name of ['treasury', 'onboarding', 'risk', 'prospector'] as const) { try { out.push(`${name}: ${await AGENT_JOBS[name]()}`); } catch (e: any) { out.push(`${name}: error ${e.message}`); } }
+    for (const name of ['treasury', 'onboarding', 'risk', 'prospector', 'email'] as const) { try { out.push(`${name}: ${await AGENT_JOBS[name]()}`); } catch (e: any) { out.push(`${name}: error ${e.message}`); } }
     return out.join('; ');
   },
   async growth() { return AGENT_JOBS.growth(); },
+  async social() { return runSocial(false); },
+  async social_publish() { const n = await publishDueSocial(); return `${n} posts published`; },
   async reconcile() { return reconcile(); },
   async weekly() { return weeklySummary(); },
 };
@@ -81,6 +85,7 @@ export function startScheduler() {
     try {
       await runJob('outbox');
       await runJob('publish');
+      if (q.get("SELECT 1 FROM social_posts WHERE status='scheduled' AND scheduled_at<=?", now())) await runJob('social_publish');
       const l = lastRun('lifecycle');
       if (!l || Date.now() - new Date(l).getTime() > 10 * 60e3) await runJob('lifecycle');
       if (dueDaily('prices', 6)) await runJob('prices');
@@ -88,6 +93,7 @@ export function startScheduler() {
       if (dueDaily('plans', 9)) await runJob('plans');
       if (dueDaily('agents', 7)) await runJob('agents');
       if (lagosNow().getUTCDay() === 1 && dueDaily('growth', 7)) await runJob('growth');
+      if (dueDaily('social', 8)) await runJob('social');
       if (dueDaily('reconcile', 2)) await runJob('reconcile');
       if (lagosNow().getUTCDay() === 1 && dueDaily('weekly', 8)) await runJob('weekly');
     } finally { busy = false; }
@@ -152,13 +158,18 @@ export function sendNewsletter(id: number) {
   if (n.segment === 'champions') where += ' AND user_id IS NOT NULL';
   if (n.segment === 'visitors') where += ' AND user_id IS NULL';
   if (n.lang) { where += ' AND lang=?'; params.push(n.lang); }
-  const subs = q.all<any>(`SELECT * FROM subscribers WHERE ${where}`, ...params);
-  const html = marked.parse(n.body, { async: false }) as string;
-  for (const s of subs) {
+  const subs = q.all<any>(`SELECT * FROM subscribers WHERE ${where} ORDER BY id`, ...params);
+  const raw = marked.parse(n.body, { async: false }) as string;
+  // A/B: half the list gets subject B; links are tracked per half so the better subject can be learned.
+  const ab = !!(n.subject_b && settings().newsletter_ab && subs.length >= 2);
+  const html = { a: trackHtmlLinks(raw, { channel: 'newsletter', campaign: `nl-${n.id}-a` }), b: ab ? trackHtmlLinks(raw, { channel: 'newsletter', campaign: `nl-${n.id}-b` }) : '' };
+  subs.forEach((s, i) => {
+    const v = ab && i % 2 === 1 ? 'b' : 'a';
+    const subject = v === 'b' ? n.subject_b : n.subject;
     const unsub = `${config.baseUrl}/newsletter/unsubscribe/${s.token}`;
-    queueEmail(s.email, n.subject, emailShell(escapeHtml(n.subject), `${html}<p style="font-size:12px;color:#777;margin-top:24px"><a href="${unsub}">Unsubscribe</a></p>`));
-  }
-  q.run("UPDATE newsletters SET status='sent', sent_count=?, send_at=COALESCE(send_at, ?) WHERE id=?", subs.length, now(), id);
+    queueEmail(s.email, subject, emailShell(escapeHtml(subject), `${html[v]}<p style="font-size:12px;color:#777;margin-top:24px"><a href="${unsub}">Unsubscribe</a></p>`));
+  });
+  q.run("UPDATE newsletters SET status='sent', sent_count=?, send_at=COALESCE(send_at, ?), subject_b=? WHERE id=?", subs.length, now(), ab ? n.subject_b : null, id);
   return subs.length;
 }
 

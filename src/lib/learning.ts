@@ -59,6 +59,8 @@ function succeeded(o: any): boolean {
     case 'gift': return !q.get("SELECT 1 FROM gifts WHERE giver_id=? AND status='sent' AND created_at<=?", o.user_id, since);
     case 'refer': return !!q.get('SELECT 1 FROM users WHERE referred_by=? AND created_at>=?', o.user_id, since);
     default:
+      if (String(o.situation).startsWith('email:')) return !!q.get('SELECT 1 FROM link_clicks c JOIN links l ON l.id=c.link_id WHERE l.lesson_id=? AND c.user_id=? AND c.created_at>=?', o.lesson_id, o.user_id, since)
+        || !!q.get('SELECT 1 FROM trades WHERE user_id=? AND created_at>=?', o.user_id, since);
       if (o.lead_id) return !!q.get("SELECT 1 FROM leads WHERE id=? AND (status='signed_up' OR user_id IS NOT NULL)", o.lead_id);
       if (o.prospect_id) return !!q.get("SELECT 1 FROM prospects WHERE id=? AND status IN ('replied','meeting','won')", o.prospect_id);
       return false;

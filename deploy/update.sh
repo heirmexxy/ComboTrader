@@ -3,6 +3,9 @@
 # Rolls back automatically if the new version does not start. Touches nothing outside /srv/combotrader.
 # Run as the combotrader user (GitHub Actions does this on every push to main).
 set -euo pipefail
+# Run from a copy: this file itself changes during the update.
+if [ -z "${CT_UPDATE_COPY:-}" ]; then T=$(mktemp /tmp/ct-update.XXXXXX); cp "$0" "$T"; CT_UPDATE_COPY="$T" exec bash "$T" "$@"; fi
+trap 'rm -f "$CT_UPDATE_COPY"' EXIT
 APP_DIR=/srv/combotrader
 cd "$APP_DIR"
 [ -x /opt/combotrader-node/bin/node ] && export PATH="/opt/combotrader-node/bin:$PATH"
@@ -13,7 +16,8 @@ healthy() { for i in $(seq 1 20); do sleep 2; curl -fsS "http://$BIND:$PORT/heal
 PREV=$(git rev-parse HEAD)
 git fetch --quiet origin main
 NEW=$(git rev-parse origin/main)
-[ "$PREV" = "$NEW" ] && { echo "Already up to date ($PREV)."; exit 0; }
+[ "$PREV" = "$NEW" ] && { if [ -t 1 ]; then echo "Already up to date ($PREV)."; fi; exit 0; }
+echo "$(date "+%F %T") updating $PREV -> $NEW"
 node --disable-warning=ExperimentalWarning dist/cli.mjs backup "data/backups/pre-deploy-$(date +%F-%H%M%S).db" >/dev/null 2>&1 || true
 git reset --hard --quiet "$NEW"
 npm install --no-audit --no-fund --silent

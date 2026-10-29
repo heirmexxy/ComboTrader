@@ -55,6 +55,18 @@ export const config = {
   waAppSecret: e.WHATSAPP_APP_SECRET || '',
   waNumber: e.WHATSAPP_NUMBER || '', // public number shown to Champions, e.g. 2348012345678
 
+  // Social channels (each one is optional; without it, posts for that channel are prepared for copy-and-post)
+  fbPageId: e.FACEBOOK_PAGE_ID || '',
+  fbPageToken: e.FACEBOOK_PAGE_TOKEN || '', // long-lived Page access token (also used for Instagram, Messenger and Lead Ads)
+  igUserId: e.INSTAGRAM_BUSINESS_ID || '',
+  metaAppSecret: e.META_APP_SECRET || e.WHATSAPP_APP_SECRET || '',
+  metaVerifyToken: e.META_VERIFY_TOKEN || e.WHATSAPP_VERIFY_TOKEN || '',
+  linkedinToken: e.LINKEDIN_TOKEN || '',
+  linkedinOrg: e.LINKEDIN_ORG_URN || '', // e.g. urn:li:organization:12345678
+  linkedinVersion: e.LINKEDIN_VERSION || '202509',
+  xApiKey: e.X_API_KEY || '', xApiSecret: e.X_API_SECRET || '', xAccessToken: e.X_ACCESS_TOKEN || '', xAccessSecret: e.X_ACCESS_SECRET || '',
+  telegramBotToken: e.TELEGRAM_BOT_TOKEN || '', telegramChannel: e.TELEGRAM_CHANNEL || '', // e.g. @combotrader
+
   /** Demo helpers (codes shown on screen, simulated checkout) are never shown in production unless DEMO_MODE=true. */
   demoMode: !production || e.DEMO_MODE === 'true',
   cronSecret: e.CRON_SECRET || '',
