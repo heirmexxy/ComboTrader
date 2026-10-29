@@ -536,3 +536,4 @@ main > .flash { margin: 16px auto; max-width: 1140px; }
 .chat .msg { max-width: 80%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; font-size: 14px; }
 .chat .in { background: #fff; justify-self: start; }
 .chat .out { background: #DCF8C6; justify-self: end; }
+.qr { border: 1px solid var(--line); border-radius: 12px; padding: 8px; background: #fff; max-width: 100%; height: auto; }

@@ -1,5 +1,6 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  'sec.scan': "Abra o Google Authenticator, Microsoft Authenticator ou Authy, toque em + (adicionar conta), escolha “Ler código QR” e aponte a câmara para o código abaixo. Depois introduza o código de 6 dígitos que a aplicação mostra.", 'sec.qr_alt': "Código QR para a sua aplicação de autenticação", 'sec.qr_manual': "Não consegue ler? Escolha “Introduzir chave” na aplicação, use ComboTrader como nome e esta chave (baseada no tempo):",
   'app.nav.plans': 'Plano Colheita', 'app.nav.gifts': 'Oferecer uma colheita',
   'plan.title': 'Plano Colheita', 'plan.eyebrow': 'Poupe todos os meses e entre num lote quando atingir o objetivo',
   'plan.intro': 'Defina um objetivo e um valor mensal. Poupamos por si no dia escolhido. Quando a poupança atingir o objetivo, entramos por si no próximo lote adequado e enviamos o seu certificado. A poupança é sua: passe-a para a carteira quando quiser.',

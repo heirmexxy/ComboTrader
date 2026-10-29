@@ -13,6 +13,7 @@ import { estimateFee } from '../../lib/wallet';
 import { LuWallet, LuSprout, LuCalendar, LuReceipt, LuArrowRight, LuDownload, LuShare2, LuCopy, LuShieldCheck, LuCheck } from 'react-icons/lu';
 import { FaWhatsapp, FaXTwitter, FaFacebook, FaLinkedin } from 'react-icons/fa6';
 import { AccountRights, RolloverControl } from './more';
+import { qrDataUri } from '../../lib/qr';
 
 function Card({ title, children, className = '' }: { title?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`card ${className}`}>{title && <h2 className="card-title">{title}</h2>}{children}</section>;
@@ -403,6 +404,8 @@ export function AppSecurity({ setupSecret, otpauth, sessions, logins }: { setupS
           ) : setupSecret ? (
             <form method="post" action="/app/security/2fa/enable"><Csrf />
               <p className="small">{c.t('sec.scan')}</p>
+              {otpauth && <p className="center"><img className="qr" src={qrDataUri(otpauth)} width={220} height={220} alt={c.t('sec.qr_alt')} /></p>}
+              <p className="muted small">{c.t('sec.qr_manual')}</p>
               <p className="secret" dir="ltr">{setupSecret.match(/.{1,4}/g)!.join(' ')}</p>
               <p><a className="btn btn-ghost btn-sm" href={otpauth}>{c.t('sec.open_app')}</a></p>
               <Field label={c.t('auth.code')} name="code" required inputMode="numeric" maxLength={6} dir="ltr" autoComplete="one-time-code" />
