@@ -357,9 +357,9 @@ get('/admin/testing', 'admin:super', (c) => {
         <p>Status: <b>{simulatedPayments() ? 'ON — wallet top-ups and withdrawals are simulated; no real money moves.' : 'OFF — payments are not connected yet, so wallets cannot be funded.'}</b></p>
         <div className="btn-row">
           <Act action="/admin/testing/mode" fields={{ on: s.test_mode ? 0 : 1 }} label={s.test_mode ? 'Turn test mode off' : 'Turn test mode on'} tone={s.test_mode ? 'ghost' : 'green'} />
-          <Act action="/admin/testing/sample-lots" label="Add 4 sample Trade Lots" />
+          <Act action="/admin/testing/sample-lots" label="Add 4 sample Trade Lots and Harvest Circles" />
         </div>
-        <p className="muted small">Sample lots are marked “TEST ·”. While test mode is on, every page shows a “payments are simulated” banner. Adding the live Paystack key later switches test mode off automatically.</p>
+        <p className="muted small">While test mode is on, Harvest Circles are open to every Champion (whatever the Circles setting), every sample lot allows circles, and the soybean and sesame lots come with two open sample circles each. Sample lots and circles are marked “TEST ·”. While test mode is on, every page shows a “payments are simulated” banner. Adding the live Paystack key later switches test mode off automatically.</p>
       </>}
     </Box>
     <Box title="Clear all test data">
@@ -382,7 +382,7 @@ post('/admin/testing/mode', 'admin:super', (c) => {
 post('/admin/testing/sample-lots', 'admin:super', (c) => {
   if (!testModeAvailable()) return c.back('/admin/testing', ['error', 'Not available with live payments.']);
   const n = addSampleLots(c.user!.id); audit(c.user!.id, 'testmode.sample_lots', String(n), undefined, c.ip);
-  c.back('/admin/testing', ['ok', `${n} sample lots added and open.`]);
+  c.back('/admin/testing', ['ok', `${n} sample lots added and open, with sample Harvest Circles.`]);
 });
 post('/admin/testing/clear', 'admin:super', (c) => {
   if (c.str('confirm') !== 'CLEAR') return c.back('/admin/testing', ['error', 'Type CLEAR (capital letters) to confirm.']);

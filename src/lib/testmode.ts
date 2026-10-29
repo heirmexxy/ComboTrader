@@ -9,6 +9,7 @@ import { recordPrice } from './prices';
 import { nextLotCode, lotDescription } from './lotgen';
 import { rateFor } from './trading';
 import { addTrailEvent } from './trading';
+import { createCircle } from './circles';
 
 /** Simulated checkout and payouts are allowed only while Paystack has no secret key (never alongside real money). */
 export const testModeAvailable = () => config.paystackDemo;
@@ -30,12 +31,16 @@ export function addSampleLots(by: number) {
     const id = q.insert('lots', {
       code: nextLotCode(c.code, closes), commodity: c.code, title: `TEST · ${c.name} from ${x.region}`, region: x.region, buyer_type: x.buyer_type, buyer_name: '[Test buyer]',
       contract_ref: 'TEST-CONTRACT', tonnage: x.tonnage, farmers: x.farmers, target_amount: x.target * 100, min_commit: settings().min_commit_default,
-      periods: '4,6,9,12', period_months: 12, rate_bps: rateFor(12), closes_at: closes, status: 'open', circles_enabled: x.circles,
+      periods: '4,6,9,12', period_months: 12, rate_bps: rateFor(12), closes_at: closes, status: 'open', circles_enabled: 1,
       description: `Sample lot for testing. ${lotDescription({ commodityName: c.name, region: x.region, buyerType: x.buyer_type, tonnage: x.tonnage, farmers: x.farmers })}`,
       buyer_amount: Math.round(x.target * 1.25) * 100, buyer_due_at: new Date(Date.now() + (x.days + 120) * 864e5).toISOString(),
       created_by: by, created_at: now(), opened_at: now(),
     }).id;
     addTrailEvent(id, 'funded', 'Sample update: Champions are funding this lot.', null, by);
+    // Two open sample circles per lot: small slots for groups, one larger.
+    if (x.circles) for (const [name, slots, price] of [[`TEST · ${c.name} Teachers' Circle`, 20, 25_000], [`TEST · ${c.name} Family Circle`, 10, 50_000]] as const) {
+      try { createCircle({ lotId: id, name, slots, slotPrice: price * 100, creatorId: null, isPrivate: false }); } catch { /* lot too small */ }
+    }
     n++;
   }
   if (!q.val("SELECT COUNT(*) FROM prices WHERE status='published'")) {

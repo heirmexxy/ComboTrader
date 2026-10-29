@@ -6,7 +6,7 @@ import { ChroniclesPage, PostPage, CATEGORIES } from '../views/public/blog';
 import { q, now } from '../lib/db';
 import { openLots, publicLots, getLotByCode, siteStats, trailFor } from '../lib/trading';
 import { latestPrices, priceHistory } from '../lib/prices';
-import { publicCircles, circlesVisibleTo } from '../lib/circles';
+import { publicCircles, circlesVisibleTo, circlesMode } from '../lib/circles';
 import { settings } from '../lib/settings';
 import { faqsFor, postsFor, postBySlug, md } from '../lib/content';
 import { feedItems } from '../lib/feed';
@@ -25,7 +25,7 @@ const topRate = () => Number(q.val("SELECT MAX(rate_bps) FROM lots WHERE status=
 get('/', 'public', (c) => {
   const lots = openLots(3);
   const heroDone = lots[0] ? trailFor(lots[0].id).map((e: any) => e.stage) : [];
-  render(c, h(P.Home, { stats: siteStats(), lots, circles: settings().circles_mode === 'on', rateBps: topRate(), heroDone }));
+  render(c, h(P.Home, { stats: siteStats(), lots, circles: circlesMode() === 'on', rateBps: topRate(), heroDone }));
 });
 get('/how-it-works', 'public', (c) => render(c, h(P.HowItWorks, { faqs: faqsFor(c.lang) })));
 get('/lots', 'public', (c) => render(c, h(P.LotsPage, { lots: publicLots(), commodities: commodities() })));
@@ -36,7 +36,7 @@ get('/lots/:code', 'public', (c) => {
 });
 get('/circles', 'public', (c) => {
   const visible = circlesVisibleTo(c.user);
-  render(c, h(P.CirclesPage, { circles: visible ? publicCircles() : [], visible, mode: settings().circles_mode }));
+  render(c, h(P.CirclesPage, { circles: visible ? publicCircles() : [], visible, mode: circlesMode() }));
 });
 get('/prices', 'public', (c) => {
   const prices = latestPrices();

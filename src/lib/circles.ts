@@ -1,6 +1,7 @@
 // Harvest Circles (MicroTrading): many Champions fill one slice of a lot together.
 // Slots are RESERVED in the Champion's wallet (not spent). When the last slot is taken,
 // every reservation converts into a trade on the same day. Unfilled circles release funds automatically.
+import { config } from './config';
 import { q, tx, now } from './db';
 import { move, walletAcct, reservedAcct, walletBalance } from './ledger';
 import { settings } from './settings';
@@ -18,8 +19,13 @@ export interface Circle {
 }
 
 /** Who can see and use circles, given the feature switch (Admin → Settings → Features). */
+/** The Circles switch, except that test mode (Admin → Testing) opens Circles to everyone so they can be tried. */
+export function circlesMode(): 'off' | 'pilot' | 'on' {
+  const s = settings();
+  return s.test_mode && config.paystackDemo ? 'on' : s.circles_mode;
+}
 export function circlesVisibleTo(user: User | null) {
-  const mode = settings().circles_mode;
+  const mode = circlesMode();
   if (mode === 'on') return true;
   if (mode === 'pilot') return !!user && (!!user.circle_pilot || user.role === 'admin');
   return false;

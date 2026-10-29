@@ -6,7 +6,7 @@ import { LANGS, langMeta, fmtDate } from '../lib/i18n';
 import { config } from '../lib/config';
 import { latestPrices } from '../lib/prices';
 import { settings } from '../lib/settings';
-import { circlesVisibleTo } from '../lib/circles';
+import { circlesVisibleTo, circlesMode } from '../lib/circles';
 import { walletBalance } from '../lib/ledger';
 import { q } from '../lib/db';
 import crypto from 'node:crypto';
@@ -137,7 +137,7 @@ function Html({ children, title, description, noindex, bodyClass, feed = true, i
 
 export function PublicLayout({ title, description, children, noindex, image }: { title: string; description?: string; children: ReactNode; noindex?: boolean; image?: string }) {
   const c = useC();
-  const showCircles = settings().circles_mode !== 'off';
+  const showCircles = circlesMode() !== 'off';
   const nav = [
     ['/how-it-works', 'nav.how'], ['/lots', 'nav.lots'], ...(showCircles ? [['/circles', 'nav.circles']] : []), ['/prices', 'nav.prices'],
     ['/why-kitovu', 'nav.why'], ['/chronicles', 'nav.blog'], ['/faqs', 'nav.faqs'],
