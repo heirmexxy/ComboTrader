@@ -47,13 +47,13 @@ function DemoCheckout({ p }: { p: any }) {
       h('button', { className: 'btn btn-ghost btn-block mt', name: 'result', value: 'failed', type: 'submit' }, 'Simulate failed payment')));
 }
 get('/pay/demo/:ref', 'auth', (c) => {
-  if (!paystack.isDemo() || !config.demoMode) throw new HttpError(404, 'Not found');
+  if (!paystack.simulated()) throw new HttpError(404, 'Not found');
   const p = q.get<any>('SELECT * FROM payments WHERE reference=? AND user_id=?', c.params.ref, c.user!.id);
   if (!p) throw new HttpError(404, 'Not found');
   render(c, h(DemoCheckout, { p }));
 });
 post('/pay/demo/:ref', 'auth', async (c) => {
-  if (!paystack.isDemo() || !config.demoMode) throw new HttpError(404, 'Not found');
+  if (!paystack.simulated()) throw new HttpError(404, 'Not found');
   const p = q.get<any>('SELECT * FROM payments WHERE reference=? AND user_id=?', c.params.ref, c.user!.id);
   if (!p) throw new HttpError(404, 'Not found');
   if (c.body.result === 'success') {

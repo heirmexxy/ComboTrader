@@ -54,6 +54,13 @@ switch (cmd) {
     catch (e: any) { console.log(`Not sent: ${e.message}`); }
     break;
   }
+  case 'clear-test-data': {
+    if (args[0] !== '--yes') { console.log('This removes every Champion, lot, payment and trade (admins, settings and content stay). Run again with --yes to do it.'); break; }
+    const { clearTestData } = await import('./lib/testmode');
+    const r = clearTestData(null);
+    console.log(`Test data cleared. ${r.counts.champions || 0} Champions removed. Backup: ${r.backup}`);
+    break;
+  }
   case 'time': console.log(`Server time (UTC): ${new Date().toISOString()}`); break;
   case 'vapid': {
     const k = generateVapidKeys();
@@ -61,5 +68,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('Commands: seed | job <name> | backup [file] | make-admin <email> [roles] | reset-2fa <email> | test-email <to> | time | vapid');
+    console.log('Commands: seed | job <name> | backup [file] | make-admin <email> [roles] | reset-2fa <email> | test-email <to> | clear-test-data --yes | time | vapid');
 }

@@ -18,6 +18,7 @@ export const DEFAULTS = {
   baseline_tons: 5000,
   baseline_payouts: 5000000000, // ₦50M
   baseline_farmers: 25000,
+  test_mode: false, // simulated payments + sample lots on a real server, only while no live Paystack key is set
   figures_mode: 'add' as 'add' | 'exact', // add: number typed + live platform activity; exact: show exactly the number typed
   rank_thresholds: '1,5,20', // tons for Sprout, Harvester, Granary Keeper
   support_phone: '+234 000 000 0000',

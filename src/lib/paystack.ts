@@ -1,5 +1,6 @@
 // Paystack integration. Without PAYSTACK_SECRET_KEY the platform runs in DEMO mode:
 // payments go to a clearly-labelled simulated checkout, and transfers succeed instantly.
+import { settings } from './settings';
 import crypto from 'node:crypto';
 import { config } from './config';
 
@@ -17,7 +18,9 @@ async function ps<T = any>(method: string, path: string, body?: unknown): Promis
 }
 
 export const isDemo = () => config.paystackDemo;
-function demoAllowed() { if (!config.demoMode) throw new Error('Payments are not configured. Set PAYSTACK_SECRET_KEY.'); return true; }
+/** Simulated payments: local development, or Admin → Testing while no Paystack key is set. */
+export const simulated = () => isDemo() && (config.demoMode || !!settings().test_mode);
+function demoAllowed() { if (!simulated()) throw new Error('Payments are not available yet. Please try again a little later.'); return true; }
 
 export async function initialize(o: { email: string; amount: number; reference: string; metadata?: Record<string, unknown> }) {
   if (isDemo() && demoAllowed()) return { authorization_url: `/pay/demo/${o.reference}` };

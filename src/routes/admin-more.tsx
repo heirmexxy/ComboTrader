@@ -11,6 +11,7 @@ import { aiLive, callsToday, agentMode } from '../lib/ai';
 import { lessonScore, scoreOutcomes, type Lesson } from '../lib/learning';
 import { CHANNELS, CHANNEL_NAMES, CHANNEL_SETUP, channelReady, wantedChannels, runSocial, runEmail, CAMPAIGN_KEYS, publishDueSocial, type Channel } from '../lib/marketing';
 import { savePublicImage as saveImg } from '../lib/uploads';
+import { testModeAvailable, simulatedPayments, addSampleLots, clearTestData, testTables } from '../lib/testmode';
 import { randomToken, isEmail } from '../lib/util';
 import { handleInbound, waLive } from '../lib/whatsapp';
 import { planSaved } from '../lib/plans';
@@ -343,6 +344,51 @@ post('/admin/marketing/settings', 'admin:content', (c) => {
   setSetting('newsletter_ab', c.bool('newsletter_ab'));
   audit(c.user!.id, 'marketing.settings', undefined, undefined, c.ip);
   c.back('/admin/marketing', ['ok', 'Saved.']);
+});
+
+// ============ Testing ============
+get('/admin/testing', 'admin:super', (c) => {
+  const s = settings();
+  const n = (sql: string) => Number(q.val(sql) ?? 0);
+  page(c, 'Testing', <>
+    <p className="muted">Use this before launch to try every flow with simulated money, then remove all test data in one step.</p>
+    <Box title="Test mode">
+      {!testModeAvailable() ? <p><b>Off — live payments are connected.</b> Test mode is only possible while no Paystack secret key is set, so simulated money can never mix with real money.</p> : <>
+        <p>Status: <b>{simulatedPayments() ? 'ON — wallet top-ups and withdrawals are simulated; no real money moves.' : 'OFF — payments are not connected yet, so wallets cannot be funded.'}</b></p>
+        <div className="btn-row">
+          <Act action="/admin/testing/mode" fields={{ on: s.test_mode ? 0 : 1 }} label={s.test_mode ? 'Turn test mode off' : 'Turn test mode on'} tone={s.test_mode ? 'ghost' : 'green'} />
+          <Act action="/admin/testing/sample-lots" label="Add 4 sample Trade Lots" />
+        </div>
+        <p className="muted small">Sample lots are marked “TEST ·”. While test mode is on, every page shows a “payments are simulated” banner. Adding the live Paystack key later switches test mode off automatically.</p>
+      </>}
+    </Box>
+    <Box title="Clear all test data">
+      <p>Now on the platform: <b>{n("SELECT COUNT(*) FROM users WHERE role!='admin'")}</b> Champions, <b>{n('SELECT COUNT(*) FROM lots')}</b> lots, <b>{n('SELECT COUNT(*) FROM trades')}</b> trades, <b>{n('SELECT COUNT(*) FROM payments')}</b> payments, <b>{n('SELECT COUNT(*) FROM withdrawals')}</b> withdrawals, <b>{n('SELECT COUNT(*) FROM leads')}</b> leads.</p>
+      <p className="small"><b>Removed:</b> every Champion account, all wallets and ledger entries, lots, trades, Trail updates, payments, withdrawals, circles, plans, gifts, referrals, waitlist, leads, organisations, newsletters and subscribers, messages, notifications, agent drafts and what agents learned, social posts and email campaign history.<br />
+        <b>Kept:</b> admin accounts (with their authenticators), all settings and rates, commodities, prices, FAQs and page text, Chronicles posts, and the audit log. A full backup is saved first.</p>
+      <form method="post" action="/admin/testing/clear" className="form-grid"><Csrf />
+        <F label="Type CLEAR to confirm" name="confirm" required />
+        <div className="form-actions"><button className="btn btn-danger" type="submit">Clear all test data</button></div>
+      </form>
+      <p className="muted small">Tables emptied: {testTables().join(', ')}.</p>
+    </Box>
+  </>);
+});
+post('/admin/testing/mode', 'admin:super', (c) => {
+  if (!testModeAvailable()) return c.back('/admin/testing', ['error', 'Live payments are connected, so test mode is not available.']);
+  setSetting('test_mode', c.int('on') === 1); audit(c.user!.id, 'testmode', String(c.int('on')), undefined, c.ip);
+  c.back('/admin/testing', ['ok', c.int('on') === 1 ? 'Test mode is on: payments are simulated.' : 'Test mode is off.']);
+});
+post('/admin/testing/sample-lots', 'admin:super', (c) => {
+  if (!testModeAvailable()) return c.back('/admin/testing', ['error', 'Not available with live payments.']);
+  const n = addSampleLots(c.user!.id); audit(c.user!.id, 'testmode.sample_lots', String(n), undefined, c.ip);
+  c.back('/admin/testing', ['ok', `${n} sample lots added and open.`]);
+});
+post('/admin/testing/clear', 'admin:super', (c) => {
+  if (c.str('confirm') !== 'CLEAR') return c.back('/admin/testing', ['error', 'Type CLEAR (capital letters) to confirm.']);
+  const r = clearTestData(c.user!.id);
+  setSetting('test_mode', false);
+  c.redirect('/admin/testing', ['ok', `Test data cleared (${r.counts.champions || 0} Champions removed). Backup saved as ${r.backup.split('/').pop()}. Test mode is off.`]);
 });
 
 // ============ Prospects (finding new Champions) ============

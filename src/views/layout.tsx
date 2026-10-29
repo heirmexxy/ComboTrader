@@ -1,3 +1,4 @@
+import { simulated } from '../lib/paystack';
 import type { ReactNode } from 'react';
 import { useC, jsonScript } from './render';
 import { Logo, Csrf, Flash, Money } from './components';
@@ -261,7 +262,7 @@ export function AppLayout({ title, children }: { title: string; children: ReactN
           <a href="/" className="muted"><LuArrowLeft aria-hidden /> {c.t('app.nav.site')}</a>
         </nav>
         <main id="main" className="app-main">
-          {config.paystackDemo && <div className="demo-banner">{c.t('app.demo_banner')}</div>}
+          {simulated() && <div className="demo-banner">{c.t('app.demo_banner')}</div>}
           {!u.email_verified_at && <div className="flash flash-info">{c.t('app.verify_email_banner')} <a href="/verify-email">{c.t('auth.verify_email_title')}</a></div>}
           <Flash />
           {children}
@@ -284,7 +285,7 @@ export const ADMIN_NAV: [string, string, string][] = [
   ['/admin/prices', 'Prices', 'operations'], ['/admin/feed', 'Activity feed', 'content'], ['/admin/posts', 'Chronicles (blog)', 'content'],
   ['/admin/figures', 'Homepage numbers', 'content'], ['/admin/faqs', 'FAQs & page text', 'content'], ['/admin/newsletter', 'Newsletter', 'content'], ['/admin/referrals', 'Referrals', 'finance'],
   ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/agents', 'AI agents', 'any'], ['/admin/marketing', 'Marketing', 'content'], ['/admin/prospects', 'Prospects', 'content'], ['/admin/whatsapp', 'WhatsApp', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],
-  ['/admin/audit', 'Audit log', 'super'], ['/admin/settings', 'Settings', 'super'],
+  ['/admin/audit', 'Audit log', 'super'], ['/admin/testing', 'Testing', 'super'], ['/admin/settings', 'Settings', 'super'],
 ];
 
 export function AdminLayout({ title, children, actions }: { title: string; children: ReactNode; actions?: ReactNode }) {
@@ -296,7 +297,7 @@ export function AdminLayout({ title, children, actions }: { title: string; child
         <header className="admin-header">
           <a href="/admin" className="brand"><Logo /> <span className="admin-tag">Admin</span></a>
           <div className="header-actions">
-            {config.paystackDemo && <span className="tag tag-terra">Paystack demo mode</span>}
+            {config.paystackDemo && <a href="/admin/testing" className="tag tag-terra">{simulated() ? 'Test mode: payments simulated' : 'Payments not connected'}</a>}
             <a href="/" className="small">View website</a>
             <a href="/app" className="small">Champion view</a>
             <span className="small muted">{c.user!.first_name} · {c.user!.admin_roles}</span>

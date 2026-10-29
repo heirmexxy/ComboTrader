@@ -589,6 +589,31 @@ await t('/join form records a consented lead with its source', async () => {
 });
 function fmtTest(k: number) { return `₦${new Intl.NumberFormat('en-NG').format(k / 100)}`; }
 
+console.log('\nTesting tools');
+await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
+  const tm = await import('../src/lib/testmode');
+  const { config } = await import('../src/lib/config');
+  const ps = await import('../src/lib/paystack');
+  const oldDemo = config.demoMode; (config as any).demoMode = false;
+  try {
+    setSetting('test_mode', false); eq(ps.simulated(), false);
+    setSetting('test_mode', true); eq(ps.simulated(), true);
+    (config as any).paystackSecret = 'sk_live_x'; eq(ps.simulated(), false, 'never with live keys'); (config as any).paystackSecret = '';
+  } finally { (config as any).demoMode = oldDemo; }
+  const admin = mkUser('boss@t.ng'); q.run("UPDATE users SET role='admin', admin_roles='super', totp_enabled=1, totp_secret='ABC' WHERE id=?", admin.id);
+  eq(tm.addSampleLots(admin.id), 4);
+  eq(String(q.val("SELECT title FROM lots ORDER BY id DESC")).startsWith('TEST ·'), true);
+  setSetting('rate_12', 31);
+  const before = Number(q.val('SELECT COUNT(*) FROM commodities'));
+  tm.clearTestData(admin.id);
+  eq(Number(q.val("SELECT COUNT(*) FROM users WHERE role!='admin'")), 0);
+  eq(Number(q.val('SELECT COUNT(*) FROM lots')) + Number(q.val('SELECT COUNT(*) FROM trades')) + Number(q.val('SELECT COUNT(*) FROM journals')) + Number(q.val('SELECT COUNT(*) FROM payments')), 0);
+  eq(q.val('SELECT totp_enabled FROM users WHERE id=?', admin.id), 1, 'admin and authenticator kept');
+  eq(Number(q.val('SELECT COUNT(*) FROM commodities')), before); eq(rateFor(12), 3100, 'settings kept');
+  eq(trialBalance(), 0);
+  setSetting('rate_12', 30);
+});
+
 console.log('\nLanguages');
 for (const l of LANGS) await t(`${l.label}: every key translated`, () => { const m = missingKeys(l.code); if (m.length) throw new Error(`${m.length} missing, e.g. ${m.slice(0, 5).join(', ')}`); });
 await t('placeholders survive translation', () => {
