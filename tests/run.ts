@@ -73,6 +73,17 @@ await t('homepage figures: add mode includes activity, exact mode shows the type
   setSetting('figures_mode', 'exact'); eq(siteStats().champions, 1000);
   setSetting('figures_mode', 'add'); eq(siteStats().champions > 1000, true);
 });
+await t('lot title, code and description are generated from commodity, region and buyer', async () => {
+  const g = await import('../src/lib/lotgen');
+  eq(g.lotPrefix('soybean'), 'SB'); eq(g.lotPrefix('paddy_rice'), 'PR'); eq(g.lotPrefix('shea_butter'), 'SB'); eq(g.lotPrefix('ginger'), 'GN'); eq(g.lotPrefix('tomato'), 'TM');
+  eq(g.lotTitle('Soybean', 'Benue & Nasarawa', 'Animal feed mill, Kaduna'), 'Soybean from Benue & Nasarawa');
+  eq(g.lotTitle('Maize', '', 'Poultry feed producer'), 'Maize for a poultry feed producer');
+  eq(g.lotDescription({ commodityName: 'Soybean', region: 'Benue', buyerType: 'Animal feed mill, Kaduna', tonnage: 120, farmers: 85 }), 'Soybean bought from 85 farmers in Benue to fill a signed order from an animal feed mill, Kaduna. 120 tons.');
+  eq(g.withArticle('NNPC depot'), 'an NNPC depot');
+  const code = g.nextLotCode('maize', '2027-03-15T00:00:00Z'); eq(code, 'MZ-2703');
+  q.insert('lots', { code, commodity: 'maize', title: 'x', buyer_type: 'Mill', tonnage: 1, farmers: 1, target_amount: 1, min_commit: 1, period_months: 12, rate_bps: 3000, closes_at: '2027-03-15T00:00:00Z', status: 'draft', created_at: now() });
+  eq(g.nextLotCode('maize', '2027-03-20T00:00:00Z'), 'MZ-2703-2');
+});
 const ada = mkUser('ada@t.ng');
 await t('funding credits the wallet exactly once (idempotent)', async () => {
   const ref = await fund(ada.id, 500_000_00);
@@ -386,6 +397,98 @@ await t('live Claude path: request shape, JSON reply, run logged with tokens', a
     eq(String(sent.body.system).includes('balance sheet'), true);
     eq(JSON.stringify(sent.body).includes('password_hash'), false, 'no secrets sent');
     eq(q.val("SELECT tokens_in FROM agent_runs WHERE trigger='test-live'"), 900);
+  } finally { globalThis.fetch = realFetch; (config as any).anthropicKey = old; }
+});
+await t('rules/AI switch: rules mode never calls the model, even with a key; per-agent override wins', async () => {
+  const { config } = await import('../src/lib/config');
+  const ai = await import('../src/lib/ai');
+  const realFetch = globalThis.fetch; const old = config.anthropicKey; let calls = 0;
+  (config as any).anthropicKey = 'test-key';
+  globalThis.fetch = (async () => { calls++; return new Response(JSON.stringify({ content: [{ type: 'text', text: '{"reply":"AI","escalate":false,"general_answer":"AI general"}' }], usage: {} }), { status: 200 }); }) as any;
+  try {
+    setSetting('agent_mode', 'rules');
+    eq(ai.useAI('support'), false);
+    const r = await agents.supportAnswer(null, 'What happens if a buyer pays late?', 'en', 'test-rules');
+    eq(calls, 0); eq(r.reply.includes('balance sheet'), true);
+    setSetting('agent_modes', JSON.stringify({ support: 'ai' }));
+    eq(ai.useAI('support'), true); eq(ai.useAI('growth'), false);
+    await agents.supportAnswer(null, 'Can I use a dollar card?', 'en', 'chat:1');
+    eq(calls, 1);
+    eq(Number(q.val("SELECT COUNT(*) FROM agent_lessons WHERE agent='support' AND kind='answer' AND active=0")) >= 1, true, 'unreviewed chat answer kept switched off');
+  } finally { globalThis.fetch = realFetch; (config as any).anthropicKey = old; setSetting('agent_mode', 'ai'); setSetting('agent_modes', '{}'); }
+});
+await t('learning: an approved AI ticket answer is reused by the rules for a similar question', async () => {
+  const tid = q.insert('tickets', { user_id: ada.id, subject: 'Solar dryer question', body: 'Do you finance solar dryers for cooperatives?', created_at: now() }).id;
+  const aid = agents.propose({ agent: 'support', kind: 'reply_ticket', risk: 'low', title: 't', payload: { ticket_id: tid, reply: 'Hi Ada, not yet.', question: 'Do you finance solar dryers for cooperatives?', general_answer: 'Not at the moment: ComboTrader funds commodity trades only.', lang: 'en' } });
+  agents.executeAction(aid, 1);
+  setSetting('agent_mode', 'rules');
+  const r = await agents.supportAnswer(null, 'Can you finance solar dryers for our cooperative?', 'en', 'test');
+  setSetting('agent_mode', 'ai');
+  eq(r.reply, 'Not at the moment: ComboTrader funds commodity trades only.'); eq(r.escalate, false);
+});
+await t('learning: templates are scored by results; a human edit becomes a template', async () => {
+  const learning = await import('../src/lib/learning');
+  const u = mkUser('learn@t.ng');
+  const aid = agents.propose({ agent: 'onboarding', kind: 'send_message', risk: 'low', title: 't', payload: { user_id: u.id, title: 'Hi', body: 'Draft', situation: 'fund', _agent: 'onboarding' } });
+  agents.executeAction(aid, 1, { body: `${u.first_name}, add money in two taps.` });
+  const les = q.get<any>("SELECT * FROM agent_lessons WHERE agent='onboarding' AND kind='template' AND key='fund' AND source='human'");
+  eq(!!les, true); eq(JSON.parse(les.content).body, '{name}, add money in two taps.');
+  q.run("UPDATE lesson_outcomes SET sent_at=? WHERE lesson_id=?", addDays(now(), -8), les.id);
+  learning.scoreOutcomes();
+  eq(q.val('SELECT losses FROM agent_lessons WHERE id=?', les.id), 1, 'no payment within a week → did not work');
+  await fund(u.id, 250_000_00);
+  const aid2 = agents.propose({ agent: 'onboarding', kind: 'send_message', risk: 'low', title: 't', payload: { user_id: u.id, title: 'Hi', body: 'x', situation: 'payment', lesson_id: les.id } });
+  q.run("UPDATE payments SET paid_at=? WHERE user_id=?", addDays(now(), 1), u.id);
+  agents.executeAction(aid2, 1); learning.scoreOutcomes();
+  eq(q.val('SELECT wins FROM agent_lessons WHERE id=?', les.id), 1, 'paid after the message → worked');
+});
+await t('learning: rejected risk flags weaken a signal type until it needs company', async () => {
+  const id = agents.signalLesson('referral_burst');
+  q.run('UPDATE agent_lessons SET losses=6, wins=0 WHERE id=?', id);
+  const ref = mkUser('rings@t.ng');
+  for (let i = 0; i < 5; i++) { const f = mkUser(`ringf${i}@t.ng`); q.insert('referral_rewards', { referrer_id: ref.id, referred_id: f.id, amount: 500000, created_at: now() }); }
+  const r = await agents.runRisk();
+  eq(String(r).includes('weak signals skipped') || !q.get("SELECT 1 FROM agent_actions WHERE agent='risk' AND target_user_id=? AND status='proposed'", ref.id), true);
+});
+await t('ops rules: stage from field notes and a draft lot from a contract summary', async () => {
+  eq(agents.guessStage('trucks dispatched to the mill, waybill signed'), 'delivered');
+  eq(agents.guessStage('bagged and stacked in warehouse, moisture 11%'), 'warehoused');
+  const d = agents.parseContract('LPO No: KDF-2291. Buyer: Animal feed mill, Kaduna. 120 MT soybean from Benue and Nasarawa at ₦85,000,000 total, payment due 2027-02-28.', q.all('SELECT code, name FROM commodities'));
+  eq(d.commodity, 'soybean'); eq(d.tonnage, 120); eq(d.buyer_amount_naira, 85_000_000); eq(d.region, 'Benue & Nasarawa'); eq(d.buyer_due, '2027-02-28'); eq(d.contract_ref, 'KDF-2291');
+  eq(d.title, 'Soybean from Benue & Nasarawa');
+});
+await t('prospector: invites waitlist leads, skips non-consented imports, honours unsubscribe, marks sign-ups', async () => {
+  q.insert('waitlist', { email: 'keen@lead.ng', commodity: 'any', created_at: now() });
+  q.insert('leads', { email: 'cold@lead.ng', lang: 'en', source: 'import', consent: 0, token: 'tok-cold', created_at: now() });
+  q.insert('prospects', { name: 'Ikeja Staff Cooperative', segment: 'Staff cooperative societies', email: 'sec@ikejacoop.ng', token: 'tok-org', created_at: now() });
+  const r = await agents.runProspector();
+  eq(String(r).includes('invitations drafted'), true);
+  const inv = q.get<any>("SELECT * FROM agent_actions WHERE kind='send_invite' AND status='proposed' ORDER BY id DESC");
+  eq(JSON.parse(inv.payload).body.includes('waitlist'), true);
+  eq(!!q.get("SELECT 1 FROM agent_actions WHERE kind='send_invite' AND payload LIKE '%cold%'"), false);
+  const org = q.get<any>("SELECT * FROM agent_actions WHERE kind='send_outreach' AND status='proposed'");
+  eq(org.risk, 'medium'); eq(JSON.parse(org.payload).body.includes('Ikeja Staff Cooperative'), true);
+  agents.executeAction(inv.id, 1);
+  eq(q.val("SELECT status FROM leads WHERE email='keen@lead.ng'"), 'contacted');
+  eq(String(q.val("SELECT body FROM outbox WHERE recipient='keen@lead.ng' ORDER BY id DESC")).includes('/u/'), true, 'unsubscribe link');
+  q.run("UPDATE leads SET status='unsubscribed' WHERE email='keen@lead.ng'");
+  eq(String(agents.executeAction(agents.propose({ agent: 'prospector', kind: 'send_invite', risk: 'low', title: 't', payload: { lead_id: q.val("SELECT id FROM leads WHERE email='keen@lead.ng'"), title: 'x', body: 'y' } }), 1)).startsWith('skipped'), true);
+  mkUser('cold@lead.ng'); agents.syncLeads();
+  eq(q.val("SELECT status FROM leads WHERE email='cold@lead.ng'"), 'signed_up');
+});
+await t('prospector research: web-search reply is parsed and organisations saved', async () => {
+  const { config } = await import('../src/lib/config');
+  const realFetch = globalThis.fetch; const old = config.anthropicKey; let body: any = null;
+  (config as any).anthropicKey = 'test-key';
+  globalThis.fetch = (async (_u: string, init: any) => { body = JSON.parse(init.body); return new Response(JSON.stringify({ content: [
+    { type: 'text', text: 'Let me search.' }, { type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'x' } }, { type: 'web_search_tool_result', tool_use_id: 's1', content: [] },
+    { type: 'text', text: '{"organisations":[{"name":"Lagos Teachers Cooperative","location":"Lagos","email":"info@ltc.ng","why":"Large salaried membership"},{"name":"Bad","email":"not-an-email"}]}' }], usage: { input_tokens: 5, output_tokens: 5 } }), { status: 200 }); }) as any;
+  try {
+    const r = await agents.researchProspects('Staff cooperative societies', 'Lagos');
+    eq(r.includes('2 Staff cooperative societies'), true);
+    eq(body.tools[0].type, 'web_search_20250305');
+    eq(q.val("SELECT email FROM prospects WHERE name='Lagos Teachers Cooperative'"), 'info@ltc.ng');
+    eq(q.val("SELECT email FROM prospects WHERE name='Bad'"), null, 'invalid email dropped');
   } finally { globalThis.fetch = realFetch; (config as any).anthropicKey = old; }
 });
 function fmtTest(k: number) { return `₦${new Intl.NumberFormat('en-NG').format(k / 100)}`; }

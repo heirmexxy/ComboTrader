@@ -6,8 +6,10 @@ import { Box, Kpis, Table, Act, F, Form, N, D, S, naira } from '../views/admin/u
 import { Csrf } from '../views/components';
 import { q, now } from '../lib/db';
 import { coverage, receivables, latestCash, treasurySnapshot } from '../lib/treasury';
-import { AGENTS, ACTION_KINDS, AGENT_JOBS, agentOn, executeAction, rejectAction, opsTrailDraft, opsLotDraft, type AgentName } from '../lib/agents';
-import { aiLive, callsToday } from '../lib/ai';
+import { AGENTS, ACTION_KINDS, AGENT_JOBS, agentOn, executeAction, rejectAction, opsTrailDraft, opsLotDraft, researchProspects, syncLeads, type AgentName } from '../lib/agents';
+import { aiLive, callsToday, agentMode } from '../lib/ai';
+import { lessonScore, scoreOutcomes, type Lesson } from '../lib/learning';
+import { randomToken, isEmail } from '../lib/util';
 import { handleInbound, waLive } from '../lib/whatsapp';
 import { planSaved } from '../lib/plans';
 import { importUsers, parseCsv } from '../lib/account';
@@ -98,10 +100,12 @@ function payloadView(a: any) {
   if (a.kind === 'draft_newsletter') return <><b>{p.subject}</b><pre className="pre">{p.body}</pre></>;
   if (a.kind === 'social_posts') return <>{(p.posts || []).map((x: string, i: number) => <pre key={i} className="pre">{x}</pre>)}</>;
   if (a.kind === 'admin_alert') return <pre className="pre">{p.body}</pre>;
+  if (a.kind === 'send_invite' || a.kind === 'send_outreach') return <><b>{p.title}</b><pre className="pre">{p.body}</pre>{p.lesson_id && <p className="muted small">From learned template #{p.lesson_id}</p>}</>;
+  if (a.kind === 'save_prospects') return <Table rows={p.organisations || []} cols={[['Organisation', (o: any) => <><b>{o.name}</b><br /><span className="muted small">{o.location}</span></>], ['Contact', (o: any) => <span className="small">{o.email || o.phone || '—'}{o.website && <><br /><a href={o.website} target="_blank" rel="noopener">{o.website}</a></>}</span>], ['Why', (o: any) => <span className="small">{o.why}</span>]]} />;
   return <pre className="pre">{JSON.stringify(p, null, 2)}</pre>;
 }
 /** Which payload field an admin may edit before approving. */
-const EDITABLE: Record<string, string> = { send_message: 'body', reply_ticket: 'reply', trail_update: 'note', draft_newsletter: 'body' };
+const EDITABLE: Record<string, string> = { send_message: 'body', reply_ticket: 'reply', trail_update: 'note', draft_newsletter: 'body', send_invite: 'body', send_outreach: 'body' };
 
 get('/admin/agents', 'admin:any', (c) => {
   const status = String(c.query.status || 'proposed');
@@ -111,7 +115,14 @@ get('/admin/agents', 'admin:any', (c) => {
   const s = settings();
   const lots = allLots().filter((l) => ['open', 'filled', 'active'].includes(l.status));
   page(c, 'AI agents', <>
-    <p className="muted">Agents propose; people decide. Agents cannot move money, approve withdrawals or change balances. {aiLive() ? <>Model: <b>{config.aiModel}</b> / <b>{config.aiModelFast}</b> · {callsToday()} of {s.agent_daily_limit} calls used in the last 24 hours.</> : <b>Demo mode: no ANTHROPIC_API_KEY, so agents draft from rules and templates.</b>} Autonomy: <b>{s.agent_autonomy === 'auto_low' ? 'low-risk messages send automatically' : 'everything waits for review'}</b>{c.can('super') && <> (<a href="/admin/settings#agents">change</a>)</>}.</p>
+    <p className="muted">Agents propose; people decide. Agents cannot move money, approve withdrawals or change balances. Autonomy: <b>{s.agent_autonomy === 'auto_low' ? 'low-risk messages send automatically' : 'everything waits for review'}</b>{c.can('super') && <> (<a href="/admin/settings#agents">change</a>)</>}.</p>
+    <section className="card admin-box mode-switch">
+      <div className="box-head"><h2>How the agents think</h2>
+        <span className="btn-row">{c.can('super') ? (['rules', 'ai'] as const).map((m) => <Act key={m} action="/admin/agents/mode" fields={{ mode: m }} label={m === 'ai' ? 'AI (Claude)' : 'Rules'} tone={s.agent_mode === m ? 'primary' : 'ghost'} />) : <b>{s.agent_mode === 'ai' ? 'AI' : 'Rules'}</b>}</span></div>
+      <p className="small">{s.agent_mode === 'ai'
+        ? aiLive() ? <>AI is on: agents use <b>{config.aiModel}</b> / <b>{config.aiModelFast}</b> ({callsToday()} of {s.agent_daily_limit} calls in the last 24 hours) and every approved result teaches the rules.</> : <><b>AI is selected but there is no ANTHROPIC_API_KEY on the server</b>, so agents are using rules until the key is added.</>
+        : <>Rules are on: agents use the FAQs, built-in templates and <a href="/admin/agents/learning">what they have learned</a> from AI and from your approvals. No model calls, no cost. Web research for new organisations pauses.</>}</p>
+    </section>
     <div className="btn-row">
       {['proposed', 'approved', 'auto', 'rejected', 'failed', 'all'].map((st) => <a key={st} className={`btn btn-sm ${st === status ? 'btn-primary' : 'btn-ghost'}`} href={`/admin/agents?status=${st}${agent ? `&agent=${agent}` : ''}`}>{st} {st === 'proposed' ? `(${q.val("SELECT COUNT(*) FROM agent_actions WHERE status='proposed'")})` : ''}</a>)}
     </div>
@@ -131,9 +142,14 @@ get('/admin/agents', 'admin:any', (c) => {
     ))}
     <div className="grid-2 top">
       <Box title="Agents" id="run">
-        <Table rows={Object.entries(AGENTS)} cols={[['Agent', ([k, v]) => <><b>{v.name}</b> {agentOn(k as AgentName) ? '' : <span className="tag tag-grey">off</span>}<br /><span className="muted small">{v.what}</span></>],
+        <Table rows={Object.entries(AGENTS)} cols={[['Agent', ([k, v]) => <><b>{v.name}</b> {agentOn(k as AgentName) ? '' : <span className="tag tag-grey">off</span>} <span className={`tag ${agentMode(k) === 'ai' && aiLive() ? 'tag-green' : 'tag-grey'}`}>{agentMode(k) === 'ai' && aiLive() ? 'AI' : 'Rules'}</span><br /><span className="muted small">{v.what}</span>
+          {c.can('super') && <form method="post" action={`/admin/agents/mode/${k}`} className="agent-mode"><Csrf />
+            <select name="mode" defaultValue={(() => { try { return JSON.parse(String(s.agent_modes || '{}'))[k] || ''; } catch { return ''; } })()} aria-label={`Mode for ${v.name}`} data-autosubmit>
+              <option value="">Follow the switch</option><option value="ai">Always AI</option><option value="rules">Always rules</option></select>
+            <noscript><button className="btn btn-ghost btn-sm" type="submit">Set</button></noscript></form>}</>],
           ['Last 30 days', ([k]) => { const r = runs.find((x) => x.agent === k); return r ? <span className="small">{r.n} runs · {(r.tin || 0) + (r.tout || 0)} tokens{r.errs ? ` · ${r.errs} errors` : ''}</span> : <span className="muted small">—</span>; }],
           ['', ([k]) => AGENT_JOBS[k] ? <Act action={`/admin/agents/run/${k}`} label="Run now" /> : null]]} />
+        <p className="small"><a href="/admin/agents/learning">What the agents have learned →</a> · <a href="/admin/prospects">Prospects →</a></p>
       </Box>
       <Box title="Ops copilot">
         <Form action="/admin/agents/ops/trail" multipart submit="Draft Trail update">
@@ -152,7 +168,7 @@ get('/admin/agents', 'admin:any', (c) => {
 post('/admin/agents/:id/approve', 'admin:any', (c) => {
   const a = q.get<any>('SELECT * FROM agent_actions WHERE id=?', Number(c.params.id));
   if (!a) throw new HttpError(404, 'Not found');
-  const need: Record<string, string> = { reply_ticket: 'support', send_message: 'support', trail_update: 'operations', draft_lot: 'operations', draft_newsletter: 'content', flag_account: 'support', admin_alert: 'finance' };
+  const need: Record<string, string> = { reply_ticket: 'support', send_message: 'support', trail_update: 'operations', draft_lot: 'operations', draft_newsletter: 'content', flag_account: 'support', admin_alert: 'finance', send_invite: 'content', send_outreach: 'content', save_prospects: 'content' };
   if (need[a.kind] && !c.can(need[a.kind])) throw new HttpError(403, `Needs the ${need[a.kind]} role`);
   const field = EDITABLE[a.kind];
   const edited = field && c.str('edit', 20000) ? { [field]: c.str('edit', 20000) } : undefined;
@@ -168,6 +184,143 @@ post('/admin/agents/run/:name', 'admin:any', async (c) => {
   try { r = await fn(); } catch (e: any) { r = `error: ${e.message}`; }
   audit(c.user!.id, 'agent.run', c.params.name, r, c.ip);
   c.back('/admin/agents', ['ok', `${c.params.name}: ${r}`]);
+});
+post('/admin/agents/mode', 'admin:super', (c) => {
+  const m = c.str('mode') === 'rules' ? 'rules' : 'ai';
+  setSetting('agent_mode', m); audit(c.user!.id, 'agents.mode', m, undefined, c.ip);
+  c.back('/admin/agents', ['ok', m === 'ai' ? (aiLive() ? 'Agents now use AI.' : 'AI selected. Add ANTHROPIC_API_KEY on the server to start using it; until then agents use rules.') : 'Agents now use rules and what they have learned.']);
+});
+post('/admin/agents/mode/:agent', 'admin:super', (c) => {
+  if (!(c.params.agent in AGENTS)) throw new HttpError(404, 'Unknown agent');
+  let o: Record<string, string> = {}; try { o = JSON.parse(String(settings().agent_modes || '{}')); } catch { o = {}; }
+  const m = c.str('mode'); if (m === 'ai' || m === 'rules') o[c.params.agent] = m; else delete o[c.params.agent];
+  setSetting('agent_modes', JSON.stringify(o)); audit(c.user!.id, 'agents.mode', c.params.agent, m || 'follow', c.ip);
+  c.back('/admin/agents#run', ['ok', `${AGENTS[c.params.agent as AgentName].name}: ${m === 'ai' ? 'always AI' : m === 'rules' ? 'always rules' : 'follows the switch'}.`]);
+});
+const LESSON_LABEL: Record<string, string> = { answer: 'Answer', template: 'Message template', signal: 'Risk signal', advice: 'Advice', post: 'Post pattern', stage_words: 'Trail stage words' };
+function lessonView(l: Lesson) {
+  let c: any = {}; try { c = JSON.parse(l.content); } catch {}
+  if (l.kind === 'answer') return <><b className="small">Q: {c.q}</b><pre className="pre">{c.a}</pre></>;
+  if (l.kind === 'template') return <><b className="small">{c.title}</b><pre className="pre">{c.body}</pre></>;
+  if (l.kind === 'signal') return <span className="small">{c.advice || 'No advice yet'} </span>;
+  if (l.kind === 'advice' || l.kind === 'post') return <pre className="pre">{c.text}</pre>;
+  if (l.kind === 'stage_words') return <span className="small">{Object.entries(c).map(([st, w]: any) => `${st}: ${Object.entries(w).sort((a: any, b: any) => b[1] - a[1]).slice(0, 8).map(([x]) => x).join(', ')}`).join(' · ')}</span>;
+  return <pre className="pre">{l.content}</pre>;
+}
+get('/admin/agents/learning', 'admin:any', (c) => {
+  const agent = String(c.query.agent || ''), kind = String(c.query.kind || ''), state = String(c.query.state || '');
+  const rows = q.all<Lesson>(`SELECT * FROM agent_lessons WHERE (?='' OR agent=?) AND (?='' OR kind=?) AND (?='' OR (?='off' AND active=0) OR (?='on' AND active=1)) ORDER BY active DESC, (wins+losses) DESC, id DESC LIMIT 200`, agent, agent, kind, kind, state, state, state);
+  const stats = q.all<any>('SELECT agent, COUNT(*) n, SUM(active) on_, SUM(wins) w, SUM(losses) l FROM agent_lessons GROUP BY agent');
+  const pending = Number(q.val('SELECT COUNT(*) FROM lesson_outcomes WHERE scored_at IS NULL') ?? 0);
+  page(c, 'What the agents have learned', <>
+    <p className="muted">Lessons come from AI output you approved, your own edits, and results: a week after each message we check whether the person took the step, and the score decides which template the rules use next. Switched-off lessons are never used; answers taken from unreviewed chats start switched off.</p>
+    <Kpis items={[...stats.map((x) => [AGENTS[x.agent as AgentName]?.name || x.agent, `${x.on_} in use`, `${x.n} learned · ${x.w || 0} worked / ${x.l || 0} didn't`] as [string, string, string]), ['Waiting to be scored', pending, 'messages sent in the last week']]} />
+    <div className="btn-row">
+      <a className={`btn btn-sm ${!agent ? 'btn-primary' : 'btn-ghost'}`} href="/admin/agents/learning">All</a>
+      {Object.keys(AGENTS).map((k) => <a key={k} className={`btn btn-sm ${agent === k ? 'btn-primary' : 'btn-ghost'}`} href={`/admin/agents/learning?agent=${k}`}>{AGENTS[k as AgentName].name}</a>)}
+      <a className={`btn btn-sm ${state === 'off' ? 'btn-primary' : 'btn-ghost'}`} href={`/admin/agents/learning?state=off${agent ? `&agent=${agent}` : ''}`}>Waiting for review</a>
+      <Act action="/admin/agents/learning/score" label="Score results now" />
+    </div>
+    <Box>{rows.length ? <Table rows={rows} cols={[
+      ['Lesson', (l) => <><span className="tag tag-grey">{AGENTS[l.agent as AgentName]?.name || l.agent}</span> <span className="tag tag-grey">{LESSON_LABEL[l.kind] || l.kind}</span> <span className="muted small">{l.key.slice(0, 80)} · {l.lang} · from {l.source}</span>{lessonView(l)}</>],
+      ['Results', (l) => l.wins + l.losses ? <span className="small">{l.wins} worked / {l.losses} didn't<br />score {(lessonScore(l) * 100).toFixed(0)}%</span> : <span className="muted small">used {l.uses}×</span>],
+      ['', (l) => <div className="btn-row"><Act action={`/admin/agents/lessons/${l.id}/toggle`} label={l.active ? 'Switch off' : 'Use it'} tone={l.active ? 'ghost' : 'green'} /><Act action={`/admin/agents/lessons/${l.id}/delete`} label="Delete" tone="danger" confirm="Delete this lesson?" /></div>],
+    ]} /> : <p className="muted">Nothing learned yet. Lessons appear as agents run and you approve their drafts.</p>}</Box>
+  </>);
+});
+post('/admin/agents/lessons/:id/toggle', 'admin:any', (c) => { q.run('UPDATE agent_lessons SET active=1-active, updated_at=? WHERE id=?', now(), Number(c.params.id)); audit(c.user!.id, 'lesson.toggle', c.params.id, undefined, c.ip); c.back('/admin/agents/learning', ['ok', 'Updated.']); });
+post('/admin/agents/lessons/:id/delete', 'admin:any', (c) => { q.run('DELETE FROM agent_lessons WHERE id=?', Number(c.params.id)); audit(c.user!.id, 'lesson.delete', c.params.id, undefined, c.ip); c.back('/admin/agents/learning', ['ok', 'Deleted.']); });
+post('/admin/agents/learning/score', 'admin:any', (c) => c.back('/admin/agents/learning', ['ok', `Scored: ${scoreOutcomes()}`]));
+
+// ============ Prospects (finding new Champions) ============
+const ORG_STATUSES = ['new', 'contacted', 'replied', 'meeting', 'won', 'lost', 'do_not_contact'];
+get('/admin/prospects', 'admin:content', (c) => {
+  syncLeads();
+  const tab = String(c.query.tab || 'orgs');
+  const s = settings();
+  const leadStats = q.all<any>('SELECT status, COUNT(*) n FROM leads GROUP BY status');
+  const orgStats = q.all<any>('SELECT status, COUNT(*) n FROM prospects GROUP BY status');
+  const nOf = (rows: any[], st: string) => rows.find((r) => r.status === st)?.n || 0;
+  const leads = tab === 'leads' ? q.all<any>('SELECT * FROM leads ORDER BY id DESC LIMIT 300') : [];
+  const orgs = tab === 'orgs' ? q.all<any>("SELECT * FROM prospects ORDER BY CASE status WHEN 'replied' THEN 0 WHEN 'meeting' THEN 1 WHEN 'new' THEN 2 WHEN 'contacted' THEN 3 ELSE 4 END, id DESC LIMIT 300") : [];
+  page(c, 'Prospects', <>
+    <p className="muted">The Prospector finds new Champions in three ways: it invites people who asked to hear from us (waitlist, newsletter, contact form, WhatsApp), asks Champions with good results to refer friends, and contacts organisations whose members could join together through Harvest Circles. Invitations to people who asked to hear from us can send automatically when autonomy allows; emails to organisations and imported contacts always wait for your approval. Every email has a one-click opt-out.</p>
+    <Kpis items={[['Leads', leadStats.reduce((a, r) => a + r.n, 0), `${nOf(leadStats, 'signed_up')} signed up · ${nOf(leadStats, 'unsubscribed')} unsubscribed`], ['Organisations', orgStats.reduce((a, r) => a + r.n, 0), `${nOf(orgStats, 'replied') + nOf(orgStats, 'meeting')} talking · ${nOf(orgStats, 'won')} won`], ['Prospector', agentOn('prospector') ? agentMode('prospector') === 'ai' && aiLive() ? 'AI' : 'Rules' : 'off', `up to ${s.prospect_daily_limit} drafts a day`]]} />
+    <div className="btn-row">
+      <a className={`btn btn-sm ${tab === 'orgs' ? 'btn-primary' : 'btn-ghost'}`} href="/admin/prospects?tab=orgs">Organisations</a>
+      <a className={`btn btn-sm ${tab === 'leads' ? 'btn-primary' : 'btn-ghost'}`} href="/admin/prospects?tab=leads">People (leads)</a>
+      <Act action="/admin/agents/run/prospector" label="Run Prospector now" tone="green" />
+      <Act action="/admin/prospects/research" label="Find organisations on the web now" />
+    </div>
+    {tab === 'orgs' ? <>
+      <Box title="Organisations">{orgs.length ? <Table rows={orgs} cols={[
+        ['Organisation', (o) => <><b>{o.name}</b><br /><span className="muted small">{o.segment}{o.location ? ` · ${o.location}` : ''} · {o.source === 'ai_research' ? 'found by AI' : o.source}</span>{o.why && <p className="small">{o.why}</p>}</>],
+        ['Contact', (o) => <span className="small">{o.contact_name && <>{o.contact_name}<br /></>}{o.email || <span className="muted">no email</span>}{o.phone && <><br />{o.phone}</>}{o.website && <><br /><a href={o.website} target="_blank" rel="noopener">website</a></>}</span>],
+        ['Emails', (o) => <span className="small">{o.touches}{o.last_touch_at && <><br /><D v={o.last_touch_at} /></>}</span>],
+        ['Status', (o) => <form method="post" action={`/admin/prospects/${o.id}/status`} className="inline"><Csrf /><select name="status" defaultValue={o.status} data-autosubmit aria-label="Status">{ORG_STATUSES.map((x) => <option key={x} value={x}>{x.replace(/_/g, ' ')}</option>)}</select> <button className="btn btn-ghost btn-sm" type="submit">Save</button></form>],
+      ]} /> : <p className="muted">No organisations yet. Add one below, import a list, or let the Prospector find some (AI mode).</p>}</Box>
+      <div className="grid-2 top">
+        <Box title="Add an organisation"><Form action="/admin/prospects/new" submit="Add">
+          <F label="Name" name="name" required /><F label="Type" name="segment" options={String(s.prospect_segments).split(',').map((x) => [x.trim(), x.trim()] as [string, string]).concat([['Other', 'Other']])} />
+          <F label="Location" name="location" /><F label="Contact person" name="contact_name" /><F label="Email" name="email" type="email" /><F label="Phone" name="phone" /><F label="Website" name="website" />
+          <F label="Why they fit" name="why" type="textarea" rows={2} />
+        </Form></Box>
+        <Box title="What the Prospector looks for"><Form action="/admin/prospects/settings" submit="Save">
+          <F label="Types of organisation (comma-separated)" name="prospect_segments" type="textarea" rows={3} value={s.prospect_segments} />
+          <F label="Places (comma-separated)" name="prospect_regions" type="textarea" rows={2} value={s.prospect_regions} />
+          <F label="Most drafts per day" name="prospect_daily_limit" type="number" value={s.prospect_daily_limit} />
+        </Form><p className="muted small">AI research takes the next type and place in turn once a week, or when you click “Find organisations”.</p></Box>
+      </div>
+    </> : <>
+      <Box title="People who may become Champions">{leads.length ? <Table rows={leads} cols={[
+        ['Who', (l) => <><b>{l.email || l.phone}</b>{l.name && <> · {l.name}</>}<br /><span className="muted small">from {l.source} · {l.lang}{l.consent ? ' · consent recorded' : ' · no consent: will not be emailed'}</span></>],
+        ['Invitations', (l) => <span className="small">{l.touches} of 3{l.last_touch_at && <><br /><D v={l.last_touch_at} /></>}</span>],
+        ['Status', (l) => <S s={l.status} />],
+      ]} /> : <p className="muted">No leads yet. They arrive automatically from the waitlist, newsletter, contact form and WhatsApp.</p>}
+        <p className="muted small">People who messaged on WhatsApp without an account are listed but not emailed (no email address); they already got a sign-up link in the chat.</p></Box>
+      <Box title="Import contacts (CSV)">
+        <p className="small">Columns: <code>email, name, phone, lang, consent</code>. Put <code>yes</code> in consent only for people who agreed to hear from Kitovu (e.g. signed up at an event or are existing Kitovu customers). Contacts without consent are stored but never emailed. Invitations to imported contacts always wait for approval.</p>
+        <Form action="/admin/prospects/import" multipart submit="Import"><div className="field"><label htmlFor="a-csv">CSV file</label><input id="a-csv" type="file" name="csv" accept=".csv,text/csv" required /></div></Form>
+      </Box>
+    </>}
+  </>);
+});
+post('/admin/prospects/new', 'admin:content', (c) => {
+  const name = c.str('name', 150); if (!name) return c.back('/admin/prospects', ['error', 'Enter a name.']);
+  const email = c.str('email', 150).toLowerCase();
+  q.run('INSERT OR IGNORE INTO prospects (name, segment, location, website, contact_name, email, phone, why, source, token, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    name, c.str('segment', 80) || 'Other', c.str('location', 120) || null, c.str('website', 200) || null, c.str('contact_name', 100) || null, isEmail(email) ? email : null, c.str('phone', 40) || null, c.str('why', 500) || null, 'manual', randomToken(16), now());
+  audit(c.user!.id, 'prospect.add', name, undefined, c.ip);
+  c.back('/admin/prospects', ['ok', `${name} added. The Prospector drafts the first email on its next run.`]);
+});
+post('/admin/prospects/:id/status', 'admin:content', (c) => {
+  const st = c.str('status'); if (!ORG_STATUSES.includes(st)) throw new HttpError(400, 'Unknown status');
+  q.run('UPDATE prospects SET status=? WHERE id=?', st, Number(c.params.id));
+  audit(c.user!.id, 'prospect.status', c.params.id, st, c.ip);
+  c.back('/admin/prospects', ['ok', 'Saved.']);
+});
+post('/admin/prospects/settings', 'admin:content', (c) => {
+  setSetting('prospect_segments', c.str('prospect_segments', 1000).split(',').map((x) => x.trim()).filter(Boolean).join(','));
+  setSetting('prospect_regions', c.str('prospect_regions', 1000).split(',').map((x) => x.trim()).filter(Boolean).join(','));
+  setSetting('prospect_daily_limit', Math.min(200, Math.max(1, c.int('prospect_daily_limit') || 15)));
+  c.back('/admin/prospects', ['ok', 'Saved.']);
+});
+post('/admin/prospects/research', 'admin:content', async (c) => {
+  try { const r = await researchProspects(); audit(c.user!.id, 'prospect.research', undefined, r, c.ip); c.redirect('/admin/agents?status=all&agent=prospector', ['ok', r]); }
+  catch (e: any) { c.back('/admin/prospects', ['error', e.message]); }
+});
+post('/admin/prospects/import', 'admin:content', (c) => {
+  const f = c.files.csv; if (!f) return c.back('/admin/prospects?tab=leads', ['error', 'Choose a CSV file.']);
+  let added = 0, skipped = 0;
+  for (const r of parseCsv(f.data.toString('utf8')).slice(0, 5000)) {
+    const email = String(r.email || '').trim().toLowerCase();
+    if (!isEmail(email) || q.get('SELECT 1 FROM users WHERE email=?', email)) { skipped++; continue; }
+    const lang = ['en', 'fr', 'sw', 'pt', 'ar'].includes(String(r.lang || '').trim()) ? String(r.lang).trim() : 'en';
+    const res = q.run('INSERT OR IGNORE INTO leads (email, phone, name, lang, source, consent, token, created_at) VALUES (?,?,?,?,?,?,?,?)', email, String(r.phone || '').trim() || null, String(r.name || '').trim().split(' ')[0] || null, lang, 'import', /^(y|yes|1|true)$/i.test(String(r.consent || '').trim()) ? 1 : 0, randomToken(16), now());
+    res.changes ? added++ : skipped++;
+  }
+  audit(c.user!.id, 'leads.import', undefined, { added, skipped }, c.ip);
+  c.redirect('/admin/prospects?tab=leads', ['ok', `${added} contacts imported, ${skipped} skipped (invalid, duplicate or already Champions).`]);
 });
 post('/admin/agents/ops/trail', 'admin:operations', async (c) => {
   try {

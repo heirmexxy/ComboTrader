@@ -6,6 +6,17 @@ import { settings } from './settings';
 
 export const aiLive = () => !!config.anthropicKey;
 
+/** Admin → AI agents: one switch for all agents, with an optional per-agent override. */
+export function agentMode(agent: string): 'ai' | 'rules' {
+  const s = settings() as any;
+  let o: Record<string, string> = {};
+  try { o = typeof s.agent_modes === 'string' ? JSON.parse(s.agent_modes || '{}') : s.agent_modes || {}; } catch { o = {}; }
+  const m = o[agent] === 'ai' || o[agent] === 'rules' ? o[agent] : s.agent_mode;
+  return m === 'rules' ? 'rules' : 'ai';
+}
+/** True when this agent should call Claude now: AI mode chosen and a key on the server. */
+export const useAI = (agent: string) => aiLive() && agentMode(agent) === 'ai';
+
 export function callsToday() {
   return Number(q.val("SELECT COUNT(*) FROM agent_runs WHERE created_at>=? AND model!='demo'", new Date(Date.now() - 864e5).toISOString()) ?? 0);
 }
@@ -16,8 +27,9 @@ export class AiUnavailable extends Error {}
  * One model call that must return JSON. The system prompt states the policy; `input` is the data.
  * Logged to agent_runs with token counts so admins can see cost.
  */
-export async function completeJson<T = any>(agent: string, o: { system: string; input: unknown; trigger?: string; fast?: boolean; maxTokens?: number }): Promise<{ data: T; runId: number }> {
+export async function completeJson<T = any>(agent: string, o: { system: string; input: unknown; trigger?: string; fast?: boolean; maxTokens?: number; tools?: unknown[] }): Promise<{ data: T; runId: number }> {
   if (!aiLive()) throw new AiUnavailable('No ANTHROPIC_API_KEY');
+  if (agentMode(agent) === 'rules') throw new AiUnavailable('Agent is in rules mode');
   if (callsToday() >= settings().agent_daily_limit) throw new AiUnavailable('Daily agent limit reached');
   const model = o.fast ? config.aiModelFast : config.aiModel;
   const input = typeof o.input === 'string' ? o.input : JSON.stringify(o.input);
@@ -30,12 +42,16 @@ export async function completeJson<T = any>(agent: string, o: { system: string; 
         model, max_tokens: o.maxTokens || 1500,
         system: `${o.system}\n\nReply with one JSON object only, no prose before or after it.`,
         messages: [{ role: 'user', content: input }],
+        ...(o.tools ? { tools: o.tools } : {}),
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(o.tools ? 180_000 : 60_000),
     });
     const j: any = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j?.error?.message || `Claude API ${res.status}`);
-    text = (j.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+    // With server tools (web search) the answer is the text after the last tool result.
+    const blocks: any[] = j.content || [];
+    let lastTool = -1; blocks.forEach((b, i) => { if (String(b.type).endsWith('_tool_result')) lastTool = i; });
+    text = blocks.slice(lastTool + 1).filter((b) => b.type === 'text').map((b) => b.text).join('');
     tin = j.usage?.input_tokens || 0; tout = j.usage?.output_tokens || 0;
     const data = extractJson<T>(text);
     const runId = logRun(agent, o.trigger, input, text, model, tin, tout, status);

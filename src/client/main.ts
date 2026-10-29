@@ -234,3 +234,26 @@ function showCookieBanner() {
 $$('[data-cookie-settings]').forEach((x) => x.addEventListener('click', showCookieBanner));
 if (getConsent() === 'all') loadTawk();
 else if (!getConsent() && !location.pathname.startsWith('/admin')) showCookieBanner();
+
+// Admin lot form: show the title, code and description that will be generated while those fields are blank.
+$$<HTMLElement>('[data-lot-form]').forEach((root) => {
+  const prefixes: Record<string, string> = JSON.parse(root.dataset.prefixes || '{}');
+  const el = (n: string) => root.querySelector<HTMLInputElement>(`[name="${n}"]`);
+  const art = (b: string) => { b = b.trim(); if (!b) return ''; const l = /^[A-Z][a-z]/.test(b) ? b[0].toLowerCase() + b.slice(1) : b; const an = /^[A-Z]{2}/.test(b) ? /^[AEFHILMNORSX]/.test(b) : /^[aeiou]/i.test(l); return `${an ? 'an' : 'a'} ${l}`; };
+  const update = () => {
+    const sel = el('commodity') as unknown as HTMLSelectElement | null;
+    const name = sel?.selectedOptions[0]?.textContent || '';
+    const region = el('region')?.value.trim() || '', buyer = el('buyer_type')?.value.trim() || '';
+    const tons = Number(el('tonnage')?.value) || 0, farmers = Number(el('farmers')?.value) || 0;
+    const d = new Date(el('closes_at')?.value || Date.now());
+    const title = region ? `${name} from ${region}` : buyer ? `${name} for ${art(buyer)}` : name;
+    const code = `${prefixes[sel?.value || ''] || 'XX'}-${String(d.getUTCFullYear()).slice(2)}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const desc = `${name} bought from ${farmers > 0 ? `${farmers.toLocaleString('en')} farmers` : 'farmers'}${region ? ` in ${region}` : ''} to fill a signed order${buyer ? ` from ${art(buyer)}` : ''}.${tons > 0 ? ` ${tons.toLocaleString('en')} tons.` : ''}`;
+    const t = el('title'), c = el('code'), ds = root.querySelector<HTMLTextAreaElement>('[name="description"]');
+    if (t) t.placeholder = title; if (c) c.placeholder = `${code} (or the next free number)`; if (ds) ds.placeholder = desc;
+  };
+  root.addEventListener('input', update); root.addEventListener('change', update); update();
+});
+
+// Admin: selects marked data-autosubmit save as soon as they change.
+$$<HTMLSelectElement>('select[data-autosubmit]').forEach((sel) => sel.addEventListener('change', () => sel.form?.requestSubmit()));

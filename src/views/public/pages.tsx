@@ -174,7 +174,7 @@ export function Home({ stats, lots, circles, rateBps, heroDone = [] }: { stats: 
       <section className="section alt" id="lots">
         <div className="container">
           <div className="section-head"><div><h2>{c.t('home.lots_h')}</h2><p>{c.t('home.lots_p')}</p></div><a href="/lots" className="arrow-link">{c.t('home.lots_all')} <LuArrowRight aria-hidden /></a></div>
-          {lots.length ? <div className="grid-3">{lots.slice(0, 3).map((l) => <LotCard key={l.id} lot={l} />)}</div> : <><Empty>{c.t('lot.none')}</Empty><WaitlistForm /></>}
+          {lots.length ? <div className="grid-3">{lots.slice(0, 3).map((l) => <LotCard key={l.id} lot={l} />)}</div> : <Empty>{c.t('lot.none')}</Empty>}
         </div>
       </section>
 

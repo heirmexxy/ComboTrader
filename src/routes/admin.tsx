@@ -18,6 +18,7 @@ import { audit } from '../lib/audit';
 import { userById, userByEmail } from '../lib/auth';
 import { savePublicImage, savePrivateFile, privatePath } from '../lib/uploads';
 import { parseNaira, slugify, fmtNGN, earningsFor } from '../lib/util';
+import { lotPrefixes, nextLotCode, lotTitle, lotDescription } from '../lib/lotgen';
 import { LANGS, allKeys, fileValue, clearOverrides, isLang, type Lang } from '../lib/i18n';
 import { CATEGORIES } from '../views/public/blog';
 import { LEGAL } from '../content/legal';
@@ -90,13 +91,16 @@ get('/admin/lots', 'admin:operations', (c) => page(c, 'Trade Lots', (
 ), <a className="btn btn-primary" href="/admin/lots/new">New lot</a>));
 
 function LotForm({ l }: { l?: any }) {
+  const auto = 'Leave blank and it is written for you from the commodity, region and buyer.';
   return (
+    <div data-lot-form data-prefixes={JSON.stringify(lotPrefixes())}>
     <Form action={l ? `/admin/lots/${l.id}` : '/admin/lots/new'} multipart submit={l ? 'Save lot' : 'Create lot (as draft)'}>
-      <F label="Title (shown to Champions)" name="title" value={l?.title} required />
-      <F label="Lot code" name="code" value={l?.code} hint="Short and unique, e.g. SB-2611. Leave blank to generate." />
-      <F label="Commodity" name="commodity" value={l?.commodity} options={commodities().filter((x) => x.active).map((x) => [x.code, x.name])} />
-      <F label="Sourcing region" name="region" value={l?.region} />
+      <F label="Commodity" name="commodity" value={l?.commodity} options={commodities().filter((x) => x.active).map((x) => [x.code, x.name])}
+        hint={<>Not listed? <a href={`/admin/commodities/new?back=${encodeURIComponent(l ? `/admin/lots/${l.id}` : '/admin/lots/new')}`}>Add a commodity</a></>} />
+      <F label="Sourcing region" name="region" value={l?.region} required hint="e.g. Benue & Nasarawa" />
       <F label="Buyer type (public)" name="buyer_type" value={l?.buyer_type} required hint="e.g. Rice miller, Lagos" />
+      <F label="Title (shown to Champions)" name="title" value={l?.title} placeholder="Generated automatically" hint={auto} />
+      <F label="Lot code" name="code" value={l?.code} placeholder="Generated automatically" hint="Commodity + year and month it closes, e.g. SB-2611. Leave blank to generate." />
       <F label="Buyer name (private, admins only)" name="buyer_name" value={l?.buyer_name} />
       <F label="Contract reference" name="contract_ref" value={l?.contract_ref} hint="A lot can only open with a contract on file." />
       <F label="Buyer contract value (₦, private)" name="buyer_amount" value={naira(l?.buyer_amount)} hint="What the buyer owes Kitovu. Used by Treasury to check coverage." />
@@ -112,32 +116,38 @@ function LotForm({ l }: { l?: any }) {
       </fieldset>
       <F label="Closes on" name="closes_at" type="date" value={(l?.closes_at || new Date(Date.now() + 30 * 864e5).toISOString()).slice(0, 10)} required />
       <F label="Allow Harvest Circles on this lot" name="circles_enabled" type="checkbox" value={l?.circles_enabled} />
-      <F label="Description (public)" name="description" type="textarea" value={l?.description} rows={3} />
+      <F label="Description (public)" name="description" type="textarea" value={l?.description} rows={3} placeholder="Generated automatically" hint={auto} />
     </Form>
+    </div>
   );
 }
 get('/admin/lots/new', 'admin:operations', (c) => page(c, 'New Trade Lot', <Box><LotForm /></Box>));
-function lotFields(c: Ctx) {
+function lotFields(c: Ctx, existingId?: number) {
   const target = parseNaira(c.body.target_amount), min = parseNaira(c.body.min_commit);
   const chosen = (Array.isArray(c.body.periods) ? c.body.periods : [c.body.periods]).map(Number).filter((m: number) => (PERIODS as readonly number[]).includes(m)).sort((a: number, b: number) => a - b);
   if (!target || !min || min > target) throw new HttpError(400, 'Check the lot size and minimum.');
   if (!chosen.length) throw new HttpError(400, 'Choose at least one period Champions can pick.');
   const longest = chosen[chosen.length - 1];
-  if (!q.get('SELECT 1 FROM commodities WHERE code=?', c.str('commodity'))) throw new HttpError(400, 'Choose a commodity.');
+  const com = q.get<{ code: string; name: string }>('SELECT code, name FROM commodities WHERE code=?', c.str('commodity'));
+  if (!com) throw new HttpError(400, 'Choose a commodity.');
+  const region = c.str('region', 80), buyerType = c.str('buyer_type', 80), tonnage = Number(c.body.tonnage) || 0, farmers = c.int('farmers');
+  const closes = new Date(`${c.str('closes_at', 10)}T22:59:00Z`);
+  if (isNaN(closes.getTime())) throw new HttpError(400, 'Choose a closing date.');
+  let code = c.str('code', 20).toUpperCase().replace(/[^A-Z0-9-]/g, '');
+  if (!code || q.get('SELECT 1 FROM lots WHERE code=? AND id IS NOT ?', code, existingId ?? null)) code = nextLotCode(com.code, closes.toISOString(), existingId);
   return {
-    title: c.str('title', 120), commodity: c.str('commodity', 40), region: c.str('region', 80), buyer_type: c.str('buyer_type', 80), buyer_name: c.str('buyer_name', 120),
-    contract_ref: c.str('contract_ref', 80) || null, tonnage: Number(c.body.tonnage) || 0, farmers: c.int('farmers'), target_amount: target, min_commit: min,
+    code, title: c.str('title', 120) || lotTitle(com.name, region, buyerType), commodity: com.code, region, buyer_type: buyerType, buyer_name: c.str('buyer_name', 120),
+    contract_ref: c.str('contract_ref', 80) || null, tonnage, farmers, target_amount: target, min_commit: min,
     periods: chosen.join(','), period_months: longest, rate_bps: rateFor(longest),
-    closes_at: new Date(`${c.str('closes_at', 10)}T22:59:00Z`).toISOString(), circles_enabled: c.bool('circles_enabled') ? 1 : 0, description: c.str('description', 1000),
+    closes_at: closes.toISOString(), circles_enabled: c.bool('circles_enabled') ? 1 : 0,
+    description: c.str('description', 1000) || lotDescription({ commodityName: com.name, region, buyerType, tonnage, farmers }),
     buyer_amount: parseNaira(c.body.buyer_amount) || null, buyer_due_at: c.str('buyer_due_at', 10) ? new Date(`${c.str('buyer_due_at', 10)}T12:00:00Z`).toISOString() : null,
   };
 }
 post('/admin/lots/new', 'admin:operations', (c) => {
   const f = lotFields(c);
   const contract = savePrivateFile(c.files.contract);
-  let code = c.str('code', 20).toUpperCase().replace(/[^A-Z0-9-]/g, '') || `${f.commodity.slice(0, 2).toUpperCase()}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
-  if (q.get('SELECT 1 FROM lots WHERE code=?', code)) code += '-' + Date.now().toString(36).slice(-3).toUpperCase();
-  const id = q.insert('lots', { ...f, code, contract_path: contract, status: 'draft', created_by: c.user!.id, created_at: now() }).id;
+  const id = q.insert('lots', { ...f, contract_path: contract, status: 'draft', created_by: c.user!.id, created_at: now() }).id;
   audit(c.user!.id, 'lot.create', `lot:${id}`, f, c.ip);
   c.redirect(`/admin/lots/${id}`, ['ok', 'Lot created as a draft. Open it when the contract is on file.']);
 });
@@ -173,9 +183,9 @@ get('/admin/lots/:id', 'admin:operations', (c) => {
 post('/admin/lots/:id', 'admin:operations', (c) => {
   const l = getLot(Number(c.params.id));
   if (!l) throw new HttpError(404, 'Not found');
-  const f: any = lotFields(c);
-  // Terms are fixed once Champions have joined.
-  if ((l.funded || 0) > 0) { delete f.commodity; if (f.target_amount < (l.funded || 0)) f.target_amount = l.funded; }
+  const f: any = lotFields(c, l.id);
+  // Terms are fixed once Champions have joined; the code is on certificates, so it never changes after that.
+  if ((l.funded || 0) > 0) { delete f.commodity; delete f.code; if (f.target_amount < (l.funded || 0)) f.target_amount = l.funded; }
   const contract = savePrivateFile(c.files.contract);
   if (contract) f.contract_path = contract;
   q.update('lots', l.id, f);
@@ -634,16 +644,27 @@ post('/admin/prices/crawl', 'admin:operations', async (c) => {
   const r = await crawlPrices(c.user!.id);
   c.redirect('/admin/prices#crawler', ['ok', r.map((x) => `${x.source}: ${x.status}`).join(' · ') || 'No sources enabled.']);
 });
+get('/admin/commodities/new', 'admin:operations', (c) => {
+  const back = String(c.query.back || '');
+  page(c, 'Add a commodity', <Box>
+    <Form action="/admin/commodities" submit="Add commodity">
+      <input type="hidden" name="back" value={back.startsWith('/admin/') ? back : ''} />
+      <F label="Name" name="name" required hint="e.g. Ginger, Shea nut, Groundnut. It appears in lot forms, prices and the ticker straight away." />
+      <F label="First price (₦ per kg, optional)" name="price" />
+    </Form></Box>);
+});
 post('/admin/commodities', 'admin:operations', (c) => {
   const name = c.str('name', 60);
-  if (!name) return c.redirect('/admin/prices#commodities', ['error', 'Enter a name.']);
+  const back = c.str('back', 200);
+  const to = back.startsWith('/admin/') && !back.startsWith('//') ? back : '/admin/prices#commodities';
+  if (!name) return c.redirect(to, ['error', 'Enter a name.']);
   const code = slugify(name).replace(/-/g, '_').slice(0, 30);
-  if (q.get('SELECT 1 FROM commodities WHERE code=?', code)) return c.redirect('/admin/prices#commodities', ['error', `${name} already exists.`]);
+  if (q.get('SELECT 1 FROM commodities WHERE code=?', code)) return c.redirect(to, ['error', `${name} already exists.`]);
   q.insert('commodities', { code, name, bag_kg: 100, active: 1, sort: Number(q.val('SELECT COALESCE(MAX(sort),0)+1 FROM commodities')) });
   const price = Number(String(c.body.price || '').replace(/[₦,\s]/g, ''));
   if (price > 0) recordPrice({ commodity: code, pricePerKg: Math.round(price * 100), sourceName: 'Kitovu', by: c.user!.id, force: true });
   audit(c.user!.id, 'commodity.add', code, name, c.ip);
-  c.redirect('/admin/prices#commodities', ['ok', `${name} added.`]);
+  c.redirect(to, ['ok', `${name} added.`]);
 });
 post('/admin/commodities/:code', 'admin:operations', (c) => {
   q.run('UPDATE commodities SET name=?, sort=?, active=? WHERE code=?', c.str('name', 60), c.int('sort'), c.bool('active') ? 1 : 0, c.params.code);
@@ -948,7 +969,7 @@ get('/admin/settings', 'admin:super', (c) => {
     </Box>
     <Box title="AI agents" id="agents">
       <form method="post" action="/admin/settings" className="form-grid"><Csrf />
-        <fieldset className="field"><legend>Agents switched on</legend>{['support', 'onboarding', 'treasury', 'risk', 'growth', 'ops'].map((a) => <label key={a} className="check"><input type="checkbox" name="agents_enabled[]" value={a} defaultChecked={String(s.agents_enabled).split(',').includes(a)} /> <span>{a}</span></label>)}</fieldset>
+        <fieldset className="field"><legend>Agents switched on</legend>{['support', 'onboarding', 'treasury', 'risk', 'growth', 'ops', 'prospector'].map((a) => <label key={a} className="check"><input type="checkbox" name="agents_enabled[]" value={a} defaultChecked={String(s.agents_enabled).split(',').includes(a)} /> <span>{a}</span></label>)}</fieldset>
         <F label="Autonomy" name="agent_autonomy" value={s.agent_autonomy} options={[['review', 'Review everything — a person approves every message (recommended to start)'], ['auto_low', 'Send low-risk messages automatically (FAQ answers, onboarding nudges)']]} hint="Agents can never move money, approve withdrawals or change balances, whatever this says." />
         <F label="Maximum model calls per 24 hours" name="agent_daily_limit" type="number" value={s.agent_daily_limit} />
         <input type="hidden" name="_group" value="agents" />

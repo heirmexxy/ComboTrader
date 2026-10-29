@@ -41,7 +41,12 @@ export const DEFAULTS = {
   // WhatsApp companion
   whatsapp_enabled: true,
   // AI agents
-  agents_enabled: 'support,onboarding,treasury,risk,growth,ops',
+  agents_enabled: 'support,onboarding,treasury,risk,growth,ops,prospector',
+  agent_mode: 'ai' as 'ai' | 'rules', // ai: use Claude when ANTHROPIC_API_KEY is set; rules: learned rules and templates only
+  agent_modes: '{}', // per-agent override, e.g. {"growth":"rules"}
+  prospect_segments: 'Staff cooperative societies,Church and mosque groups,Diaspora associations,Alumni associations,Investment clubs,Professional associations,Market and trade associations',
+  prospect_regions: 'Lagos,Abuja,Port Harcourt,Ibadan,Enugu,Kano,UK Nigerian diaspora,US Nigerian diaspora',
+  prospect_daily_limit: 15, // most outreach drafts the prospector prepares per day
   agent_autonomy: 'review' as 'review' | 'auto_low', // auto_low: low-risk messages send without a human click
   agent_daily_limit: 300, // max model calls per day across all agents
 };

@@ -127,6 +127,14 @@ get('/newsletter/confirm/:token', 'public', (c) => {
   const r = q.run("UPDATE subscribers SET status='confirmed', confirmed_at=? WHERE token=? AND status!='unsubscribed'", now(), c.params.token);
   c.redirect(r.changes ? '/newsletter?s=confirmed' : '/newsletter');
 });
+// One-click opt-out from invitations (leads) and partnership emails (organisations).
+get('/u/:token', 'public', (c) => {
+  const t = c.params.token;
+  const l = q.run("UPDATE leads SET status='unsubscribed' WHERE token=?", t).changes;
+  const o = q.run("UPDATE prospects SET status='do_not_contact' WHERE token=?", t).changes;
+  if (l) { const e = q.val<string>('SELECT email FROM leads WHERE token=?', t); if (e) q.run("UPDATE subscribers SET status='unsubscribed' WHERE email=?", e); }
+  c.redirect('/', ['ok', l || o ? c.t('agent.unsubscribed') : c.t('agent.unsub_unknown')]);
+});
 get('/newsletter/unsubscribe/:token', 'public', (c) => {
   q.run("UPDATE subscribers SET status='unsubscribed' WHERE token=?", c.params.token);
   c.redirect('/newsletter?s=unsubscribed');

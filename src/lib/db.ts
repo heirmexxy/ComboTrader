@@ -564,6 +564,67 @@ CREATE UNIQUE INDEX wa_messages_waid ON wa_messages(wa_id) WHERE wa_id IS NOT NU
 ALTER TABLE lots ADD COLUMN periods TEXT NOT NULL DEFAULT '4,6,9,12';
 UPDATE lots SET period_months = 12 WHERE status IN ('draft','open');
 `,
+`
+-- What the agents have learned: answers, message templates, signal weights and advice, from AI output and human decisions.
+CREATE TABLE agent_lessons (
+  id INTEGER PRIMARY KEY,
+  agent TEXT NOT NULL,
+  kind TEXT NOT NULL,            -- answer | template | signal | advice | post | stage_words
+  key TEXT NOT NULL,             -- question words, situation, signal type, segment…
+  lang TEXT NOT NULL DEFAULT 'en',
+  content TEXT NOT NULL,         -- JSON
+  source TEXT NOT NULL,          -- ai | human | rules
+  active INTEGER NOT NULL DEFAULT 1,
+  uses INTEGER NOT NULL DEFAULT 0,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  last_used_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX agent_lessons_lookup ON agent_lessons(agent, kind, key, lang);
+-- Outcome checks: did the person take the step after the message? Scored a week later.
+CREATE TABLE lesson_outcomes (
+  id INTEGER PRIMARY KEY,
+  lesson_id INTEGER NOT NULL,
+  user_id INTEGER, lead_id INTEGER, prospect_id INTEGER,
+  situation TEXT NOT NULL,
+  sent_at TEXT NOT NULL,
+  scored_at TEXT, won INTEGER
+);
+-- People who may become Champions (waitlist, newsletter, contact form, WhatsApp, imports).
+CREATE TABLE leads (
+  id INTEGER PRIMARY KEY,
+  email TEXT, phone TEXT, name TEXT,
+  lang TEXT NOT NULL DEFAULT 'en',
+  source TEXT NOT NULL,           -- waitlist | newsletter | contact | whatsapp | import | referral
+  consent INTEGER NOT NULL DEFAULT 0, -- 1 = they asked to hear from us or agreed to be contacted
+  status TEXT NOT NULL DEFAULT 'new', -- new | contacted | signed_up | unsubscribed | bounced
+  touches INTEGER NOT NULL DEFAULT 0,
+  last_touch_at TEXT,
+  user_id INTEGER,
+  note TEXT,
+  token TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX leads_email ON leads(email) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX leads_phone ON leads(phone) WHERE phone IS NOT NULL AND email IS NULL;
+-- Organisations that could bring many Champions (cooperatives, staff societies, faith groups, diaspora associations…).
+CREATE TABLE prospects (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  segment TEXT NOT NULL,
+  location TEXT, website TEXT, contact_name TEXT, email TEXT, phone TEXT,
+  why TEXT, source TEXT NOT NULL DEFAULT 'manual', -- manual | ai_research | import
+  status TEXT NOT NULL DEFAULT 'new',  -- new | contacted | replied | meeting | won | lost | do_not_contact
+  touches INTEGER NOT NULL DEFAULT 0, last_touch_at TEXT,
+  token TEXT NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX prospects_name ON prospects(name, location);
+UPDATE settings SET value = substr(value, 1, length(value) - 1) || ',prospector"' WHERE key='agents_enabled' AND value NOT LIKE '%prospector%';
+`,
 ];
 
 export function openDb(file = config.dbFile) {

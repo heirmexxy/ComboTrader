@@ -7,6 +7,7 @@ import { expireCircles } from './circles';
 import { closeExpiredLots, markMatured, siteStats, autoPayDue, processRollovers, rateFor, lotDefaultPeriod } from './trading';
 import { runPlans } from './plans';
 import { AGENT_JOBS } from './agents';
+import { scoreOutcomes } from './learning';
 import { treasurySnapshot } from './treasury';
 import { reportError } from './alerts';
 import { autoSendSmallWithdrawals } from './wallet';
@@ -54,7 +55,8 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async plans() { return runPlans(); },
   async agents() {
     const out: string[] = [];
-    for (const name of ['treasury', 'onboarding', 'risk'] as const) { try { out.push(`${name}: ${await AGENT_JOBS[name]()}`); } catch (e: any) { out.push(`${name}: error ${e.message}`); } }
+    try { out.push(`learning: ${scoreOutcomes()}`); } catch (e: any) { out.push(`learning: error ${e.message}`); }
+    for (const name of ['treasury', 'onboarding', 'risk', 'prospector'] as const) { try { out.push(`${name}: ${await AGENT_JOBS[name]()}`); } catch (e: any) { out.push(`${name}: error ${e.message}`); } }
     return out.join('; ');
   },
   async growth() { return AGENT_JOBS.growth(); },

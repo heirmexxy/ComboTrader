@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useC } from '../render';
 import { AppLayout } from '../layout';
 import { Csrf, Money, LotCard, LotTerms, Trail, Tag, toneFor, Field, Select, Check, Empty, Progress } from '../components';
-import { CircleCard, WaitlistForm } from '../public/pages';
+import { CircleCard } from '../public/pages';
 import { fmtDate, fmtNum, LANGS } from '../../lib/i18n';
 import { fmtNGN, earningsFor } from '../../lib/util';
 import { RANKS, lotRemaining, lateEarnings, lotRates, lotDefaultPeriod, rateFor, type Lot, type Trade } from '../../lib/trading';
@@ -55,7 +55,7 @@ export function AppHome({ d }: { d: HomeData }) {
         </Card>
       </div>
       <h2 className="section-title">{c.t('app.open_lots')}</h2>
-      {d.lots.length ? <div className="grid-3">{d.lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <><Empty>{c.t('lot.none')}</Empty><WaitlistForm /></>}
+      {d.lots.length ? <div className="grid-3">{d.lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <Empty>{c.t('lot.none')}</Empty>}
       <h2 className="section-title">{c.t('app.recent')}</h2>
       <Card>{d.recent.length ? <ul className="list">{d.recent.map((n, i) => <li key={i}><div><strong>{n.title}</strong><p className="muted small">{n.body}</p></div><span className="muted small">{fmtDate(c.lang, n.created_at)}</span></li>)}</ul> : <p className="muted">{c.t('app.none')}</p>}</Card>
     </AppLayout>
@@ -68,7 +68,7 @@ export function AppLots({ lots }: { lots: Lot[] }) {
     <AppLayout title={c.t('app.nav.lots')}>
       <div className="page-title"><h1>{c.t('lots.title')}</h1></div>
       <p className="lead-dark">{c.t('lots.intro')}</p>
-      {lots.length ? <div className="grid-3">{lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <><Empty>{c.t('lot.none')}</Empty><WaitlistForm /></>}
+      {lots.length ? <div className="grid-3">{lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <Empty>{c.t('lot.none')}</Empty>}
     </AppLayout>
   );
 }
