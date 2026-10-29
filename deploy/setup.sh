@@ -318,7 +318,8 @@ esac
 
 say "8/8 Backups and the deploy key for GitHub"
 CRON="15 2 * * * cd $APP_DIR && $NODE_BIN/node --disable-warning=ExperimentalWarning dist/cli.mjs backup data/backups/ct-\$(date +\\%F).db >/dev/null 2>&1 && find data/backups -name '*.db' -mtime +30 -delete"
-( crontab -u "$APP_USER" -l 2>/dev/null | grep -v 'dist/cli.mjs backup' ; echo "$CRON" ) | crontab -u "$APP_USER" -
+# (a fresh user has no crontab yet: that is not an error)
+{ crontab -u "$APP_USER" -l 2>/dev/null | grep -v 'dist/cli.mjs backup' || true; echo "$CRON"; } | crontab -u "$APP_USER" -
 KEY=/home/$APP_USER/.ssh/github_actions
 if [ ! -f "$KEY" ]; then
   sudo -u "$APP_USER" ssh-keygen -t ed25519 -N '' -C "github-actions-deploy" -f "$KEY" >/dev/null
