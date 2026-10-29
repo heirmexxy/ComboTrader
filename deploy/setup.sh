@@ -1,77 +1,207 @@
 #!/usr/bin/env bash
-# ComboTrader — one-time setup of a fresh Hostinger VPS (Ubuntu 24.04).
-# Run as root:  curl -fsSL https://raw.githubusercontent.com/heirmexxy/ComboTrader/main/deploy/setup.sh -o setup.sh && bash setup.sh
-# Safe to run again: each step checks what is already there.
+# ComboTrader — setup on a Hostinger VPS, safe for servers that already run other sites.
+#
+#   bash setup.sh --check     look only: report what is on the server and what this script would do (changes nothing)
+#   bash setup.sh             install (asks before changing anything)
+#   bash setup.sh --https     turn on HTTPS once DNS points at this server (nginx / Apache only; Caddy does it by itself)
+#
+# Options (put them before "bash"):
+#   HOST=beta.combotrader.com.ng   the address to serve (default www.combotrader.com.ng; a www address also redirects the bare domain)
+#   PORT=3100                      the internal port (default: the first free port from 3100)
+#   LE_EMAIL=you@example.com       email for HTTPS certificate notices
+#
+# What it never does on a shared server: upgrade or remove packages, change the firewall, change the timezone,
+# replace the system Node.js, restart (only reloads) your web server, or edit another site's configuration.
 set -euo pipefail
 
-DOMAIN="${DOMAIN:-combotrader.com.ng}"
+HOST="${HOST:-www.combotrader.com.ng}"
+APEX=""; [[ "$HOST" == www.* ]] && APEX="${HOST#www.}"
 REPO="${REPO:-git@github.com:heirmexxy/ComboTrader.git}"
+LE_EMAIL="${LE_EMAIL:-hello@combotrader.com.ng}"
 APP_DIR=/srv/combotrader
 APP_USER=combotrader
-say() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
+NODE_DIR=/opt/combotrader-node
+MODE="${1:-install}"
+STAMP=$(date +%Y%m%d-%H%M%S)
 
-[ "$(id -u)" = 0 ] || { echo "Run this as root (sudo -i)."; exit 1; }
+say()  { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m!! %s\033[0m\n' "$*"; }
+die()  { printf '\n\033[1;31mSTOPPED: %s\033[0m\n' "$*"; exit 1; }
+[ "$(id -u)" = 0 ] || die "Run this as root (sudo -i first)."
 
-say "1/9 System updates, firewall and automatic security patches"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y && apt-get upgrade -y
-apt-get install -y curl git ufw fail2ban unattended-upgrades sqlite3 ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https
-dpkg-reconfigure -f noninteractive unattended-upgrades
-ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
-systemctl enable --now fail2ban
-timedatectl set-timezone Africa/Lagos || true
+# ---------------------------------------------------------------- look around (read-only)
+listener() { ss -ltnpH "( sport = :$1 )" 2>/dev/null | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -1; }
+port_free() { ! ss -ltnH "( sport = :$1 )" 2>/dev/null | grep -q .; }
+ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 
-say "2/9 Node.js 22"
-if ! node -v 2>/dev/null | grep -q '^v22'; then
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y nodejs
+. /etc/os-release 2>/dev/null || true
+RAM_FREE=$(free -m | awk '/^Mem:/ {print $7}')
+DISK_FREE=$(df -Pm / | awk 'NR==2 {print $4}')
+P80=$(listener 80); P443=$(listener 443)
+WEBPROC="${P80:-$P443}"
+
+PANEL=""
+[ -d /usr/local/CyberCP ] && PANEL="CyberPanel"
+[ -d /www/server/panel ] && PANEL="aaPanel"
+[ -d /home/clp ] || [ -x /usr/bin/clpctl ] && PANEL="CloudPanel"
+[ -d /data/coolify ] && PANEL="Coolify"
+[ -d /etc/dokploy ] && PANEL="Dokploy"
+[ -d /usr/local/hestia ] && PANEL="HestiaCP"
+[ -d /usr/local/cpanel ] && PANEL="cPanel"
+[ -d /usr/local/psa ] && PANEL="Plesk"
+[ -d /etc/easypanel ] && PANEL="Easypanel"
+
+case "$WEBPROC" in
+  nginx) WEB=nginx ;;
+  apache2|httpd) WEB=apache ;;
+  caddy) WEB=caddy ;;
+  "") WEB=none ;;
+  *) WEB=other ;;   # docker-proxy, traefik, litespeed, a panel's own proxy…
+esac
+# Panels manage their web server themselves: never write into it behind their back.
+if [ -n "$PANEL" ] && [ "$WEB" != none ]; then WEB=panel; fi
+[ "$WEB" = apache ] && [ ! -d /etc/apache2/sites-available ] && WEB=other
+
+# Where ComboTrader listens. Loopback by default; a proxy that runs inside Docker cannot reach the host's loopback,
+# so then we listen on the Docker bridge address instead (still not reachable from the internet).
+BIND=127.0.0.1
+DOCKERISH=""
+if [ "$WEBPROC" = docker-proxy ] || [[ "$PANEL" =~ ^(Coolify|Dokploy|Easypanel)$ ]]; then
+  DOCKERISH=yes
+  BIND=$( (ip -4 -o addr show docker0 2>/dev/null || true) | awk '{print $4}' | cut -d/ -f1 | head -1); BIND=${BIND:-172.17.0.1}
 fi
-node -v
 
-say "3/9 Caddy (web server with automatic HTTPS)"
-if ! command -v caddy >/dev/null; then
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update -y && apt-get install -y caddy
+# Is this address already served by something on this server?
+CONFLICT=$(grep -rIls --exclude='combotrader*' -e "$HOST" ${APEX:+-e "server_name.*\b$APEX\b"} /etc/nginx /etc/apache2 /etc/caddy /etc/httpd 2>/dev/null | head -3 || true)
+if [ -f /etc/caddy/Caddyfile ] && grep -q "# BEGIN combotrader" /etc/caddy/Caddyfile; then CONFLICT=$(echo "$CONFLICT" | grep -v '^/etc/caddy/Caddyfile$' || true); fi
+
+SYS_NODE=$(command -v node || true); SYS_NODE_V=""
+[ -n "$SYS_NODE" ] && SYS_NODE_V=$("$SYS_NODE" -v 2>/dev/null | tr -d v)
+if [ -x "$NODE_DIR/bin/node" ]; then NODE_PLAN="use ComboTrader's own Node.js in $NODE_DIR"; NODE_BIN="$NODE_DIR/bin"
+elif [ -n "$SYS_NODE_V" ] && ver_ge "$SYS_NODE_V" 22.13.0; then NODE_PLAN="use the existing Node.js $SYS_NODE_V (left as it is)"; NODE_BIN=$(dirname "$SYS_NODE")
+else NODE_PLAN="install a private Node.js 22 in $NODE_DIR (your system Node.js ${SYS_NODE_V:-none} is not touched)"; NODE_BIN="$NODE_DIR/bin"; fi
+
+if [ -f "$APP_DIR/.env" ] && grep -q '^PORT=' "$APP_DIR/.env" && [ -z "${PORT:-}" ]; then
+  PORT=$(grep '^PORT=' "$APP_DIR/.env" | cut -d= -f2 | tr -d ' "'"'")
 fi
+if [ -z "${PORT:-}" ]; then for p in $(seq 3100 3199); do if port_free "$p"; then PORT=$p; break; fi; done; fi
+[ -n "${PORT:-}" ] || die "No free port between 3100 and 3199."
+if ! port_free "$PORT" && [ ! -f "$APP_DIR/.env" ]; then die "Port $PORT is used by $(listener "$PORT"). Run again with PORT=<another port>."; fi
 
-say "4/9 App user and GitHub deploy key"
+PUBIP=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+dns_ok() { getent ahostsv4 "$1" 2>/dev/null | awk '{print $1}' | grep -qx "$PUBIP"; }
+
+case "$WEB" in
+  nginx) WEB_PLAN="add one new file /etc/nginx/sites-available/combotrader.conf for $HOST, test it with 'nginx -t', then reload nginx (no restart, other sites keep running)";;
+  apache) WEB_PLAN="add one new site /etc/apache2/sites-available/combotrader.conf for $HOST, enable proxy modules, test with 'apachectl configtest', then reload Apache";;
+  caddy) WEB_PLAN="append a marked ComboTrader block to /etc/caddy/Caddyfile (backup first), validate it, then reload Caddy";;
+  none) WEB_PLAN="nothing listens on ports 80/443: install Caddy for HTTPS";;
+  panel) WEB_PLAN="NOT touched — $PANEL manages the web server. You add a reverse proxy for $HOST → http://$BIND:$PORT in $PANEL (instructions at the end)";;
+  other) WEB_PLAN="NOT touched — ports 80/443 belong to '$WEBPROC'. You add a reverse proxy for $HOST → http://$BIND:$PORT (instructions at the end)";;
+esac
+
+report() {
+  cat <<R
+
+ComboTrader setup — what I found
+  System          ${PRETTY_NAME:-unknown}
+  Free memory     ${RAM_FREE} MB          (ComboTrader is capped at 1.5 GB; needs ~300 MB)
+  Free disk       ${DISK_FREE} MB
+  Port 80 / 443   ${P80:-free} / ${P443:-free}
+  Control panel   ${PANEL:-none found}
+  Node.js         ${SYS_NODE_V:-not installed}
+  Firewall        $(ufw status 2>/dev/null | head -1 || echo 'ufw not installed') (left as it is)
+  This server IP  $PUBIP
+  $HOST DNS → $(getent ahostsv4 "$HOST" 2>/dev/null | awk 'NR==1{print $1}' || true) $(dns_ok "$HOST" && echo '(this server)' || echo '(not this server yet)')
+
+What I would do
+  1. Create a separate Linux user '$APP_USER' and put the app in $APP_DIR
+  2. Node.js: $NODE_PLAN
+  3. Run ComboTrader on $BIND:$PORT only (not reachable from the internet), as a service capped at 1.5 GB memory and low CPU priority
+  4. Web server: $WEB_PLAN
+  5. Nightly database backup in $APP_DIR/data/backups (a cron entry for '$APP_USER' only)
+  Address: https://$HOST${APEX:+  (and $APEX redirects to it)}
+R
+  [ -n "$CONFLICT" ] && warn "Already in your web server config: $HOST — found in: $(echo $CONFLICT)"
+  [ "${RAM_FREE:-0}" -lt 600 ] && warn "Less than 600 MB memory free. ComboTrader may squeeze your other apps; consider upgrading the VPS plan."
+  [ "${DISK_FREE:-0}" -lt 3000 ] && warn "Less than 3 GB disk free."
+  ufw status 2>/dev/null | grep -q 'Status: active' && ! ufw status | grep -Eq '(^| )(80|443|Nginx|Apache|WWW)' && warn "The firewall is on and may not allow web traffic. I will not change it."
+  return 0
+}
+
+# ---------------------------------------------------------------- HTTPS only
+https_step() {
+  local names=("$HOST")
+  [ -n "$APEX" ] && dns_ok "$APEX" && names+=("$APEX")
+  dns_ok "$HOST" || { warn "$HOST does not point at $PUBIP yet. Add the DNS record, wait, then run: bash $APP_DIR/deploy/setup.sh --https"; return 0; }
+  case "$WEB" in
+    nginx|apache)
+      command -v certbot >/dev/null || apt-get install -y --no-upgrade certbot "python3-certbot-$([ "$WEB" = nginx ] && echo nginx || echo apache)"
+      local args=(); for n in "${names[@]}"; do args+=(-d "$n"); done
+      certbot "--$WEB" "${args[@]}" --non-interactive --agree-tos -m "$LE_EMAIL" --redirect --keep-until-expiring
+      say "HTTPS is on for ${names[*]}" ;;
+    caddy|none) say "Caddy turns on HTTPS by itself once DNS points here." ;;
+    *) say "Turn on HTTPS (Let's Encrypt) for $HOST in ${PANEL:-your proxy}." ;;
+  esac
+}
+
+if [ "$MODE" = "--check" ]; then report; echo; echo "Nothing was changed. To install: bash setup.sh"; exit 0; fi
+if [ "$MODE" = "--https" ]; then https_step; exit 0; fi
+
+report
+[ -n "$CONFLICT" ] && die "Another site on this server already uses $HOST. Use a different HOST (e.g. HOST=beta.combotrader.com.ng) or remove the old site first."
+echo
+read -r -p "Type YES to continue: " ok
+[ "$ok" = "YES" ] || die "Nothing changed."
+
+# ---------------------------------------------------------------- install
+say "1/8 Tools (only what is missing; nothing is upgraded)"
+apt-get update -y >/dev/null
+need=(); for c in git curl xz sqlite3; do command -v "$c" >/dev/null || need+=("$c"); done
+[ ${#need[@]} -gt 0 ] && apt-get install -y --no-upgrade "${need[@]/xz/xz-utils}"
+
+say "2/8 Node.js"
+if [ "$NODE_BIN" = "$NODE_DIR/bin" ] && [ ! -x "$NODE_DIR/bin/node" ]; then
+  case "$(uname -m)" in x86_64) A=x64;; aarch64|arm64) A=arm64;; *) die "Unsupported CPU $(uname -m)";; esac
+  TMP=$(mktemp -d); cd "$TMP"
+  curl -fsSLO https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt
+  FILE=$(grep -o "node-v22[^ ]*-linux-$A.tar.xz" SHASUMS256.txt | head -1)
+  curl -fsSLO "https://nodejs.org/dist/latest-v22.x/$FILE"
+  grep " $FILE\$" SHASUMS256.txt | sha256sum -c - >/dev/null || die "Node.js download failed its checksum."
+  mkdir -p "$NODE_DIR" && tar -xJf "$FILE" -C "$NODE_DIR" --strip-components=1
+  cd / && rm -rf "$TMP"
+fi
+"$NODE_BIN/node" -v
+export PATH="$NODE_BIN:$PATH"
+
+say "3/8 App user and GitHub deploy key"
 id "$APP_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$APP_USER"
 sudo -u "$APP_USER" mkdir -p "/home/$APP_USER/.ssh"
-if [ ! -f "/home/$APP_USER/.ssh/id_ed25519" ]; then
-  sudo -u "$APP_USER" ssh-keygen -t ed25519 -N '' -C "combotrader-vps" -f "/home/$APP_USER/.ssh/id_ed25519" >/dev/null
-fi
+[ -f "/home/$APP_USER/.ssh/id_ed25519" ] || sudo -u "$APP_USER" ssh-keygen -t ed25519 -N '' -C "combotrader-vps" -f "/home/$APP_USER/.ssh/id_ed25519" >/dev/null
 sudo -u "$APP_USER" bash -c 'ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null; sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts'
 if [ ! -d "$APP_DIR/.git" ]; then
-  echo
-  echo "Add this key to GitHub → github.com/heirmexxy/ComboTrader → Settings → Deploy keys → Add deploy key (read access is enough):"
-  echo
-  cat "/home/$APP_USER/.ssh/id_ed25519.pub"
-  echo
-  read -r -p "Press Enter once the key is added on GitHub… " _
+  echo; echo "Add this key in GitHub → heirmexxy/ComboTrader → Settings → Deploy keys → Add deploy key (leave write access off):"; echo
+  cat "/home/$APP_USER/.ssh/id_ed25519.pub"; echo
+  read -r -p "Press Enter once it is added… " _
 fi
 
-say "5/9 Download ComboTrader"
+say "4/8 Download ComboTrader"
 mkdir -p "$APP_DIR" && chown "$APP_USER:$APP_USER" "$APP_DIR"
 if [ ! -d "$APP_DIR/.git" ]; then sudo -u "$APP_USER" git clone "$REPO" "$APP_DIR"; else sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only; fi
 
-say "6/9 Settings file (.env)"
+say "5/8 Settings (.env) and build"
 if [ ! -f "$APP_DIR/.env" ]; then
   sudo -u "$APP_USER" cp "$APP_DIR/.env.example" "$APP_DIR/.env"
-  sed -i "s|^APP_SECRET=.*|APP_SECRET=$(openssl rand -hex 32)|" "$APP_DIR/.env"
-  sed -i "s|^CRON_SECRET=.*|CRON_SECRET=$(openssl rand -hex 24)|" "$APP_DIR/.env"
-  sed -i "s|^WHATSAPP_VERIFY_TOKEN=.*|WHATSAPP_VERIFY_TOKEN=$(openssl rand -hex 16)|" "$APP_DIR/.env"
-  sed -i "s|^BASE_URL=.*|BASE_URL=https://www.$DOMAIN|" "$APP_DIR/.env"
+  sed -i "s|^APP_SECRET=.*|APP_SECRET=$(openssl rand -hex 32)|; s|^CRON_SECRET=.*|CRON_SECRET=$(openssl rand -hex 24)|; s|^WHATSAPP_VERIFY_TOKEN=.*|WHATSAPP_VERIFY_TOKEN=$(openssl rand -hex 16)|" "$APP_DIR/.env"
   sed -i "s|^PAYSTACK_SECRET_KEY=.*|PAYSTACK_SECRET_KEY=|; s|^PAYSTACK_PUBLIC_KEY=.*|PAYSTACK_PUBLIC_KEY=|" "$APP_DIR/.env"
-  chmod 600 "$APP_DIR/.env"
-  echo "Created $APP_DIR/.env with fresh secrets. Add your Paystack, email and SMS keys later with: nano $APP_DIR/.env"
 fi
-
-say "7/9 Build"
-sudo -u "$APP_USER" bash -c "cd $APP_DIR && npm install --no-audit --no-fund && npm run build"
+sed -i "s|^BASE_URL=.*|BASE_URL=https://$HOST|; s|^PORT=.*|PORT=$PORT|" "$APP_DIR/.env"
+sed -i '/^HOST_BIND=/d' "$APP_DIR/.env"; echo "HOST_BIND=$BIND" >> "$APP_DIR/.env"
+chown "$APP_USER:$APP_USER" "$APP_DIR/.env" && chmod 600 "$APP_DIR/.env"
+sudo -u "$APP_USER" env PATH="$NODE_BIN:/usr/bin:/bin" bash -c "cd $APP_DIR && npm install --no-audit --no-fund && npm run build"
 sudo -u "$APP_USER" mkdir -p "$APP_DIR/data/backups"
 
-say "8/9 Service, web server and backups"
+say "6/8 Service (memory-capped, low priority)"
 cat > /etc/systemd/system/combotrader.service <<UNIT
 [Unit]
 Description=ComboTrader
@@ -81,71 +211,145 @@ Wants=network-online.target
 User=$APP_USER
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$APP_DIR/.env
-ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning dist/server.mjs
+Environment=PATH=$NODE_BIN:/usr/bin:/bin
+ExecStart=$NODE_BIN/node --disable-warning=ExperimentalWarning dist/server.mjs
 Restart=always
 RestartSec=3
+# Be a good neighbour to the other apps on this server
+MemoryHigh=1200M
+MemoryMax=1536M
+CPUWeight=50
+Nice=5
+TasksMax=256
 NoNewPrivileges=true
 ProtectSystem=full
 PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 UNIT
-# The deploy user may restart the app (and nothing else) without a password.
 echo "$APP_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart combotrader, /usr/bin/systemctl status combotrader" > /etc/sudoers.d/combotrader
 chmod 440 /etc/sudoers.d/combotrader
-systemctl daemon-reload && systemctl enable --now combotrader
+systemctl daemon-reload && systemctl enable combotrader >/dev/null 2>&1 && systemctl restart combotrader
+for i in $(seq 1 15); do sleep 1; curl -fsS "http://$BIND:$PORT/healthz" >/dev/null 2>&1 && break; done
+curl -fsS "http://$BIND:$PORT/healthz" >/dev/null || die "ComboTrader did not start. See: journalctl -u combotrader -n 50"
+echo "Running on $BIND:$PORT"
 
-cat > /etc/caddy/Caddyfile <<CADDY
-$DOMAIN {
-	redir https://www.$DOMAIN{uri} permanent
+say "7/8 Web server"
+PROXY_NOTE=""
+case "$WEB" in
+  nginx)
+    tar -czf "/root/nginx-backup-$STAMP.tgz" /etc/nginx 2>/dev/null
+    if [ -d /etc/nginx/sites-available ]; then F=/etc/nginx/sites-available/combotrader.conf; else F=/etc/nginx/conf.d/combotrader.conf; fi
+    {
+      echo "# ComboTrader — added by deploy/setup.sh on $STAMP. Only this file belongs to ComboTrader."
+      if [ -n "$APEX" ]; then echo "server { listen 80; listen [::]:80; server_name $APEX; return 301 https://$HOST\$request_uri; }"; fi
+      cat <<NGX
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $HOST;
+    client_max_body_size 15m;
+    location / {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 90s;
+    }
 }
-www.$DOMAIN {
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:3000
-	header -Server
-	request_body {
-		max_size 15MB
-	}
-	log {
-		output file /var/log/caddy/combotrader.log {
-			roll_size 20MiB
-			roll_keep 10
-		}
-	}
-}
-CADDY
-systemctl reload caddy || systemctl restart caddy
+NGX
+    } > "$F"
+    [ "$F" = /etc/nginx/sites-available/combotrader.conf ] && ln -sf "$F" /etc/nginx/sites-enabled/combotrader.conf
+    if ! nginx -t 2>/tmp/nginx-test.log; then
+      rm -f /etc/nginx/sites-enabled/combotrader.conf "$F"
+      cat /tmp/nginx-test.log
+      die "nginx rejected the new file, so I removed it. Your other sites were not changed."
+    fi
+    systemctl reload nginx
+    https_step ;;
+  apache)
+    tar -czf "/root/apache-backup-$STAMP.tgz" /etc/apache2 2>/dev/null
+    F=/etc/apache2/sites-available/combotrader.conf
+    cat > "$F" <<APC
+# ComboTrader — added by deploy/setup.sh on $STAMP
+<VirtualHost *:80>
+    ServerName $HOST
+    ${APEX:+ServerAlias $APEX}
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:$PORT/
+    ProxyPassReverse / http://127.0.0.1:$PORT/
+    RequestHeader set X-Forwarded-Proto expr=%{REQUEST_SCHEME}
+    LimitRequestBody 15728640
+</VirtualHost>
+APC
+    a2enmod -q proxy proxy_http headers >/dev/null && a2ensite -q combotrader >/dev/null
+    if ! apachectl configtest 2>/tmp/apache-test.log; then
+      a2dissite -q combotrader >/dev/null; rm -f "$F"; cat /tmp/apache-test.log
+      die "Apache rejected the new site, so I removed it. Your other sites were not changed."
+    fi
+    systemctl reload apache2
+    https_step ;;
+  caddy|none)
+    if [ "$WEB" = none ] && ! command -v caddy >/dev/null; then
+      apt-get install -y --no-upgrade debian-keyring debian-archive-keyring apt-transport-https gnupg >/dev/null
+      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+      apt-get update -y >/dev/null && apt-get install -y caddy
+      # A fresh Caddy ships a demo site on :80; replace only that default file.
+      grep -q '^:80' /etc/caddy/Caddyfile && : > /etc/caddy/Caddyfile
+    fi
+    cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak-$STAMP"
+    sed -i '/# BEGIN combotrader/,/# END combotrader/d' /etc/caddy/Caddyfile
+    {
+      echo "# BEGIN combotrader (added by deploy/setup.sh — edit only between these markers)"
+      [ -n "$APEX" ] && printf '%s {\n\tredir https://%s{uri} permanent\n}\n' "$APEX" "$HOST"
+      printf '%s {\n\tencode zstd gzip\n\treverse_proxy 127.0.0.1:%s\n\trequest_body {\n\t\tmax_size 15MB\n\t}\n}\n' "$HOST" "$PORT"
+      echo "# END combotrader"
+    } >> /etc/caddy/Caddyfile
+    if ! caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/tmp/caddy-test.log 2>&1; then
+      cp "/etc/caddy/Caddyfile.bak-$STAMP" /etc/caddy/Caddyfile; cat /tmp/caddy-test.log
+      die "Caddy rejected the change, so I restored your Caddyfile."
+    fi
+    systemctl reload caddy || systemctl restart caddy ;;
+  panel|other)
+    PROXY_NOTE="yes" ;;
+esac
 
-# Nightly database backup at 02:15, keep 30 days. Copy data/backups off the server too (see the guide).
-CRON="15 2 * * * cd $APP_DIR && /usr/bin/node --disable-warning=ExperimentalWarning dist/cli.mjs backup data/backups/ct-\$(date +\\%F).db >/dev/null 2>&1 && find data/backups -name '*.db' -mtime +30 -delete"
+say "8/8 Backups and the deploy key for GitHub"
+CRON="15 2 * * * cd $APP_DIR && $NODE_BIN/node --disable-warning=ExperimentalWarning dist/cli.mjs backup data/backups/ct-\$(date +\\%F).db >/dev/null 2>&1 && find data/backups -name '*.db' -mtime +30 -delete"
 ( crontab -u "$APP_USER" -l 2>/dev/null | grep -v 'dist/cli.mjs backup' ; echo "$CRON" ) | crontab -u "$APP_USER" -
-
-say "9/9 Key for automatic deploys from GitHub"
 KEY=/home/$APP_USER/.ssh/github_actions
 if [ ! -f "$KEY" ]; then
   sudo -u "$APP_USER" ssh-keygen -t ed25519 -N '' -C "github-actions-deploy" -f "$KEY" >/dev/null
-  # This key can do exactly one thing: run the update script.
   echo "command=\"$APP_DIR/deploy/update.sh\",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty $(cat "$KEY.pub")" | sudo -u "$APP_USER" tee -a "/home/$APP_USER/.ssh/authorized_keys" >/dev/null
   chmod 600 "/home/$APP_USER/.ssh/authorized_keys"
 fi
 
-say "Check"
-sleep 3
-curl -fsS http://127.0.0.1:3000/healthz && echo
-IP=$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')
 cat <<DONE
 
-ComboTrader is running on this server.
+ComboTrader is installed and running on $BIND:$PORT. Your other platforms were not changed.
 
 Next:
-  1. In Hostinger hPanel → Domains → $DOMAIN → DNS / Nameservers, point A records "@" and "www" to: $IP
-     (delete any other A, AAAA or CNAME records for "@" and "www"). HTTPS switches on by itself once DNS points here.
-  2. Create the first admin: sign up on https://www.$DOMAIN with your email, then run:
-       sudo -u $APP_USER bash -c "cd $APP_DIR && npm run make-admin -- you@kitovu.com.ng super"
-  3. Add live keys to $APP_DIR/.env, then: sudo systemctl restart combotrader
-  4. Automatic deploys: in GitHub → Settings → Secrets and variables → Actions, add
-       VPS_HOST    = $IP
-       VPS_SSH_KEY = the whole private key printed below (including the BEGIN and END lines)
+  • DNS (hPanel → Domains → combotrader.com.ng → DNS records): an A record for "${HOST%%.combotrader.com.ng}" → $PUBIP${APEX:+, and "@" → $PUBIP when you move the main site}.
 DONE
-echo
+if [ -n "$PROXY_NOTE" ]; then cat <<PX
+  • Reverse proxy (your ${PANEL:-proxy} owns ports 80/443, so add it there):
+        domain $HOST  →  http://$BIND:$PORT   (turn on Let's Encrypt HTTPS for it)
+      CloudPanel: Sites → Add Site → Create a Reverse Proxy.   aaPanel: Website → Add site → Reverse proxy.
+      Nginx Proxy Manager: Hosts → Proxy Hosts → Add (forward to $BIND port $PORT, SSL tab → request a certificate).
+      Traefik / Coolify / Dokploy / Easypanel: add a route for $HOST to http://$BIND:$PORT (in Coolify and Dokploy you can
+      also use http://host.docker.internal:$PORT).   CyberPanel/OpenLiteSpeed: create the website, add an "External App"
+      (web server) at $BIND:$PORT and a proxy context "/".
+      Not sure? Send me the output of:  bash setup.sh --check
+PX
+elif [ "$WEB" = nginx ] || [ "$WEB" = apache ]; then
+  echo "  • HTTPS: once DNS points here, run:  bash $APP_DIR/deploy/setup.sh --https"
+fi
+cat <<KEY2
+  • Automatic deploys: GitHub → Settings → Secrets and variables → Actions:
+        VPS_HOST    = $PUBIP
+        VPS_SSH_KEY = the private key below (all lines, BEGIN to END)
+
+KEY2
 cat "$KEY"

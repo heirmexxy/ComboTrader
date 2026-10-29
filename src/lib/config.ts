@@ -15,6 +15,8 @@ const production = e.NODE_ENV === 'production';
 export const config = {
   production,
   port: Number(e.PORT || 3000),
+  /** 127.0.0.1 behind a reverse proxy (recommended on a shared server); 0.0.0.0 to listen on every interface. */
+  bindHost: e.HOST_BIND || '0.0.0.0',
   baseUrl: (e.BASE_URL || 'http://localhost:3000').replace(/\/$/, ''),
   secret: e.APP_SECRET || (production ? '' : 'dev-secret-change-me'),
   dbFile: e.DATABASE_FILE || 'data/combotrader.db',

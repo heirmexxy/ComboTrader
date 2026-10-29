@@ -6,7 +6,7 @@ The Harvest Champions platform by Kitovu Technology Company Limited. Champions b
 - **Runtime packages:** `react`, `react-dom`, `react-icons`, `marked`, `pdf-lib`, `sharp`. Build tool: `esbuild`.
 - **Languages:** English, French, Swahili, Portuguese and Arabic (right-to-left).
 - **Tests:** `npm test` runs 55 automated checks covering the ledger, automatic payouts, Keep Growing, Harvest Plan, gifts, treasury coverage, withdrawals, Harvest Circles, referrals, data rights, agents, WhatsApp, two-step codes, push encryption, price parsers and translations.
-- **Hosting:** a Hostinger VPS. Step-by-step guide: [deploy/HOSTINGER.md](deploy/HOSTINGER.md). Pushes to `main` deploy automatically (`.github/workflows/deploy.yml`).
+- **Hosting:** a Hostinger VPS, alongside other platforms if needed (`deploy/setup.sh --check` looks first and changes nothing). Step-by-step guide: [deploy/HOSTINGER.md](deploy/HOSTINGER.md). Pushes to `main` deploy automatically (`.github/workflows/deploy.yml`).
 
 ### What Champions get
 Trade Lots with real buyers · wallet (card, transfer, USSD) · Trade Certificates anyone can verify · Harvest Trail updates · **automatic payouts on the payout date** · **Keep Growing** (roll a payout into the next lot) · **Harvest Plan** (save monthly, join a lot at the target) · **Gift a Harvest** · shareable **impact receipts** · Harvest Circles · referrals · annual statement PDF · data download and account closure · **WhatsApp companion** · five languages · installable app.

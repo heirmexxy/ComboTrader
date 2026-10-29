@@ -121,7 +121,7 @@ export function start() {
   bootstrap();
   setOverrideLoader(() => q.all('SELECT key, lang, value FROM page_text'));
   const server = http.createServer((req, res) => { handle(req, res); });
-  server.listen(config.port, () => console.log(`ComboTrader listening on ${config.baseUrl} (port ${config.port})${config.paystackDemo ? ' — Paystack DEMO mode' : ''}`));
+  server.listen(config.port, config.bindHost, () => console.log(`ComboTrader listening on ${config.baseUrl} (port ${config.port})${config.paystackDemo ? ' — Paystack DEMO mode' : ''}`));
   if (config.runScheduler) startScheduler();
   return server;
 }
