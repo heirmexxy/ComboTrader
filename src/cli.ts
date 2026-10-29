@@ -45,6 +45,15 @@ switch (cmd) {
     console.log(r.changes ? `Two-step sign-in is now OFF for ${email}. Sign in with the password, then set up the authenticator again in Security.` : `No account with email ${email}.`);
     break;
   }
+  case 'test-email': {
+    // Sends one email straight away and prints the provider's answer.
+    const { sendEmail, emailShell } = await import('./lib/notify');
+    const { config } = await import('./lib/config');
+    if (!config.emailProvider || !config.emailApiKey) { console.log('Email is not set up: EMAIL_PROVIDER and EMAIL_API_KEY are needed in .env'); break; }
+    try { await sendEmail(String(args[0]), 'ComboTrader test email', emailShell('It works', `<p>This test came from ${config.baseUrl} through ${config.emailProvider}, sent as ${config.emailFrom.replace(/</g, '&lt;')}.</p>`)); console.log(`Sent to ${args[0]} from ${config.emailFrom}. Check the inbox (and spam folder).`); }
+    catch (e: any) { console.log(`Not sent: ${e.message}`); }
+    break;
+  }
   case 'time': console.log(`Server time (UTC): ${new Date().toISOString()}`); break;
   case 'vapid': {
     const k = generateVapidKeys();
@@ -52,5 +61,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('Commands: seed | job <name> | backup [file] | make-admin <email> [roles] | reset-2fa <email> | time | vapid');
+    console.log('Commands: seed | job <name> | backup [file] | make-admin <email> [roles] | reset-2fa <email> | test-email <to> | time | vapid');
 }

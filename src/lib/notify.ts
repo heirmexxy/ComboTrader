@@ -74,7 +74,7 @@ export async function flushOutbox(limit = 50) {
   }
 }
 
-async function sendEmail(to: string, subject: string, html: string) {
+export async function sendEmail(to: string, subject: string, html: string) {
   const from = config.emailFrom;
   let res: Response;
   if (config.emailProvider === 'resend') {
