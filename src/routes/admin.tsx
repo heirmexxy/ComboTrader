@@ -439,14 +439,13 @@ get('/admin/champions/:id', 'admin:support', (c) => {
       <Box title="Profile"><dl className="kv">
         <dt>Email</dt><dd>{u.email} {u.email_verified_at ? '✓' : '(unconfirmed)'}</dd><dt>Phone</dt><dd>{u.phone || '—'} {u.phone_verified_at ? '✓' : ''}</dd>
         <dt>Country / city</dt><dd>{u.country} {u.city}</dd><dt>Language</dt><dd>{u.lang}</dd><dt>Next of kin</dt><dd>{u.next_of_kin_name} {u.next_of_kin_phone}</dd>
-        <dt>Referral code</dt><dd>{u.referral_code}{u.referred_by ? ` · referred by ${who(u.referred_by)}` : ''}</dd><dt>2FA</dt><dd>{u.totp_enabled ? 'On' : 'Off'}</dd>
+        <dt>Referral code</dt><dd>{u.referral_code}{u.referred_by ? ` · referred by ${who(u.referred_by)}` : ''}</dd><dt>Two-step</dt><dd>Email codes</dd>
         <dt>Joined</dt><dd><D v={u.created_at} /></dd><dt>Circles pilot</dt><dd>{u.circle_pilot ? 'Yes' : 'No'}</dd>
         {u.id_doc_path && <><dt>ID document</dt><dd><a href={`/admin/files/${u.id_doc_path}`}>View</a></dd></>}
       </dl>
         <div className="btn-row">
           {u.status === 'active' ? <Act action={`/admin/champions/${u.id}/status`} fields={{ to: 'suspended' }} label="Suspend" tone="danger" confirm="Suspend this account? They will be signed out." /> : <Act action={`/admin/champions/${u.id}/status`} fields={{ to: 'active' }} label="Reactivate" tone="green" />}
           <Act action={`/admin/champions/${u.id}/pilot`} label={u.circle_pilot ? 'Remove from Circles pilot' : 'Add to Circles pilot'} />
-          {u.totp_enabled ? <Act action={`/admin/champions/${u.id}/reset-2fa`} label="Reset 2FA" confirm="Turn off two-step verification for this Champion (after verifying their identity by phone)?" /> : null}
         </div>
       </Box>
       <Box title="Internal notes"><Form action={`/admin/champions/${u.id}/notes`} className="stack"><F label="Notes (staff only)" name="notes" type="textarea" value={notes} rows={4} /></Form></Box>
@@ -471,11 +470,6 @@ post('/admin/champions/:id/pilot', 'admin:support', (c) => {
   q.run('UPDATE users SET circle_pilot=1-circle_pilot WHERE id=?', Number(c.params.id));
   audit(c.user!.id, 'user.circle_pilot', `user:${c.params.id}`, undefined, c.ip);
   c.redirect(`/admin/champions/${c.params.id}`, ['ok', 'Updated.']);
-});
-post('/admin/champions/:id/reset-2fa', 'admin:super', (c) => {
-  q.run('UPDATE users SET totp_enabled=0, totp_secret=NULL WHERE id=?', Number(c.params.id));
-  audit(c.user!.id, 'user.reset_2fa', `user:${c.params.id}`, undefined, c.ip);
-  c.redirect(`/admin/champions/${c.params.id}`, ['ok', 'Two-step verification turned off.']);
 });
 post('/admin/champions/:id/notes', 'admin:support', (c) => {
   q.run('UPDATE users SET notes=? WHERE id=?', c.str('notes', 4000), Number(c.params.id));
@@ -906,7 +900,7 @@ const ROLES: [string, string][] = [['super', 'Super admin — everything, settin
 get('/admin/team', 'admin:super', (c) => {
   const admins = q.all<any>("SELECT * FROM users WHERE role='admin' ORDER BY id");
   page(c, 'Team & roles', <>
-    <Box title="Admins"><Table rows={admins} cols={[['Name', (u) => <>{u.first_name} {u.last_name}<br /><span className="muted small">{u.email}</span></>], ['2FA', (u) => u.totp_enabled ? '✓' : <span className="tag tag-red">off</span>],
+    <Box title="Admins"><Table rows={admins} cols={[['Name', (u) => <>{u.first_name} {u.last_name}<br /><span className="muted small">{u.email}</span></>], ['Two-step', () => 'email code'],
       ['Roles', (u) => <form method="post" action={`/admin/team/${u.id}`} className="inline-form"><Csrf />{ROLES.map(([r]) => <label key={r} className="check small"><input type="checkbox" name="roles[]" value={r} defaultChecked={u.admin_roles.split(',').includes(r)} /> {r}</label>)}<button className="btn btn-ghost btn-sm">Save</button></form>],
       ['', (u) => u.id !== c.user!.id ? <Act action={`/admin/team/${u.id}/remove`} label="Remove admin" tone="danger" confirm="Remove admin access?" /> : null]]} /></Box>
     <Box title="Add an admin"><p className="muted small">The person must already have a ComboTrader account. They'll be asked to turn on two-step verification before using the admin area.</p>

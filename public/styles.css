@@ -583,3 +583,7 @@ main > .flash { margin: 16px auto; max-width: 1140px; }
 .offer-terms dt { color: #5b6b5e; font-size: 12.5px; }
 .offer-terms dd { margin: 2px 0 0; font-weight: 600; }
 .offer-terms dd .tag { margin-inline-start: 4px; }
+.code-row { display: flex; gap: 8px; }
+.code-row input { flex: 1; min-width: 0; letter-spacing: 4px; font-size: 18px; }
+.code-row .btn { white-space: nowrap; }
+.hint.error { color: #B3261E; }

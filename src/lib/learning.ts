@@ -52,7 +52,6 @@ function succeeded(o: any): boolean {
   const u = o.user_id ? q.get<any>('SELECT * FROM users WHERE id=?', o.user_id) : null;
   switch (o.situation) {
     case 'phone': return !!u?.phone_verified_at;
-    case 'secure_2fa': return !!u?.totp_enabled;
     case 'kyc': return !!u && u.kyc_status !== 'rejected';
     case 'payment': case 'fund': return !!q.get("SELECT 1 FROM payments WHERE user_id=? AND status='success' AND paid_at>=?", o.user_id, since);
     case 'first_lot': return !!q.get("SELECT 1 FROM trades WHERE user_id=? AND created_at>=?", o.user_id, since);

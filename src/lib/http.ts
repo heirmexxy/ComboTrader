@@ -28,6 +28,8 @@ export class Ctx {
   user: User | null = null;
   sessionId: number | null = null;
   pending2fa = false;
+  /** The account waiting to finish a two-step sign-in (c.user stays empty on public pages until it does). */
+  pendingUser: User | null = null;
   lang: Lang = 'en';
   t!: (key: string, vars?: Record<string, string | number>) => string;
   ip: string;

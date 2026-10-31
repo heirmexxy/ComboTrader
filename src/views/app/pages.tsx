@@ -15,9 +15,24 @@ import { FaWhatsapp, FaXTwitter, FaFacebook, FaLinkedin } from 'react-icons/fa6'
 import { AccountRights, RolloverControl } from './more';
 import { qrDataUri } from '../../lib/qr';
 import { SellBox, BoughtNote, type SellInfo } from './market';
+import { maskEmail } from '../../lib/emailcode';
 
 function Card({ title, children, className = '' }: { title?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`card ${className}`}>{title && <h2 className="card-title">{title}</h2>}{children}</section>;
+}
+/** "Email me a code" + the code box. The button sends the code without leaving the page (or posts the form when scripts are off). */
+function CodeField({ purpose }: { purpose: 'withdraw' | 'bank' }) {
+  const c = useC();
+  return (
+    <div className="field code-field">
+      <label htmlFor={`code-${purpose}`}>{c.t('code.label')}</label>
+      <div className="code-row">
+        <input id={`code-${purpose}`} name="code" required inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} dir="ltr" />
+        <button className="btn btn-ghost" type="submit" formAction={`/app/code?purpose=${purpose}`} formNoValidate data-send-code={purpose}>{c.t('code.send')}</button>
+      </div>
+      <p className="hint" data-code-msg>{c.t('code.hint')}</p>
+    </div>
+  );
 }
 function Kpi({ label, children, icon }: { label: string; children: ReactNode; icon?: ReactNode }) {
   return <div className="kpi">{icon}<span className="kpi-label">{label}</span><strong className="kpi-value">{children}</strong></div>;
@@ -35,7 +50,6 @@ export function AppHome({ d }: { d: HomeData }) {
     <AppLayout title={c.t('app.nav.home')}>
       <div className="page-title"><h1>{c.t('app.hello', { name: u.first_name })}</h1>
         <div className="cta-row"><a className="btn btn-primary" href="/app/wallet#fund">{c.t('app.fund_cta')}</a><a className="btn btn-ghost" href="/app/lots">{c.t('app.lot_cta')}</a></div></div>
-      {!u.totp_enabled && <div className="secure-tip" data-secure-tip><LuShieldCheck aria-hidden /><div><b>{c.t('app.secure_title')}</b><p>{c.t('app.secure_body')}</p></div><a className="btn btn-green btn-sm" href="/app/security">{c.t('app.secure_cta')}</a><button type="button" className="linklike small" data-secure-later>{c.t('app.secure_later')}</button></div>}
       <div className="kpis">
         <Kpi label={c.t('app.committed')} icon={<LuSprout aria-hidden />}><Money kobo={d.impact.committed} approxFor /></Kpi>
         <Kpi label={c.t('app.expected')} icon={<LuReceipt aria-hidden />}><Money kobo={d.impact.expected} /></Kpi>
@@ -275,7 +289,7 @@ export function AppWallet({ d }: { d: WalletData }) {
               <input type="hidden" name="bank_account_id" value={bank.id} />
               <Field label={c.t('wallet.amount')} name="amount" required inputMode="numeric" dir="ltr" hint={c.t('wallet.min', { amount: fmtNGN(s.min_withdrawal) })} />
               <p className="muted small">{c.t('wallet.to_bank')}: <b>{bank.bank_name} · {bank.account_number} · {bank.account_name}</b></p>
-              {u.totp_enabled ? <Field label={c.t('wallet.twofa_code')} name="code" required inputMode="numeric" autoComplete="one-time-code" maxLength={6} dir="ltr" /> : null}
+              <CodeField purpose="withdraw" />
               <button className="btn btn-green btn-block" type="submit">{c.t('wallet.withdraw_btn')}</button>
             </form>
           ) : <p>{c.t('wallet.no_bank')} <a href="/app/profile#bank">{c.t('bank.add')}</a></p>}
@@ -284,7 +298,7 @@ export function AppWallet({ d }: { d: WalletData }) {
               <Csrf /><input type="hidden" name="route" value="manual" />
               <p className="small">{c.t('wallet.intl')}</p>
               <Field label={c.t('wallet.amount')} name="amount" required inputMode="numeric" dir="ltr" />
-              {u.totp_enabled ? <Field label={c.t('wallet.twofa_code')} name="code" required inputMode="numeric" maxLength={6} dir="ltr" /> : null}
+              <CodeField purpose="withdraw" />
               <button className="btn btn-ghost btn-block" type="submit">{c.t('wallet.intl_btn')}</button>
             </form>
           )}
@@ -386,7 +400,7 @@ export function AppProfile({ banks, bankList, countries, blockers = [] }: { bank
               <Csrf />
               <Select label={c.t('bank.bank')} name="bank_code" options={bankList.map((b) => ({ value: b.code, label: b.name }))} />
               <Field label={c.t('bank.number')} name="account_number" required inputMode="numeric" pattern="\d{10}" maxLength={10} dir="ltr" />
-              {c.user!.totp_enabled ? <Field label={c.t('wallet.twofa_code')} name="code" required inputMode="numeric" maxLength={6} dir="ltr" /> : null}
+              <CodeField purpose="bank" />
               <button className="btn btn-ghost" type="submit">{c.t('bank.add')}</button>
             </form>
             {u.country !== 'NG' && (
@@ -404,29 +418,16 @@ export function AppProfile({ banks, bankList, countries, blockers = [] }: { bank
   );
 }
 
-export function AppSecurity({ setupSecret, otpauth, sessions, logins }: { setupSecret?: string; otpauth?: string; sessions: any[]; logins: any[] }) {
+export function AppSecurity({ sessions, logins }: { sessions: any[]; logins: any[] }) {
   const c = useC();
   const u = c.user!;
   return (
     <AppLayout title={c.t('sec.title')}>
       <div className="page-title"><h1>{c.t('sec.title')}</h1></div>
       <div className="grid-2 top">
-        <Card title={<>{c.t('sec.twofa')} <Tag tone={u.totp_enabled ? 'green' : 'grey'}>{u.totp_enabled ? c.t('sec.twofa_on') : c.t('sec.twofa_off')}</Tag></>}>
-          <p className="muted small">{c.t('sec.twofa_why')}</p>
-          {u.totp_enabled ? (
-            <form method="post" action="/app/security/2fa/disable"><Csrf />
-              <Field label={c.t('auth.code')} name="code" required inputMode="numeric" maxLength={6} dir="ltr" />
-              <button className="btn btn-ghost" type="submit">{c.t('sec.disable')}</button></form>
-          ) : setupSecret ? (
-            <form method="post" action="/app/security/2fa/enable"><Csrf />
-              <p className="small">{c.t('sec.scan')}</p>
-              {otpauth && <p className="center"><img className="qr" src={qrDataUri(otpauth)} width={220} height={220} alt={c.t('sec.qr_alt')} /></p>}
-              <p className="muted small">{c.t('sec.qr_manual')}</p>
-              <p className="secret" dir="ltr">{setupSecret.match(/.{1,4}/g)!.join(' ')}</p>
-              <p><a className="btn btn-ghost btn-sm" href={otpauth}>{c.t('sec.open_app')}</a></p>
-              <Field label={c.t('auth.code')} name="code" required inputMode="numeric" maxLength={6} dir="ltr" autoComplete="one-time-code" />
-              <button className="btn btn-primary" type="submit">{c.t('sec.enable')}</button></form>
-          ) : <form method="post" action="/app/security/2fa/setup"><Csrf /><button className="btn btn-primary" type="submit">{c.t('sec.enable')}</button></form>}
+        <Card title={<>{c.t('sec.twofa')} <Tag tone="green">{c.t('sec.twofa_on')}</Tag></>}>
+          <p>{c.t(u.role === 'admin' ? 'sec.email2fa_admin' : 'sec.email2fa_body', { email: maskEmail(u.email) })}</p>
+          <p className="muted small">{c.t('sec.email2fa_tip')}</p>
         </Card>
         <Card title={c.t('sec.change_pw')}>
           <form method="post" action="/app/security/password"><Csrf />

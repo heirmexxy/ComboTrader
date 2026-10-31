@@ -589,6 +589,26 @@ await t('/join form records a consented lead with its source', async () => {
 });
 function fmtTest(k: number) { return `₦${new Intl.NumberFormat('en-NG').format(k / 100)}`; }
 
+console.log('\nEmail codes (two-step without an app)');
+await t('email codes: one purpose, one use, 10 minutes, at most 5 tries', async () => {
+  const ec = await import('../src/lib/emailcode');
+  const u = mkUser('codes@t.ng');
+  const code = ec.sendEmailCode(u, 'withdraw');
+  eq(/^\d{6}$/.test(code), true);
+  eq(String(q.val("SELECT subject FROM outbox WHERE recipient='codes@t.ng' ORDER BY id DESC")).includes(code), true, 'code in the email');
+  eq(ec.checkEmailCode(u, 'bank', code), false, 'a withdrawal code cannot change a bank account');
+  eq(ec.checkEmailCode(u, 'withdraw', '000000') && code !== '000000', false);
+  eq(ec.checkEmailCode(u, 'withdraw', code), true);
+  eq(ec.checkEmailCode(u, 'withdraw', code), false, 'used once only');
+  const c2 = ec.sendEmailCode(u, 'login');
+  for (let i = 0; i < 5; i++) ec.checkEmailCode(u, 'login', '111111');
+  eq(ec.checkEmailCode(u, 'login', c2), false, 'locked after 5 wrong tries');
+  const c3 = ec.sendEmailCode(u, 'bank');
+  q.run("UPDATE tokens SET expires_at=? WHERE kind='code_bank' AND user_id=?", addDays(now(), -0.001), u.id);
+  eq(ec.checkEmailCode(u, 'bank', c3), false, 'expired');
+  eq(ec.maskEmail('kitovu.tech@gmail.com'), 'k••••••h@gmail.com');
+});
+
 console.log('\nMarketplace');
 await t('marketplace: value to date, units, partial and whole sales, fee, ledger, Kitovu as buyer, payout to the buyer', async () => {
   const mkt = await import('../src/lib/market');

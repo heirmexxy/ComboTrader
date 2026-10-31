@@ -721,6 +721,10 @@ CREATE TABLE trade_sales (
   created_at TEXT NOT NULL
 );
 `,
+`
+-- The authenticator app was replaced by codes sent by email.
+UPDATE users SET totp_enabled=0, totp_secret=NULL;
+`,
 ];
 
 export function openDb(file = config.dbFile) {

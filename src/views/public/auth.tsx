@@ -68,18 +68,19 @@ export function LoginPage({ email, error, next }: { email?: string; error?: stri
   );
 }
 
-export function TwoFactorPage({ error }: { error?: string }) {
+export function TwoFactorPage({ error, email }: { error?: string; email?: string }) {
   const c = useC();
   return (
     <AuthLayout title={c.t('auth.twofa_title')}>
       <h1>{c.t('auth.twofa_title')}</h1>
-      <p className="muted">{c.t('auth.twofa_sub')}</p>
+      <p className="muted">{c.t('auth.twofa_email_sub', { email: email || '' })}</p>
       {error && <div className="flash flash-error" role="alert">{error}</div>}
       <form method="post" action="/login/2fa">
         <Csrf />
         <Field label={c.t('auth.code')} name="code" required inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} dir="ltr" />
         <button className="btn btn-primary btn-block" type="submit">{c.t('auth.verify')}</button>
       </form>
+      <form method="post" action="/login/2fa/resend" className="center"><Csrf /><button className="linklike" type="submit">{c.t('auth.resend_code')}</button></form>
       <form method="post" action="/logout" className="center"><Csrf /><button className="linklike" type="submit">{c.t('nav.logout')}</button></form>
     </AuthLayout>
   );

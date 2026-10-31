@@ -225,7 +225,6 @@ export function AccountRights({ blockers }: { blockers: string[] }) {
               <p className="small">{c.t('close.intro')}</p>
               <Field label={c.t('close.reason')} name="reason" type="textarea" maxLength={300} />
               <Field label={c.t('close.type')} name="confirm" required hint={c.t('close.type_hint')} />
-              {u.totp_enabled ? <Field label={c.t('wallet.twofa_code')} name="code" required inputMode="numeric" maxLength={6} dir="ltr" /> : null}
               <button className="btn btn-danger" type="submit">{c.t('close.btn')}</button>
             </form>
           )}

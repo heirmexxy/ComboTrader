@@ -4,7 +4,6 @@
 //   npm run backup -- [file]           consistent copy of the database
 //   npm run make-admin -- <email> [roles]   give an existing account admin access (default role: super)
 //   node dist/cli.mjs vapid            generate Web Push keys for .env
-//   node dist/cli.mjs reset-2fa <email>   turn off two-step sign-in for an account that lost its authenticator
 process.env.NO_AUTOSTART = '1';
 process.env.RUN_SCHEDULER = 'false';
 import { openDb, q, rawDb } from './lib/db';
@@ -37,14 +36,6 @@ switch (cmd) {
     console.log(r.changes ? `${args[0]} is now an admin (${args[1] || 'super'}).` : `No account with email ${args[0]}. Sign up first, then run this again.`);
     break;
   }
-  case 'reset-2fa': {
-    // Recovery when an admin loses their authenticator: switches 2FA off so they can sign in with the password and set it up again.
-    const email = String(args[0] || '').toLowerCase();
-    const r = q.run('UPDATE users SET totp_secret=NULL, totp_enabled=0 WHERE email=?', email);
-    if (r.changes) q.run('DELETE FROM sessions WHERE user_id=(SELECT id FROM users WHERE email=?)', email);
-    console.log(r.changes ? `Two-step sign-in is now OFF for ${email}. Sign in with the password, then set up the authenticator again in Security.` : `No account with email ${email}.`);
-    break;
-  }
   case 'test-email': {
     // Sends one email straight away and prints the provider's answer.
     const { sendEmail, emailShell } = await import('./lib/notify');
@@ -68,5 +59,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('Commands: seed | job <name> | backup [file] | make-admin <email> [roles] | reset-2fa <email> | test-email <to> | clear-test-data --yes | time | vapid');
+    console.log('Commands: seed | job <name> | backup [file] | make-admin <email> [roles] | test-email <to> | clear-test-data --yes | time | vapid');
 }

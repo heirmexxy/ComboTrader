@@ -117,7 +117,6 @@ post('/app/profile/close', 'auth', (c) => {
   const u = c.user!;
   if (c.isAdmin) return c.redirect('/app/profile#data', ['error', 'Admins cannot close their account here.']);
   if (c.str('confirm', 20).toUpperCase() !== 'CLOSE') return c.redirect('/app/profile#data', ['error', c.t('close.type_hint')]);
-  if (u.totp_enabled && !verifyTotp(u.totp_secret, c.str('code', 8))) return c.redirect('/app/profile#data', ['error', c.t('auth.bad_code')]);
   try {
     closeAccount(u, c.str('reason', 300));
     destroySession(c);

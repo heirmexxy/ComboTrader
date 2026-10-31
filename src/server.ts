@@ -90,7 +90,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
 
     // Pending two-step sign-in can only finish or log out.
     if (c.pending2fa && !['/login/2fa', '/logout'].includes(p) && m.route.guard !== 'public') return c.redirect('/login/2fa');
-    if (c.pending2fa && m.route.guard === 'public') c.user = null;
+    if (c.pending2fa && m.route.guard === 'public') { c.pendingUser = c.user; c.user = null; }
 
     const g = m.route.guard;
     if (g === 'guest' && c.user) return c.redirect(c.isAdmin ? '/admin' : '/app');
@@ -98,7 +98,6 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     if (g.startsWith('admin:')) {
       if (!c.user) return c.redirect(`/login?next=${encodeURIComponent(p)}`);
       if (!c.isAdmin) throw new HttpError(403, 'Forbidden');
-      if (config.adminRequire2fa && !c.user.totp_enabled && p !== '/app/security') return c.redirect('/app/security', ['info', 'Admins must turn on two-step verification before using the admin area.']);
       const perm = g.slice(6);
       if (perm !== 'any' && !c.can(perm)) throw new HttpError(403, 'Forbidden');
     }

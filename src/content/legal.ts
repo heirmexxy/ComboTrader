@@ -24,7 +24,7 @@ The Platform is operated by **Kitovu Technology Company Limited**, a company reg
 
 3.2 You must give accurate, current information and keep it up to date. We verify identity before withdrawals and above certain funding limits, as required by anti-money-laundering rules. We may ask for further documents at any time.
 
-3.3 You are responsible for keeping your password and devices secure. Tell us immediately at hello@combotrader.com.ng if you think your account has been accessed without permission. We recommend turning on two-step verification.
+3.3 You are responsible for keeping your password and devices secure. Tell us immediately at hello@combotrader.com.ng if you think your account has been accessed without permission. Before any withdrawal or change to the bank account that receives your money, we email you a one-time code; never share it with anyone.
 
 ## 4. Wallet
 4.1 You fund your wallet through our payment processor, Paystack. Card, bank transfer, USSD and other channels are subject to Paystack's own terms. Card fees, where we pass them on, are shown before you pay.
@@ -114,7 +114,7 @@ Kitovu Technology Company Limited (RC 1348965), Kitovu Business Hub, Sawmill Are
 | Identity and contact | Name, email, phone number, country, city, next of kin |
 | Verification | Results of BVN and bank-account checks from Paystack; ID documents you upload (Champions outside Nigeria) |
 | Financial | Bank account for payouts, wallet transactions, trades, payments (card details are handled by Paystack and never reach us) |
-| Account and security | Password (stored only as a one-way hash), two-step verification settings, log-in times, IP addresses and device type |
+| Account and security | Password (stored only as a one-way hash), one-time codes we email you (valid for 10 minutes), log-in times, IP addresses and device type |
 | Communications | Messages to support, newsletter preferences, chat conversations through tawk.to |
 | Usage | Pages visited and actions taken on the Platform, to keep it secure and working |
 
@@ -170,7 +170,7 @@ Under the NDPA you can:
 Email privacy@combotrader.com.ng. We will respond without undue delay and in any case within [30] days. Some data must be kept by law even if you ask us to delete it; we will tell you if that applies.
 
 ## 8. Security
-We encrypt data in transit, store passwords as one-way hashes, require two-step verification for staff, restrict access by role, and log every administrative action. If a breach is likely to put your rights at risk, we will notify the Nigeria Data Protection Commission within 72 hours of becoming aware of it and tell you promptly, with steps you can take.
+We encrypt data in transit, store passwords as one-way hashes, require staff to confirm every sign-in with a one-time code, restrict access by role, and log every administrative action. If a breach is likely to put your rights at risk, we will notify the Nigeria Data Protection Commission within 72 hours of becoming aware of it and tell you promptly, with steps you can take.
 
 ## 9. Changes
 We will post any changes here and tell you of material changes by email or in the app.`,

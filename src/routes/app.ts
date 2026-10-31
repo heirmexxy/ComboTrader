@@ -1,3 +1,4 @@
+import { sendEmailCode, checkEmailCode, showCodeOnScreen, maskEmail } from '../lib/emailcode';
 import { marketOn, cannotList, unitsOf, quote, canListFrom, listTrade, cancelListing, buyUnits, openListings, listingsBy } from '../lib/market';
 import * as M from '../views/app/market';
 import type { SellInfo } from '../views/app/market';
@@ -177,7 +178,7 @@ post('/app/wallet/fund', 'auth', async (c) => {
 post('/app/wallet/withdraw', 'auth', (c) => {
   const u = c.user!;
   if (!rateLimit(`wd:${u.id}`, 10, 3600)) return c.redirect('/app/wallet', ['error', c.t('auth.too_many')]);
-  if (u.totp_enabled && !verifyTotp(u.totp_secret, c.str('code', 8))) return c.redirect('/app/wallet', ['error', c.t('auth.bad_code')]);
+  if (!checkEmailCode(u, 'withdraw', c.str('code', 8))) return c.redirect('/app/wallet', ['error', c.t('code.bad')]);
   const manual = c.body.route === 'manual';
   try {
     requestWithdrawal(u, parseNaira(c.body.amount), manual ? null : c.int('bank_account_id'), manual ? 'manual' : 'paystack');
@@ -242,7 +243,7 @@ async function addBank(c: Ctx, bankCode: string, acct: string) {
 }
 post('/app/profile/bank', 'auth', async (c) => {
   const u = c.user!;
-  if (u.totp_enabled && !verifyTotp(u.totp_secret, c.str('code', 8))) return c.redirect('/app/profile#bank', ['error', c.t('auth.bad_code')]);
+  if (!checkEmailCode(u, 'bank', c.str('code', 8))) return c.redirect('/app/profile#bank', ['error', c.t('code.bad')]);
   try {
     const name = await addBank(c, c.str('bank_code', 10), c.str('account_number', 10));
     c.redirect('/app/profile#bank', ['ok', c.t('bank.added', { acct: name })]);
@@ -250,6 +251,7 @@ post('/app/profile/bank', 'auth', async (c) => {
 });
 post('/app/profile/bank-intl', 'auth', (c) => {
   const u = c.user!;
+  if (!checkEmailCode(u, 'bank', c.str('code', 8))) return c.redirect('/app/profile#bank', ['error', c.t('code.bad')]);
   q.run("UPDATE bank_accounts SET active=0 WHERE user_id=? AND country!='NG'", u.id);
   q.insert('bank_accounts', { user_id: u.id, country: u.country, account_number: 'INTL', details: c.str('details', 600), name_match: 0, created_at: now() });
   c.redirect('/app/profile#bank', ['ok', c.t('profile.saved')]);
@@ -279,38 +281,24 @@ post('/app/profile/kyc-doc', 'auth', (c) => {
 });
 
 // ---------- Security ----------
-function securityPage(c: Ctx, setup?: string) {
+function securityPage(c: Ctx) {
   const u = c.user!;
   render(c, h(V.AppSecurity, {
-    setupSecret: setup, otpauth: setup ? otpauthUrl(setup, u.email) : undefined,
     sessions: q.all('SELECT * FROM sessions WHERE user_id=? AND expires_at>? ORDER BY last_seen DESC', u.id, now()),
     logins: q.all('SELECT * FROM login_events WHERE user_id=? ORDER BY id DESC LIMIT 10', u.id),
   }));
 }
-function pendingSecret(c: Ctx) {
-  const [sec, sig] = String(c.cookies.totp_setup || '').split('.');
-  return sec && sig && safeEqual(hmac(`${c.user!.id}:${sec}`), sig) ? sec : undefined;
-}
-get('/app/security', 'auth', (c) => securityPage(c, pendingSecret(c)));
-post('/app/security/2fa/setup', 'auth', (c) => {
-  const sec = newTotpSecret();
-  c.setCookie('totp_setup', `${sec}.${hmac(`${c.user!.id}:${sec}`)}`, { maxAge: 900 });
-  c.redirect('/app/security');
-});
-post('/app/security/2fa/enable', 'auth', (c) => {
-  const sec = pendingSecret(c);
-  if (!sec || !verifyTotp(sec, c.str('code', 8))) return c.redirect('/app/security', ['error', c.t('auth.bad_code')]);
-  q.run('UPDATE users SET totp_secret=?, totp_enabled=1 WHERE id=?', sec, c.user!.id);
-  c.setCookie('totp_setup', '', { maxAge: 0 });
-  audit(c.user!.id, '2fa.enable', `user:${c.user!.id}`, undefined, c.ip);
-  c.redirect(c.isAdmin ? '/admin' : '/app/security', ['ok', c.t('sec.enabled')]);
-});
-post('/app/security/2fa/disable', 'auth', (c) => {
+get('/app/security', 'auth', (c) => securityPage(c));
+// Emails a 6-digit code for a withdrawal or a bank change. Works with fetch (no page reload) or as a normal form post.
+post('/app/code', 'auth', (c) => {
   const u = c.user!;
-  if (!verifyTotp(u.totp_secret, c.str('code', 8))) return c.redirect('/app/security', ['error', c.t('auth.bad_code')]);
-  q.run('UPDATE users SET totp_secret=NULL, totp_enabled=0 WHERE id=?', u.id);
-  audit(u.id, '2fa.disable', `user:${u.id}`, undefined, c.ip);
-  c.redirect('/app/security', ['ok', c.t('sec.disabled')]);
+  const purpose = (c.str('purpose') || String(c.query.purpose || '')) === 'bank' ? 'bank' : 'withdraw';
+  const back = purpose === 'bank' ? '/app/profile#bank' : '/app/wallet';
+  const ajax = String(c.req.headers['x-requested-with'] || '') === 'fetch';
+  if (!rateLimit(`code-${purpose}:${u.id}`, 5, 900)) return ajax ? c.json({ ok: false, message: c.t('auth.too_many') }, 429) : c.redirect(back, ['error', c.t('auth.too_many')]);
+  const code = sendEmailCode(u, purpose);
+  const message = showCodeOnScreen() ? `Demo: your code is ${code}` : c.t('code.sent', { email: maskEmail(u.email) });
+  return ajax ? c.json({ ok: true, message }) : c.redirect(back, ['ok', message]);
 });
 post('/app/security/password', 'auth', (c) => {
   const u = c.user!;

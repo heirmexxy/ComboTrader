@@ -40,7 +40,7 @@ export function destroySession(c: Ctx) {
 }
 
 // ---------- One-time tokens ----------
-export function issueToken(kind: 'email_verify' | 'phone_otp' | 'reset' | 'newsletter', userId: number | null, o: { minutes?: number; digits?: boolean; data?: string } = {}) {
+export function issueToken(kind: 'email_verify' | 'phone_otp' | 'reset' | 'newsletter' | `code_${string}`, userId: number | null, o: { minutes?: number; digits?: boolean; data?: string } = {}) {
   const raw = o.digits ? randomDigits(6) : randomToken(24);
   q.run('UPDATE tokens SET used_at=? WHERE kind=? AND user_id IS ? AND used_at IS NULL', now(), kind, userId);
   q.insert('tokens', {

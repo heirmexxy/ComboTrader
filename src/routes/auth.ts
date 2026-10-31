@@ -13,6 +13,9 @@ import { config } from '../lib/config';
 import { HttpError, type Ctx, type User } from '../lib/http';
 import { audit } from '../lib/audit';
 import { sourceOf } from '../lib/tracking';
+import { sendEmailCode, checkEmailCode, showCodeOnScreen, maskEmail } from '../lib/emailcode';
+/** Admins need an emailed code at every sign-in (production; ADMIN_REQUIRE_2FA=false turns it off). */
+const needsLoginCode = (u: User) => u.role === 'admin' && config.adminRequire2fa;
 
 const safeNext = (n: unknown) => { const s = String(n || ''); return s.startsWith('/') && !s.startsWith('//') ? s : ''; };
 const demoMessaging = () => config.demoMode && !(config.emailProvider && config.emailApiKey);
@@ -135,10 +138,12 @@ post('/login', 'guest', (c) => {
     return fail('auth.bad_login');
   }
   if (u.status !== 'active') return fail('auth.suspended');
-  if (u.totp_enabled) {
+  // Admins confirm every sign-in with a code sent to their email.
+  if (needsLoginCode(u)) {
     createSession(c, u.id, { remember: c.bool('remember'), twofaOk: false });
     if (next) c.setCookie('next', next, { maxAge: 600 });
-    return c.redirect('/login/2fa');
+    const code = sendEmailCode(u, 'login');
+    return c.redirect('/login/2fa', showCodeOnScreen() ? ['info', `Demo: your code is ${code}`] : undefined);
   }
   newDeviceCheck(c, u);
   createSession(c, u.id, { remember: c.bool('remember') });
@@ -146,15 +151,22 @@ post('/login', 'guest', (c) => {
   afterLogin(c, u, next);
 });
 get('/login/2fa', 'public', (c) => {
-  if (!c.pending2fa) return c.redirect(c.user ? '/app' : '/login');
-  render(c, h(A.TwoFactorPage, {}));
+  const u = c.pendingUser;
+  if (!c.pending2fa || !u) return c.redirect(c.user ? '/app' : '/login');
+  render(c, h(A.TwoFactorPage, { email: maskEmail(u.email) }));
+});
+post('/login/2fa/resend', 'public', (c) => {
+  const u = c.pendingUser;
+  if (!c.pending2fa || !u) return c.redirect('/login');
+  if (!rateLimit(`code-login:${u.id}`, 4, 900)) return c.redirect('/login/2fa', ['error', c.t('auth.too_many')]);
+  const code = sendEmailCode(u, 'login');
+  c.redirect('/login/2fa', ['ok', showCodeOnScreen() ? `Demo: your code is ${code}` : c.t('code.sent', { email: maskEmail(u.email) })]);
 });
 post('/login/2fa', 'public', (c) => {
-  if (!c.pending2fa || !c.user) return c.redirect('/login');
-  const u = c.user;
-  if (!rateLimit(`2fa:${u.id}`, 6, 900)) return render(c, h(A.TwoFactorPage, { error: c.t('auth.too_many') }), 429);
-  const secret = q.val<string>('SELECT totp_secret FROM users WHERE id=?', u.id);
-  if (!verifyTotp(secret, c.str('code', 8))) { logLogin(c, u.id, u.email, false); return render(c, h(A.TwoFactorPage, { error: c.t('auth.bad_code') }), 401); }
+  const u = c.pendingUser;
+  if (!c.pending2fa || !u) return c.redirect('/login');
+  if (!rateLimit(`2fa:${u.id}`, 6, 900)) return render(c, h(A.TwoFactorPage, { error: c.t('auth.too_many'), email: maskEmail(u.email) }), 429);
+  if (!checkEmailCode(u, 'login', c.str('code', 8))) { logLogin(c, u.id, u.email, false); return render(c, h(A.TwoFactorPage, { error: c.t('auth.bad_code'), email: maskEmail(u.email) }), 401); }
   q.run('UPDATE sessions SET twofa_ok=1 WHERE id=?', c.sessionId);
   newDeviceCheck(c, u);
   logLogin(c, u.id, u.email, true);
@@ -226,7 +238,7 @@ get('/auth/google/callback', 'public', async (c) => {
     fresh = true;
   }
   if (u.status !== 'active') return c.redirect('/login', ['error', c.t('auth.suspended')]);
-  if (u.totp_enabled) { createSession(c, u.id, { remember: true, twofaOk: false }); return c.redirect('/login/2fa'); }
+  if (needsLoginCode(u)) { createSession(c, u.id, { remember: true, twofaOk: false }); sendEmailCode(u, 'login'); return c.redirect('/login/2fa'); }
   createSession(c, u.id, { remember: true });
   logLogin(c, u.id, u.email, true);
   if (fresh || !u.onboarded) return c.redirect('/welcome');

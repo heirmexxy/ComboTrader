@@ -296,3 +296,18 @@ $$<HTMLInputElement>('input[type="password"]').forEach((inp) => {
   inp.form?.addEventListener('submit', () => set(false));
   set(false); wrap.appendChild(b);
 });
+
+// "Email me a code": send without leaving the page, keep what was typed, and move to the code box.
+$$<HTMLButtonElement>('[data-send-code]').forEach((b) => b.addEventListener('click', async (e) => {
+  e.preventDefault();
+  const msg = b.closest('.code-field')?.querySelector<HTMLElement>('[data-code-msg]');
+  b.disabled = true;
+  try {
+    const body = new URLSearchParams({ purpose: b.dataset.sendCode || 'withdraw', _csrf: boot.csrf });
+    const r = await fetch('/app/code', { method: 'POST', body, headers: { 'X-Requested-With': 'fetch', 'X-CSRF-Token': boot.csrf } });
+    const j = await r.json().catch(() => ({ message: '' }));
+    if (msg) { msg.textContent = j.message || ''; msg.classList.toggle('error', !r.ok); }
+    b.closest('.code-field')?.querySelector<HTMLInputElement>('input[name=code]')?.focus();
+  } catch { if (msg) msg.textContent = boot.s.close || ''; }
+  setTimeout(() => { b.disabled = false; }, 20000); // one new code at most every 20 seconds
+}));
