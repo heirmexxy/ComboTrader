@@ -417,6 +417,7 @@ get('/admin/testing', 'admin:super', (c) => {
         <div className="btn-row">
           <Act action="/admin/testing/mode" fields={{ on: s.test_mode ? 0 : 1 }} label={s.test_mode ? 'Turn test mode off' : 'Turn test mode on'} tone={s.test_mode ? 'ghost' : 'green'} />
           <Act action="/admin/testing/sample-lots" label="Add 4 sample Trade Lots and Harvest Circles" />
+          {simulatedPayments() && <Act action="/admin/testing/due-now" label="Bring payout dates forward to today" confirm="Make every active test trade due today, so payouts can be tested?" />}
         </div>
         <p className="muted small">While test mode is on, the Marketplace (selling trades to other Champions) is on with no minimum holding period and Harvest Circles are open to every Champion (whatever the Circles setting), every sample lot allows circles, and the soybean and sesame lots come with two open sample circles each. Sample lots and circles are marked “TEST ·”. While test mode is on, every page shows a “payments are simulated” banner. Adding the live Paystack key later switches test mode off automatically.</p>
       </>}
@@ -442,6 +443,13 @@ post('/admin/testing/sample-lots', 'admin:super', (c) => {
   if (!testModeAvailable()) return c.back('/admin/testing', ['error', 'Not available with live payments.']);
   const n = addSampleLots(c.user!.id); audit(c.user!.id, 'testmode.sample_lots', String(n), undefined, c.ip);
   c.back('/admin/testing', ['ok', `${n} sample lots added and open, with sample Harvest Circles.`]);
+});
+post('/admin/testing/due-now', 'admin:super', (c) => {
+  if (!simulatedPayments()) return c.back('/admin/testing', ['error', 'Only in test mode.']);
+  // Payout date = now; the start date moves back by the same period, so earnings stay the full amount for the period.
+  const n = q.run("UPDATE trades SET matures_at=?, start_at=datetime(?, '-' || period_months || ' months') WHERE status='active'", new Date(Date.now() - 60e3).toISOString(), new Date(Date.now() - 60e3).toISOString()).changes;
+  audit(c.user!.id, 'testmode.due_now', String(n), undefined, c.ip);
+  c.back('/admin/testing', ['ok', `${n} trades are now due. ${settings().auto_payouts ? 'They will be paid automatically within 10 minutes, or pay them now in Payouts.' : 'Pay them in Payouts.'}`]);
 });
 post('/admin/testing/clear', 'admin:super', (c) => {
   if (c.str('confirm') !== 'CLEAR') return c.back('/admin/testing', ['error', 'Type CLEAR (capital letters) to confirm.']);
