@@ -19,6 +19,7 @@ import { fmtNGN, randomToken, hmac, lagosNow } from './util';
 import { siteStats, rateFor, lotPeriods, stageLabel } from './trading';
 import { walletBalance } from './ledger';
 import { marketOn, openListings, quote } from './market';
+import { BRAND, MARK_SVG, BRAND_VOICE, useBrandFonts } from './brand';
 
 // ================= Channels =================
 export const CHANNELS = ['facebook', 'instagram', 'linkedin', 'x', 'telegram'] as const;
@@ -113,20 +114,28 @@ function saveSocialImage(buf: Buffer) {
 }
 /** 1080×1080 JPEG card in ComboTrader colours (Instagram needs JPEG). */
 export async function postCard(o: { eyebrow: string; headline: string; lines: string[]; photo?: string | null }) {
-  const host = config.baseUrl.replace(/^https?:\/\//, '');
-  const head = wrap(o.headline, 20, 3);
-  const top = o.photo ? 560 : 300;
+  useBrandFonts();
+  const B = BRAND;
+  const host = config.baseUrl.replace(/^https?:\/\//, '').replace(/^www\./, '');
+  const head = wrap(o.headline, o.photo ? 24 : 19, 3);
+  const hs = o.photo ? 58 : 80, lh = o.photo ? 66 : 88;
+  const top = o.photo ? 590 : 330;
+  // Field rows sweeping in from the right, as on the ComboTrader banners.
+  const furrows = Array.from({ length: 14 }, (_, i) => { const y = 1080 * (0.15 + i * 0.075); return `<path d="M454,1120 C670,${(y + 378).toFixed(0)} 864,${y.toFixed(0)} 1120,${(y - 216).toFixed(0)}" fill="none" stroke="${B.green2}" stroke-width="9" opacity=".5"/>`; }).join('');
+  const heading = `font-family="${B.headingFont}, Fraunces, Georgia, serif"`, body = `font-family="${B.bodyFont}, Arial, sans-serif"`;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
-  ${o.photo ? '' : '<rect width="1080" height="1080" fill="#1F4D2B"/><circle cx="930" cy="150" r="250" fill="#2E6B3D"/><circle cx="120" cy="980" r="210" fill="#24573A"/>'}
-  ${o.photo ? '<rect y="470" width="1080" height="610" fill="#1F4D2B" opacity="0.94"/>' : ''}
-  <g font-family="Arial, Helvetica, sans-serif">
-    <text x="80" y="${o.photo ? 120 : 130}" font-size="40" font-weight="700" fill="#FFFFFF" ${o.photo ? 'stroke="#1F4D2B" stroke-width="6" paint-order="stroke"' : ''}>COMBO<tspan fill="#D4A017">TRADER</tspan></text>
-    <text x="80" y="${top - 40}" font-size="34" font-weight="700" fill="#D4A017" letter-spacing="2">${xml(o.eyebrow.toUpperCase())}</text>
-    ${head.map((l, i) => `<text x="80" y="${top + 30 + i * (o.photo ? 62 : 84)}" font-size="${o.photo ? 56 : 76}" font-weight="700" fill="#FFFFFF">${xml(l)}</text>`).join('')}
-    ${o.lines.slice(0, 3).map((l, i) => `<text x="80" y="${top + 30 + head.length * (o.photo ? 62 : 84) + 40 + i * 52}" font-size="38" fill="#F7F1E3">${xml(l)}</text>`).join('')}
-    <rect x="80" y="930" width="560" height="84" rx="42" fill="#C0603A"/>
-    <text x="360" y="985" font-size="34" font-weight="700" fill="#FFFFFF" text-anchor="middle">${xml(host)}/join</text>
-  </g></svg>`;
+  ${o.photo ? `<rect y="500" width="1080" height="580" fill="${B.green}" opacity="0.96"/>` : `<rect width="1080" height="1080" fill="${B.green}"/>${furrows}<g transform="translate(860,250) scale(3.4)" opacity=".10">${MARK_SVG}</g>`}
+  <g transform="translate(80,${o.photo ? 70 : 80})">
+    ${o.photo ? `<rect x="-24" y="-20" width="420" height="104" rx="52" fill="${B.green}" opacity=".92"/>` : ''}
+    <g transform="translate(32,32) scale(.32)">${MARK_SVG}</g>
+    <text x="84" y="46" ${heading} font-size="46" fill="${B.cream}">Combo<tspan fill="${B.gold}">Trader</tspan></text>
+  </g>
+  <text x="80" y="${top - 46}" ${body} font-size="30" font-weight="700" fill="${B.gold}" letter-spacing="5">${xml(o.eyebrow.toUpperCase())}</text>
+  ${head.map((l, i) => `<text x="80" y="${top + 34 + i * lh}" ${heading} font-size="${hs}" fill="${B.cream}">${xml(l)}</text>`).join('')}
+  ${o.lines.slice(0, 3).map((l, i) => `<text x="80" y="${top + 34 + head.length * lh + 34 + i * 50}" ${body} font-size="36" fill="#DCE7DA">${xml(l)}</text>`).join('')}
+  <rect x="80" y="930" width="${Math.max(420, host.length * 21 + 150)}" height="84" rx="42" fill="${B.gold}"/>
+  <text x="${80 + Math.max(420, host.length * 21 + 150) / 2}" y="985" ${body} font-size="34" font-weight="700" fill="${B.green}" text-anchor="middle">${xml(host)}/join</text>
+</svg>`;
   let base = sharp(Buffer.from(svg));
   if (o.photo) {
     const src = path.resolve(config.uploadsDir, 'public', o.photo);
@@ -135,7 +144,7 @@ export async function postCard(o: { eyebrow: string; headline: string; lines: st
       base = sharp(bg).composite([{ input: Buffer.from(svg) }]);
     }
   }
-  return saveSocialImage(await base.jpeg({ quality: 86 }).toBuffer());
+  return saveSocialImage(await base.jpeg({ quality: 88 }).toBuffer());
 }
 
 // ================= Social: planning =================
@@ -227,7 +236,7 @@ export async function createPost(force = false): Promise<string> {
     try {
       const examples = lessonsFor('social', 'post', { key: plan.key }).filter((l) => l.wins + l.losses >= 2).sort((a, b) => lessonScore(b) - lessonScore(a)).slice(0, 3).map((l) => ({ ...parseLesson(l), clicks_result: `${l.wins} of ${l.wins + l.losses} worked` }));
       const r = await completeJson<{ text: string; x_text: string; template: string }>('social', { trigger: `post:${plan.kind}`, maxTokens: 1500,
-        system: `${POLICY}\nYou write ComboTrader's social media posts for Nigerian and diaspora audiences on Facebook, Instagram, LinkedIn, X and Telegram. Using ONLY the facts given, write "text" (≤ 450 characters, warm and concrete, at most 2 emojis, at most 3 hashtags, end with a clear next step) and "x_text" (≤ 240 characters). Both must contain the placeholder {link} exactly once (we put the tracked link there). No earnings promises beyond the rates given; never say guaranteed or investment. ` +
+        system: `${POLICY}\n${BRAND_VOICE}\nYou write ComboTrader's social media posts for Nigerian and diaspora audiences on Facebook, Instagram, LinkedIn, X and Telegram. Using ONLY the facts given, write "text" (≤ 450 characters, warm and concrete, at most 2 emojis, at most 3 hashtags, end with a clear next step) and "x_text" (≤ 240 characters). Both must contain the placeholder {link} exactly once (we put the tracked link there). No earnings promises beyond the rates given; never say guaranteed or investment. ` +
           `Also give "template": the text with the specific facts replaced by these placeholders where they appear: ${Object.keys(plan.facts).map((k) => `{${k}}`).join(', ')}, {link}. Learn from the examples that worked. Return {"text":string,"x_text":string,"template":string}.`,
         input: { post_type: plan.kind, facts: plan.facts, examples_that_worked: examples } });
       if (String(r.data.text || '').includes('{link}')) { text = r.data.text; short = String(r.data.x_text || '').includes('{link}') ? r.data.x_text : shorten(text); template = String(r.data.template || '').includes('{link}') ? r.data.template : null; runId = r.runId; }
@@ -460,7 +469,7 @@ async function challenger(c: string, lang: Lang) {
   const current = lessonsFor('email', 'template', { key: `email:${c}`, lang }).map((l) => parseLesson(l));
   const placeholders: string[] = [...(translate(lang, `mkt.${c}.body`).match(/\{\w+\}/g) || [])].concat(translate(lang, `mkt.${c}.subject`).match(/\{\w+\}/g) || []);
   const r = await completeJson<{ title: string; body: string }>('email', { fast: true, trigger: `challenger:${c}:${lang}`,
-    system: `${POLICY}\nYou improve ComboTrader lifecycle emails. Write ONE alternative version of this email in ${lang} to test against the current one: a different subject angle and a clearer, warmer body (≤ 110 words). Keep exactly these placeholders: ${[...new Set(placeholders)].join(', ') || 'none'}. Do not add links (a button is added). Return {"title":string,"body":string}.`,
+    system: `${POLICY}\n${BRAND_VOICE}\nYou improve ComboTrader lifecycle emails. Write ONE alternative version of this email in ${lang} to test against the current one: a different subject angle and a clearer, warmer body (≤ 110 words). Keep exactly these placeholders: ${[...new Set(placeholders)].join(', ') || 'none'}. Do not add links (a button is added). Return {"title":string,"body":string}.`,
     input: { campaign: c, current } });
   const ok = [...new Set(placeholders)].every((p) => `${r.data.title} ${r.data.body}`.includes(p));
   if (ok && r.data.title && r.data.body) learn({ agent: 'email', kind: 'template', key: `email:${c}`, lang, content: { title: r.data.title, body: r.data.body }, source: 'ai' });

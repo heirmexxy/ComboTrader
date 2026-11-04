@@ -181,18 +181,26 @@ if (tour) $$('[data-tour-next]', tour).forEach((b) => b.addEventListener('click'
 const pushBtn = $<HTMLButtonElement>('[data-push]');
 if (pushBtn) {
   const status = $('[data-push-status]');
-  if (!('PushManager' in window) || !('serviceWorker' in navigator) || !boot.vapid) { pushBtn.disabled = true; if (status) status.textContent = boot.s.pushNo; }
+  const say = (t: string, bad = false) => { if (status) { status.textContent = t; status.classList.toggle('error', bad); } };
+  if (!('PushManager' in window) || !('serviceWorker' in navigator) || !('Notification' in window) || !boot.vapid) { pushBtn.disabled = true; say(boot.s.pushNo); }
+  else if (Notification.permission === 'denied') say(boot.s.pushBlocked, true);
   pushBtn.addEventListener('click', async () => {
+    pushBtn.disabled = true;
     try {
-      const reg = await navigator.serviceWorker.ready;
       const perm = await Notification.requestPermission();
-      if (perm !== 'granted') return;
+      if (perm !== 'granted') { say(boot.s.pushBlocked, true); return; }
+      const reg = (await navigator.serviceWorker.getRegistration()) || (await navigator.serviceWorker.register('/sw.js'));
+      await navigator.serviceWorker.ready;
       const key = Uint8Array.from(atob(boot.vapid!.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((boot.vapid!.length + 3) % 4)), (ch) => ch.charCodeAt(0));
+      // A subscription made with an older key cannot be reused: replace it.
+      const old = await reg.pushManager.getSubscription();
+      if (old) await old.unsubscribe().catch(() => false);
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-      await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': boot.csrf }, body: JSON.stringify(sub) });
-      if (status) status.textContent = boot.s.pushOn;
-      pushBtn.disabled = true;
-    } catch { if (status) status.textContent = boot.s.pushNo; }
+      const r = await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': boot.csrf }, body: JSON.stringify(sub) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.ok) say(boot.s.pushOn); else say(`${boot.s.pushFail}${j.error ? ` (${j.error})` : ''}`, true);
+    } catch (e) { say(`${boot.s.pushFail} (${(e as Error)?.name || 'error'})`, true); }
+    finally { pushBtn.disabled = false; }
   });
 }
 

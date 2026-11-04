@@ -24,6 +24,7 @@ import { countryOptions, COUNTRY_CODES } from '../lib/geo';
 import { isLang, fmtDate } from '../lib/i18n';
 import { savePrivateFile } from '../lib/uploads';
 import { audit } from '../lib/audit';
+import { sendPush } from '../lib/webpush';
 import { notify, queueEmail, emailShell, escapeHtml } from '../lib/notify';
 import { config } from '../lib/config';
 import { HttpError, type Ctx } from '../lib/http';
@@ -334,11 +335,16 @@ post('/app/notifications/read', 'auth', (c) => {
   q.run('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL', now(), c.user!.id);
   c.redirect('/app/notifications');
 });
-post('/api/push/subscribe', 'auth', (c) => {
+post('/api/push/subscribe', 'auth', async (c) => {
   const s = c.body || {};
   if (!s.endpoint || !s.keys?.p256dh || !s.keys?.auth || !/^https:\/\//.test(s.endpoint)) return c.json({ ok: false }, 400);
   q.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at) VALUES (?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id',
     c.user!.id, String(s.endpoint).slice(0, 1000), String(s.keys.p256dh).slice(0, 200), String(s.keys.auth).slice(0, 100), now());
+  // Send a test alert straight away so the Champion knows it works.
+  try {
+    const r = await sendPush({ endpoint: s.endpoint, p256dh: s.keys.p256dh, auth: s.keys.auth }, { title: 'ComboTrader', body: c.t('notif.push_test'), url: '/app/notifications' });
+    if (!r.ok) { audit(c.user!.id, 'push.test_failed', undefined, `status ${r.status}`); return c.json({ ok: false, error: `push service ${r.status}` }); }
+  } catch (e: any) { audit(c.user!.id, 'push.test_failed', undefined, String(e?.message || e)); return c.json({ ok: false, error: 'could not reach the push service' }); }
   c.json({ ok: true });
 });
 

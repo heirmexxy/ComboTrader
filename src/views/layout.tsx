@@ -64,7 +64,7 @@ function Boot({ withFeed = true }: { withFeed?: boolean }) {
   const boot = {
     lang: c.lang, csrf: c.csrf, feed: withFeed && settings().feed_enabled, tawk, vapid: config.vapidPublic || null, loggedIn: !!c.user,
     s: { install: c.t('install.banner'), installBtn: c.t('install.button'), later: c.t('install.later'), copied: c.t('ref.copied'), pwShow: c.t('pw.show'), pwHide: c.t('pw.hide'), close: c.t('feed.close'),
-      pushOn: c.t('notif.push_on'), pushNo: c.t('notif.push_unsupported'), months: c.t('common.months'), pause: c.t('ticker.pause'), play: c.t('ticker.play'),
+      pushOn: c.t('notif.push_on'), pushNo: c.t('notif.push_unsupported'), pushBlocked: c.t('notif.push_blocked'), pushFail: c.t('notif.push_failed'), months: c.t('common.months'), pause: c.t('ticker.pause'), play: c.t('ticker.play'),
       cookieText: c.t('cookie.text'), cookieAccept: c.t('cookie.accept'), cookieEssential: c.t('cookie.essential'), cookieMore: c.t('cookie.more'),
       ios1: c.t('install.ios_1'), ios2: c.t('install.ios_2'), ios3: c.t('install.ios_3'), iosH: c.t('install.ios_h') },
   };

@@ -1,5 +1,8 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  'notif.push_blocked': 'Os alertas estão bloqueados para este site. Permita notificações nas definições do site no navegador (o cadeado junto ao endereço) e tente novamente.',
+  'notif.push_failed': 'Não foi possível ativar os alertas',
+  'notif.push_test': 'Os alertas estão a funcionar. Receberá aqui um aviso quando um pagamento chegar ou um novo lote abrir.',
   'kyc.pending_bvn': 'Estamos à espera que a Paystack confirme o seu BVN. Normalmente demora alguns minutos; enviaremos um e-mail quando estiver concluído.',
   "kyc.or_upload": "Não tem o BVN à mão? Envie um documento de identificação",
   "kyc.ng_doc_intro": "Envie uma foto ou digitalização legível do seu comprovativo NIN, passaporte, carta de condução ou cartão de eleitor, com o mesmo nome da conta. A nossa equipa analisa-o em dois dias úteis.",

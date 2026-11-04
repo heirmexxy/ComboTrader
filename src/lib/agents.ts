@@ -17,6 +17,7 @@ import { userById } from './auth';
 import { walletBalance } from './ledger';
 import { addTrailEvent, getLot, STAGES, siteStats, impactFor, rateFor, lotPeriods } from './trading';
 import { treasurySnapshot } from './treasury';
+import { BRAND_VOICE } from './brand';
 import { paystackFloat } from './paysync';
 import { faqsFor } from './content';
 import { config } from './config';
@@ -299,7 +300,7 @@ export async function supportAnswer(u: User | null, question: string, lang: Lang
     try {
       const { data, runId } = await completeJson<{ reply: string; escalate: boolean; reason?: string; general_answer?: string }>('support', {
         fast: true, trigger,
-        system: `${POLICY}\nYou are the ComboTrader support assistant. Answer using the FAQ and the Champion's own account data below. ` +
+        system: `${POLICY}\n${BRAND_VOICE}\nYou are the ComboTrader support assistant. Answer using the FAQ and the Champion's own account data below. ` +
           `Set escalate=true (and say a team member will follow up within one working day) for: anything about money that is missing, late or wrong; withdrawals; complaints; account access; identity checks that failed; anything you cannot answer from the data. ` +
           `Keep replies under 120 words. Answer in ${langName(lang)}. ` +
           `Also write "general_answer": the same answer with no personal details (no names, amounts or dates from the account) so it can be reused for anyone asking this; use "" if the answer depends on this person's account. ` +
@@ -359,7 +360,7 @@ export async function runOnboarding(limit = 25) {
       const examples = [...new Set(todo.map((x) => x.key))].map((k) => { const l = bestLesson('onboarding', 'template', k); return l && l.wins + l.losses >= 3 ? { situation: k, worked_for: `${l.wins} of ${l.wins + l.losses}`, ...parseLesson(l) } : null; }).filter(Boolean);
       const r = await completeJson<{ messages: Draft[] }>('onboarding', {
         fast: true, trigger: 'daily', maxTokens: 5000,
-        system: `${POLICY}\nYou are the ComboTrader onboarding assistant. For each Champion, write one short, kind message (title ≤ 8 words, body ≤ 60 words) in their language that names the one next step for their situation. No pressure, no urgency tricks, no promises about earnings. ` +
+        system: `${POLICY}\n${BRAND_VOICE}\nYou are the ComboTrader onboarding assistant. For each Champion, write one short, kind message (title ≤ 8 words, body ≤ 60 words) in their language that names the one next step for their situation. No pressure, no urgency tricks, no promises about earnings. ` +
           `Also give "template": the same message with the first name replaced by {name}, so it can be reused. Learn from the examples that worked. Return {"messages":[{"user_id":number,"title":string,"body":string,"template":{"title":string,"body":string}}]}.`,
         input: { champions: todo.map((x) => ({ user_id: x.u.id, first_name: x.u.first_name, language: langName(x.u.lang), situation: x.situation })), examples_that_worked: examples },
       });
@@ -495,7 +496,7 @@ export async function runGrowth() {
   let runId: number | null = null, rules = false;
   if (useAI('growth')) {
     try {
-      const r = await completeJson<typeof out>('growth', { trigger: 'weekly', maxTokens: 3500, system: `${POLICY}\nYou are ComboTrader's content writer for the "Harvest Champions Chronicles" newsletter. Using ONLY the facts given, write: a newsletter (subject ≤ 60 chars; body in Markdown, 150–300 words: one story from the Trail, open lots with links, a price snapshot, a closing line pointing to the risk statement at ${config.baseUrl}/legal/risk) and three social posts (≤ 240 chars each, no hashtags spam, no earnings promises beyond the stated rate). ` +
+      const r = await completeJson<typeof out>('growth', { trigger: 'weekly', maxTokens: 3500, system: `${POLICY}\n${BRAND_VOICE}\nYou are ComboTrader's content writer for the "Harvest Champions Chronicles" newsletter. Using ONLY the facts given, write: a newsletter (subject ≤ 60 chars; body in Markdown, 150–300 words: one story from the Trail, open lots with links, a price snapshot, a closing line pointing to the risk statement at ${config.baseUrl}/legal/risk) and three social posts (≤ 240 chars each, no hashtags spam, no earnings promises beyond the stated rate). ` +
         `Also give "post_templates": the three posts rewritten with placeholders {commodity}, {periods}, {rates}, {link} instead of the specific lot details, so they can be reused for any lot. Also give "subject_b": a second subject line with a different angle, to A/B test. Return {"subject":string,"subject_b":string,"body":string,"posts":[string,string,string],"post_templates":[string,string,string]}.`, input: { ...facts, subject_lines_that_won: lessonsFor('growth', 'post', { key: 'subject' }).filter((l) => l.wins > 0).slice(0, 5).map((l) => parseLesson(l)?.text) } });
       out = r.data; runId = r.runId;
     } catch (e) { if (!(e instanceof AiUnavailable)) audit(null, 'agent.growth_error', undefined, String((e as Error).message)); }
@@ -617,7 +618,7 @@ export async function runProspector() {
     if (useAI('prospector')) {
       try {
         const r = await completeJson<{ invites: Inv[] }>('prospector', { fast: true, trigger: 'daily', maxTokens: 6000,
-          system: `${POLICY}\nYou write short invitation emails to people who showed interest in ComboTrader (joined the waitlist, the newsletter, wrote to us, or messaged on WhatsApp) but have not created an account. One email each, in their language: subject ≤ 9 words; body ≤ 90 words; warm, specific to how they found us, one clear next step (create an account); mention that trades carry risk and link the risk statement once. Invitation number 2 or 3 is a gentle follow-up, shorter, with something new (an open lot or how the Harvest Trail works). ` +
+          system: `${POLICY}\n${BRAND_VOICE}\nYou write short invitation emails to people who showed interest in ComboTrader (joined the waitlist, the newsletter, wrote to us, or messaged on WhatsApp) but have not created an account. One email each, in their language: subject ≤ 9 words; body ≤ 90 words; warm, specific to how they found us, one clear next step (create an account); mention that trades carry risk and link the risk statement once. Invitation number 2 or 3 is a gentle follow-up, shorter, with something new (an open lot or how the Harvest Trail works). ` +
             `Also give "template": the email with the first name replaced by {name} (or no name). Return {"invites":[{"lead_id":number,"title":string,"body":string,"template":{"title":string,"body":string}}]}.`,
           input: { facts, leads: due.map((l) => ({ lead_id: l.id, first_name: l.name || '', language: langName(l.lang as Lang), how_they_found_us: l.source, invitation_number: l.touches + 1 })) } });
         drafts = r.data.invites || []; runId = r.runId;
@@ -673,7 +674,7 @@ export async function runProspector() {
     if (useAI('prospector')) {
       try {
         const r = await completeJson<{ emails: Out[] }>('prospector', { trigger: 'daily', maxTokens: 6000,
-          system: `${POLICY}\nYou write first-contact partnership emails from Kitovu's ComboTrader team to organisations whose members could back real farm trades together through Harvest Circles (a group fills part of a Trade Lot from small slots; each member gets their own certificate). Subject ≤ 9 words. Body ≤ 140 words: why this organisation (use "why"), what members get, that Kitovu has worked with farmers since 2018, one ask (a 20-minute call or a talk at their next meeting), and a sign-off from "The ComboTrader team, Kitovu Technology". Follow-ups (touch 2) are 3 sentences. No earnings promises beyond "${rateFor(4) / 100}% to ${rateFor(12) / 100}% per annum depending on period". ` +
+          system: `${POLICY}\n${BRAND_VOICE}\nYou write first-contact partnership emails from Kitovu's ComboTrader team to organisations whose members could back real farm trades together through Harvest Circles (a group fills part of a Trade Lot from small slots; each member gets their own certificate). Subject ≤ 9 words. Body ≤ 140 words: why this organisation (use "why"), what members get, that Kitovu has worked with farmers since 2018, one ask (a 20-minute call or a talk at their next meeting), and a sign-off from "The ComboTrader team, Kitovu Technology". Follow-ups (touch 2) are 3 sentences. No earnings promises beyond "${rateFor(4) / 100}% to ${rateFor(12) / 100}% per annum depending on period". ` +
             `Also give "template" with {org} for the organisation name and {name} for the contact. Return {"emails":[{"prospect_id":number,"title":string,"body":string,"template":{"title":string,"body":string}}]}.`,
           input: orgs.map((o) => ({ prospect_id: o.id, organisation: o.name, segment: o.segment, location: o.location, contact_name: o.contact_name, why: o.why, touch: o.touches + 1 })) });
         drafts = r.data.emails || []; runId = r.runId;

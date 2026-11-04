@@ -1,5 +1,8 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  'notif.push_blocked': 'Alerts are blocked for this site. Allow notifications in your browser’s site settings (the padlock next to the address), then try again.',
+  'notif.push_failed': 'Alerts could not be turned on',
+  'notif.push_test': 'Alerts are working. You’ll hear from us here when a payout lands or a new lot opens.',
   'kyc.pending_bvn': 'We’re waiting for Paystack to confirm your BVN. This usually takes a few minutes; we’ll email you when it’s done.',
   "kyc.or_upload": "No BVN to hand? Upload an ID instead",
   "kyc.ng_doc_intro": "Upload a clear photo or scan of your NIN slip, international passport, driver’s licence or voter’s card, showing the same name as your account. Our team reviews it within two working days.",

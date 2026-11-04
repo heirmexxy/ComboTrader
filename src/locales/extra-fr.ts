@@ -1,5 +1,8 @@
 // Nouvelles fonctions — français (à faire relire par un locuteur natif).
 const x: Record<string, string> = {
+  'notif.push_blocked': 'Les alertes sont bloquées pour ce site. Autorisez les notifications dans les paramètres du site (le cadenas à côté de l’adresse), puis réessayez.',
+  'notif.push_failed': 'Impossible d’activer les alertes',
+  'notif.push_test': 'Les alertes fonctionnent. Vous serez prévenu ici dès qu’un paiement arrive ou qu’un nouveau lot s’ouvre.',
   'kyc.pending_bvn': 'Nous attendons que Paystack confirme votre BVN. Cela prend généralement quelques minutes ; nous vous enverrons un e-mail dès que c’est fait.',
   "kyc.or_upload": "Pas de BVN sous la main ? Envoyez plutôt une pièce d’identité",
   "kyc.ng_doc_intro": "Envoyez une photo ou un scan lisible de votre fiche NIN, passeport, permis de conduire ou carte d’électeur, au même nom que votre compte. Notre équipe l’examine sous deux jours ouvrés.",
