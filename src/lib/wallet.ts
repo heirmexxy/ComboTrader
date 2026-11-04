@@ -135,11 +135,23 @@ export async function sendWithdrawal(id: number) {
     const r = await paystack.transfer({ amount: w.amount, recipient: b.recipient_code, reference: w.reference, reason: 'ComboTrader withdrawal' });
     q.run('UPDATE withdrawals SET transfer_code=? WHERE id=?', r.transfer_code, id);
     if (r.status === 'success') { completeWithdrawal(w.reference, true); return 'paid'; }
+    if (r.status === 'otp') { q.run("UPDATE withdrawals SET note='otp' WHERE id=?", id); return 'waiting for the Paystack OTP'; }
     return 'processing'; // final status arrives by webhook (transfer.success / failed / reversed)
   } catch (e: any) {
     completeWithdrawal(w.reference, false, e.message);
     return 'failed';
   }
+}
+
+/** Completes a transfer held by Paystack's transfer OTP (the code goes to the Kitovu business phone/email). */
+export async function finalizeWithdrawal(id: number, otp: string, adminId: number) {
+  const w = q.get<any>('SELECT * FROM withdrawals WHERE id=?', id);
+  if (!w || w.status !== 'processing' || !w.transfer_code) throw new Error('This withdrawal is not waiting for an OTP.');
+  const r = await paystack.finalizeTransfer(w.transfer_code, otp);
+  q.run('UPDATE withdrawals SET note=NULL, updated_at=? WHERE id=?', now(), id);
+  audit(adminId, 'withdrawal.otp', `withdrawal:${id}`, { status: r.status });
+  if (r.status === 'success') { completeWithdrawal(w.reference, true); return 'paid'; }
+  return r.status || 'processing';
 }
 
 /** Final state of a withdrawal: paid (money left the platform) or failed (back to wallet). Idempotent. */

@@ -114,3 +114,11 @@ export async function customerIdentified(code: string): Promise<boolean> {
   const d: any = await ps('GET', `/customer/${encodeURIComponent(code)}`);
   return !!d.identified;
 }
+
+/** When transfer OTP is on in Paystack, a transfer waits for the code Paystack sends to the business. */
+export async function finalizeTransfer(transferCode: string, otp: string) {
+  return ps<{ status: string }>('POST', '/transfer/finalize_transfer', { transfer_code: transferCode, otp });
+}
+export async function resendTransferOtp(transferCode: string) {
+  return ps('POST', '/transfer/resend_otp', { transfer_code: transferCode, reason: 'transfer' });
+}

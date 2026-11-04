@@ -8,7 +8,8 @@ import { Csrf } from '../views/components';
 import { q, tx, now } from '../lib/db';
 import { post as postJournal, move, walletAcct, reservedAcct, lotAcct, account, balance, trialBalance, walletBalance, reservedBalance } from '../lib/ledger';
 import { lotPeriods, rateFor, PERIODS, delayLotPayouts, lateEarnings, allLots, getLot, duePayouts, upcomingPayouts, payTrade, addTrailEvent, trailFor, STAGES, siteStats, creditReferral, markMatured, lotRemaining } from '../lib/trading';
-import { approveWithdrawal, completeWithdrawal } from '../lib/wallet';
+import { approveWithdrawal, completeWithdrawal, finalizeWithdrawal } from '../lib/wallet';
+import * as paystack from '../lib/paystack';
 import { allCircles, createCircle, expireCircles, getCircle } from '../lib/circles';
 import { recordPrice, crawlPrices, latestPrices } from '../lib/prices';
 import { notifyWaitlist, runJob, JOBS, sendNewsletter } from '../lib/jobs';
@@ -325,6 +326,10 @@ get('/admin/withdrawals', 'admin:finance', (c) => {
         ['', (w) => <div className="btn-row">
           {w.route === 'paystack' && ['requested', 'approved'].includes(w.status) && <Act action={`/admin/withdrawals/${w.id}/approve`} label={w.amount > th && !w.approved_by ? 'First approval' : 'Approve & send'} tone="green" confirm={`Send ${fmtNGN(w.amount)} to ${w.account_name}?`} />}
           {w.route === 'manual' && w.status === 'manual' && <Act action={`/admin/withdrawals/${w.id}/paid`} label="Mark paid (sent offline)" tone="green" confirm="Confirm this international payout was sent?" />}
+          {w.status === 'processing' && w.note === 'otp' && <>
+            <form method="post" action={`/admin/withdrawals/${w.id}/otp`} className="inline"><Csrf /><input name="otp" inputMode="numeric" autoComplete="one-time-code" placeholder="Paystack OTP" required style={{ width: '9em' }} /> <button className="btn btn-green btn-sm" type="submit">Send</button></form>
+            <Act action={`/admin/withdrawals/${w.id}/otp-resend`} label="Resend OTP" />
+          </>}
           {['requested', 'approved', 'manual'].includes(w.status) && <Act action={`/admin/withdrawals/${w.id}/reject`} label="Decline & refund" tone="danger" confirm="Decline and return the money to the Champion's wallet?" />}
         </div>],
       ]} empty="No withdrawals waiting." />
@@ -337,6 +342,17 @@ post('/admin/withdrawals/:id/approve', 'admin:finance', async (c) => {
     const r = await approveWithdrawal(Number(c.params.id), c.user!.id);
     c.redirect('/admin/withdrawals', ['ok', r === 'awaiting_second' ? 'First approval recorded. A second admin must approve.' : `Withdrawal ${r}.`]);
   } catch (e: any) { c.redirect('/admin/withdrawals', ['error', e.message]); }
+});
+post('/admin/withdrawals/:id/otp', 'admin:finance', async (c) => {
+  try {
+    const r = await finalizeWithdrawal(Number(c.params.id), c.str('otp', 12).replace(/\D/g, ''), c.user!.id);
+    c.redirect('/admin/withdrawals', ['ok', `Withdrawal ${r}.`]);
+  } catch (e: any) { c.redirect('/admin/withdrawals', ['error', e.message]); }
+});
+post('/admin/withdrawals/:id/otp-resend', 'admin:finance', async (c) => {
+  const w = q.get<any>('SELECT * FROM withdrawals WHERE id=?', Number(c.params.id));
+  try { if (!w?.transfer_code) throw new Error('No transfer to resend for.'); await paystack.resendTransferOtp(w.transfer_code); c.redirect('/admin/withdrawals', ['ok', 'Paystack has sent a new OTP.']); }
+  catch (e: any) { c.redirect('/admin/withdrawals', ['error', e.message]); }
 });
 post('/admin/withdrawals/:id/paid', 'admin:finance', (c) => {
   const w = q.get<any>('SELECT * FROM withdrawals WHERE id=?', Number(c.params.id));
