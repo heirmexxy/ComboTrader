@@ -32,8 +32,8 @@ export const config = {
   termiiKey: e.TERMII_API_KEY || '',
   termiiSender: e.TERMII_SENDER_ID || 'ComboTrader',
 
-  googleClientId: e.GOOGLE_CLIENT_ID || '',
-  googleClientSecret: e.GOOGLE_CLIENT_SECRET || '',
+  googleClientId: (e.GOOGLE_CLIENT_ID || '').trim(),
+  googleClientSecret: (e.GOOGLE_CLIENT_SECRET || '').trim(),
 
   tawkPropertyId: e.TAWK_PROPERTY_ID || '',
   tawkWidgetId: e.TAWK_WIDGET_ID || 'default',

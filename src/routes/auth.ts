@@ -218,14 +218,15 @@ get('/auth/google/callback', 'public', async (c) => {
   const [state, sig] = String(c.cookies.g_state || '').split('.');
   if (!state || !sig || !safeEqual(hmac(state), sig) || state !== c.query.state) return c.redirect('/login', ['error', c.t('auth.bad_link')]);
   c.setCookie('g_state', '', { maxAge: 0 });
+  if (c.query.error) { audit(null, 'auth.google_error', undefined, `consent screen: ${String(c.query.error).slice(0, 200)}`, c.ip); return c.redirect('/login', ['error', c.t('err.generic')]); }
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ code: String(c.query.code || ''), client_id: config.googleClientId, client_secret: config.googleClientSecret, redirect_uri: `${config.baseUrl}/auth/google/callback`, grant_type: 'authorization_code' }),
   });
   const tok: any = await res.json().catch(() => ({}));
-  if (!tok.id_token) return c.redirect('/login', ['error', c.t('err.generic')]);
+  if (!tok.id_token) { audit(null, 'auth.google_error', undefined, `token exchange ${res.status}: ${tok.error || ''} ${tok.error_description || ''}`.slice(0, 300), c.ip); return c.redirect('/login', ['error', c.t('err.generic')]); }
   const claims = JSON.parse(Buffer.from(tok.id_token.split('.')[1], 'base64url').toString());
-  if (claims.aud !== config.googleClientId || !claims.email_verified) return c.redirect('/login', ['error', c.t('err.generic')]);
+  if (claims.aud !== config.googleClientId || !claims.email_verified) { audit(null, 'auth.google_error', undefined, claims.aud !== config.googleClientId ? 'client ID mismatch' : `email not verified by Google: ${claims.email}`, c.ip); return c.redirect('/login', ['error', c.t('err.generic')]); }
   let u = q.get<User>('SELECT * FROM users WHERE google_id=?', claims.sub) || userByEmail(claims.email);
   if (u && !u.google_id) q.run('UPDATE users SET google_id=?, email_verified_at=COALESCE(email_verified_at, ?) WHERE id=?', claims.sub, now(), u.id);
   let fresh = false;
