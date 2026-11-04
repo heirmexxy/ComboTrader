@@ -24,7 +24,8 @@ import { countryOptions, COUNTRY_CODES } from '../lib/geo';
 import { isLang, fmtDate } from '../lib/i18n';
 import { savePrivateFile } from '../lib/uploads';
 import { audit } from '../lib/audit';
-import { notify } from '../lib/notify';
+import { notify, queueEmail, emailShell, escapeHtml } from '../lib/notify';
+import { config } from '../lib/config';
 import { HttpError, type Ctx } from '../lib/http';
 
 const err = (c: Ctx, e: unknown) => (e instanceof TradeError ? c.t(e.key, e.vars) : (e as Error).message);
@@ -276,6 +277,9 @@ post('/app/profile/kyc-doc', 'auth', (c) => {
     const rel = savePrivateFile(c.files.doc);
     if (!rel) throw new TradeError('kyc.upload');
     q.run("UPDATE users SET id_doc_path=?, kyc_status='pending', kyc_method='document', kyc_note=NULL WHERE id=?", rel, u.id);
+    const subject = `Identity check waiting: ${u.first_name} ${u.last_name}`;
+    for (const a of q.all<any>("SELECT email FROM users WHERE role='admin' AND status='active' AND (admin_roles LIKE '%super%' OR admin_roles LIKE '%compliance%' OR admin_roles LIKE '%support%')"))
+      queueEmail(a.email, subject, emailShell(subject, `<p>${escapeHtml(`${u.first_name} ${u.last_name}`)} (${escapeHtml(u.email)}) uploaded an ID document. Please review it.</p>`, { label: 'Review identity checks', url: `${config.baseUrl}/admin/verification` }));
     c.redirect('/app/profile#kyc', ['ok', c.t('kyc.submitted')]);
   } catch (e) { c.redirect('/app/profile#kyc', ['error', err(c, e)]); }
 });
