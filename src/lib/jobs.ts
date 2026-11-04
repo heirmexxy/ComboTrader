@@ -16,6 +16,7 @@ import { treasurySnapshot } from './treasury';
 import { reportError } from './alerts';
 import { autoSendSmallWithdrawals } from './wallet';
 import * as paystack from './paystack';
+import { syncPaystack } from './paysync';
 import { walletBalance, trialBalance } from './ledger';
 import { fmtNGN, lagosNow } from './util';
 import { audit } from './audit';
@@ -67,6 +68,7 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async social() { return runSocial(false); },
   async watchdog() { return watchdog(); },
   async social_publish() { const n = await publishDueSocial(); return `${n} posts published`; },
+  async paystack_sync() { return syncPaystack(); },
   async reconcile() { return reconcile(); },
   async weekly() { return weeklySummary(); },
 };
@@ -91,6 +93,8 @@ export function startScheduler() {
       if (q.get("SELECT 1 FROM social_posts WHERE status='scheduled' AND scheduled_at<=?", now())) await runJob('social_publish');
       const l = lastRun('lifecycle');
       if (!l || Date.now() - new Date(l).getTime() > 10 * 60e3) await runJob('lifecycle');
+      const ps = lastRun('paystack_sync');
+      if (!ps || Date.now() - new Date(ps).getTime() > 5 * 60e3) await runJob('paystack_sync');
       const w = lastRun('watchdog');
       if (!w || Date.now() - new Date(w).getTime() > 10 * 60e3) await runJob('watchdog');
       if (dueDaily('prices', 6)) await runJob('prices');

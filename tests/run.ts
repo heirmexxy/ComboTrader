@@ -694,6 +694,36 @@ await t('watchdog: emails super admins once when a problem starts, stays quiet w
   eq(checks.some((c) => c.key === 'disk') && checks.some((c) => c.key === 'memory'), true);
 });
 
+console.log('\nPaystack fallback');
+await t('paystack sync: without webhooks, pending payments, withdrawals and BVN checks still complete', async () => {
+  const { syncPaystack } = await import('../src/lib/paysync');
+  const { config } = await import('../src/lib/config');
+  const old = config.paystackSecret; (config as any).paystackSecret = 'sk_test_x';
+  const realFetch = globalThis.fetch;
+  const u = mkUser('ps@t.ng');
+  const old5 = new Date(Date.now() - 5 * 60e3).toISOString();
+  q.insert('payments', { user_id: u.id, reference: 'CTF-SYNC1', amount: 100_000_00, fee: 0, status: 'pending', demo: 0, purpose: 'wallet', created_at: old5 });
+  q.insert('payments', { user_id: u.id, reference: 'CTF-SYNC2', amount: 50_000_00, fee: 0, status: 'pending', demo: 0, purpose: 'wallet', created_at: old5 });
+  q.run("UPDATE users SET kyc_status='pending', kyc_method='bvn', paystack_customer_code='CUS_sync' WHERE id=?", u.id);
+  const before = walletBalance(u.id);
+  globalThis.fetch = (async (url: string) => {
+    const ok = (data: any) => new Response(JSON.stringify({ status: true, data }), { status: 200 });
+    if (url.includes('/transaction/verify/CTF-SYNC1')) return ok({ status: 'success', amount: 100_000_00, fees: 0, channel: 'card', paid_at: new Date().toISOString(), currency: 'NGN' });
+    if (url.includes('/transaction/verify/CTF-SYNC2')) return ok({ status: 'abandoned', amount: 50_000_00, currency: 'NGN' });
+    if (url.includes('/transfer/verify/')) return ok({ status: 'success' });
+    if (url.includes('/customer/CUS_sync')) return ok({ identified: true });
+    return ok({});
+  }) as any;
+  try {
+    const out = await syncPaystack();
+    eq(out.includes('1 payments credited'), true, out);
+    eq(walletBalance(u.id), before + 100_000_00);
+    eq(q.val("SELECT status FROM payments WHERE reference='CTF-SYNC2'"), 'pending', 'recent abandoned checkout stays open');
+    eq(q.val('SELECT kyc_status FROM users WHERE id=?', u.id), 'verified');
+    eq(trialBalance(), 0);
+  } finally { globalThis.fetch = realFetch; (config as any).paystackSecret = old; }
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');

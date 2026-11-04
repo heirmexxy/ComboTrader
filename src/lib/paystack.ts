@@ -102,3 +102,15 @@ export async function transactionsBetween(fromIso: string, toIso: string) {
   }
   return out.map((t) => ({ reference: t.reference as string, amount: t.amount as number }));
 }
+
+/** Final status of a transfer we sent (used when webhooks are not delivered to us). */
+export async function verifyTransfer(reference: string): Promise<string> {
+  const d: any = await ps('GET', `/transfer/verify/${encodeURIComponent(reference)}`);
+  return String(d.status || '');
+}
+
+/** Whether Paystack has finished identifying a customer (BVN check), for the same fallback. */
+export async function customerIdentified(code: string): Promise<boolean> {
+  const d: any = await ps('GET', `/customer/${encodeURIComponent(code)}`);
+  return !!d.identified;
+}
