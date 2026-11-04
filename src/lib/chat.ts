@@ -30,7 +30,8 @@ function openLots() {
   return q.all<any>("SELECT l.*, c.name AS commodity_name FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' AND l.closes_at>? ORDER BY l.closes_at LIMIT 8", now())
     .map((l) => {
       const p = lotPeriods(l);
-      return { code: l.code, title: l.title, commodity: l.commodity_name, region: l.region, periods_months: p, rates_per_annum: p.map((m) => `${rateFor(m) / 100}% for ${m} months`), closes: String(l.closes_at).slice(0, 10), still_open_naira: fmtNGN(lotRemaining(l)), link: `${config.baseUrl}/lots/${l.code}` };
+      const r = p.map((m) => rateFor(m) / 100);
+      return { code: l.code, title: l.title, commodity: l.commodity_name, region: l.region, periods_months: p, rates_per_annum: p.map((m) => `${rateFor(m) / 100}% for ${m} months`), rates_short: r.length > 1 ? `${r[0]}%–${r[r.length - 1]}% p.a.` : `${r[0]}% p.a.`, periods_short: p.length > 1 ? `${p[0]}–${p[p.length - 1]} months` : `${p[0]} months`, closes: new Date(l.closes_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), still_open_naira: fmtNGN(lotRemaining(l)), link: `${config.baseUrl}/lots/${l.code}` };
     });
 }
 
@@ -58,7 +59,7 @@ export async function assistantTurn(o: { token?: string; message: string; user: 
     return { token: chat.token, reply, person: true };
   }
   const question = history ? `Earlier in this website chat:\n${history}\n\nThe visitor now writes: ${message}` : message;
-  const r = await supportAnswer(o.user, question, o.lang, `chat:${chat.id}`, { channel: 'website chat (keep it short and friendly; link to pages on the site when useful)', open_trade_lots: openLots(), page_they_are_on: o.page || '' });
+  const r = await supportAnswer(o.user, question, o.lang, `chat:${chat.id}`, { channel: 'website chat (keep it short and friendly; link to pages on the site when useful)', open_trade_lots: openLots(), page_they_are_on: o.page || '', latest_message: message });
   addMessage(chat.id, 'assistant', r.reply);
   if (r.escalate) q.run("UPDATE chats SET status='needs_person' WHERE id=? AND status='open'", chat.id);
   return { token: chat.token, reply: r.reply, person: r.escalate };

@@ -763,6 +763,11 @@ await t('chat: assistant answers, hands over to a person, Tawk.to transcripts an
   eq(typeof a.token, 'string'); eq(a.reply.length > 0, true);
   const id = Number(q.val('SELECT id FROM chats WHERE token=?', a.token));
   eq(Number(q.val('SELECT COUNT(*) FROM chat_messages WHERE chat_id=?', id)), 2);
+  // Lot questions are answered from the live list of open lots, never from a loosely matching FAQ
+  for (const qn of ['any open lots?', 'What lots are available now?', 'lots']) {
+    const r = await chat.assistantTurn({ message: qn, user: null, lang: 'en' });
+    eq(/Trade Lots are open now|No Trade Lots are open/.test(r.reply), true, `${qn} -> ${r.reply.slice(0, 80)}`);
+  }
   // 2. Asking for a person offers the hand-over; leaving an email puts it in front of the team
   const b = await chat.assistantTurn({ token: a.token, message: 'Can I talk to a real person?', user: null, lang: 'en' });
   eq(b.person, true);

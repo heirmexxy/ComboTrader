@@ -294,6 +294,8 @@ export function faqMatch(lang: Lang, question: string) {
 const MONEY_WORDS = /withdraw|refund|missing|not (?:received|credited)|debited|wrong amount|fraud|hack|stolen|chargeback|lawyer|court|police|complain|retir|retrait|rembours|kutoa|levant|reembols|سحب|استرداد/i;
 
 /** Answers a Champion (or a visitor when u is null). Returns the reply and whether a person must take over. */
+/** "Any open lots?", "what can I join now?", "available trades"… */
+const LOTS_QUESTION = /\b(open|available|current|new)\s+(trade\s+)?(lots?|trades?)\b|\b(lots?|trades?)\s+((are|is)\s+)?(open|available|now)\b|\b(what|which)\s+(trade\s+)?lots?\b|\bwhat\s+can\s+i\s+(join|fund|back)\b|\bany\s+(trade\s+)?lots?\b|^\s*(trade\s+)?lots?\s*\??\s*$/i;
 export async function supportAnswer(u: User | null, question: string, lang: Lang, trigger: string, extra: Record<string, unknown> = {}) {
   const sensitive = MONEY_WORDS.test(question);
   if (useAI('support') && agentOn('support')) {
@@ -314,12 +316,21 @@ export async function supportAnswer(u: User | null, question: string, lang: Lang
       return { reply: String(data.reply || '').slice(0, 1500), escalate, reason: data.reason || '', runId, general };
     } catch (e) { if (!(e instanceof AiUnavailable)) audit(null, 'agent.support_error', undefined, String((e as Error).message)); }
   }
-  // Rules: the FAQ or an answer the agents have learned, whichever fits better; hand over when unsure or sensitive.
+  // Rules: questions about open lots are answered from the live list; otherwise the FAQ or an answer the agents
+  // have learned, whichever fits better; hand over when unsure or sensitive.
+  const latest = String(extra.latest_message || question);
+  if (Array.isArray(extra.open_trade_lots) && LOTS_QUESTION.test(latest) && !sensitive) {
+    const lots = extra.open_trade_lots as any[];
+    const reply = lots.length
+      ? `${translate(lang, 'chat.lots_open')}\n${lots.map((l) => `• ${l.title} (${l.code}): ${l.rates_short}, ${l.periods_short}. ${translate(lang, 'chat.lots_closes', { date: l.closes })} ${l.link}`).join('\n')}\n${translate(lang, 'chat.lots_all', { link: `${config.baseUrl}/lots` })}`
+      : translate(lang, 'chat.lots_none', { link: `${config.baseUrl}/join` });
+    return { reply, escalate: false, reason: 'open lots (live list)', runId: logRun('support', trigger, latest, `open lots: ${lots.length}`, 'rules'), general: '' };
+  }
   const m = faqMatch(lang, question);
   const l = learnedAnswer(lang, question);
   const pick = l && (!m || l.score > m.score) ? { ...l, from: 'learned' } : m ? { ...m, from: 'FAQ', id: 0 } : null;
   const runId = logRun('support', trigger, question, pick ? `${pick.score.toFixed(2)} ${pick.from}: ${pick.q}` : 'no match', 'rules');
-  if (pick && pick.score >= 0.35 && !sensitive) { if (pick.id) used(pick.id); return { reply: `${pick.a}`, escalate: false, reason: `${pick.from}: ${pick.q}`, runId, general: '' }; }
+  if (pick && pick.score >= 0.35 && !sensitive) { if (pick.id) used(pick.id); return { reply: pick.from === 'FAQ' ? `${pick.q}\n${pick.a}` : `${pick.a}`, escalate: false, reason: `${pick.from}: ${pick.q}`, runId, general: '' }; }
   return { reply: translate(lang, 'agent.handover'), escalate: true, reason: sensitive ? 'money or account matter' : 'no confident answer', runId, general: '' };
 }
 

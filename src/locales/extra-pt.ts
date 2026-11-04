@@ -1,5 +1,9 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  'chat.lots_open': 'Estes lotes estão abertos agora:',
+  'chat.lots_closes': 'fecha a {date}.',
+  'chat.lots_all': 'Ver todos os lotes abertos: {link}',
+  'chat.lots_none': 'Não há lotes abertos neste momento. Deixe o seu e-mail em {link} e avisamos assim que abrir o próximo.',
   'chat.fab': 'Pergunte à ComboTrader',
   'chat.title': 'Pergunte à ComboTrader',
   'chat.sub': 'Respostas em segundos, a qualquer hora. Uma pessoa pode assumir.',

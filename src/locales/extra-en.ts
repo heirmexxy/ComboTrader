@@ -1,5 +1,9 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  'chat.lots_open': 'These Trade Lots are open now:',
+  'chat.lots_closes': 'closes {date}.',
+  'chat.lots_all': 'See all open lots: {link}',
+  'chat.lots_none': 'No Trade Lots are open right now. Leave your email at {link} and we’ll tell you as soon as the next one opens.',
   'chat.fab': 'Ask ComboTrader',
   'chat.title': 'Ask ComboTrader',
   'chat.sub': 'Answers in seconds, any time. A person can take over.',

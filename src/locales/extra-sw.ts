@@ -1,5 +1,9 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
+  'chat.lots_open': 'Lot hizi ziko wazi sasa:',
+  'chat.lots_closes': 'inafungwa {date}.',
+  'chat.lots_all': 'Tazama lot zote zilizo wazi: {link}',
+  'chat.lots_none': 'Hakuna lot iliyo wazi kwa sasa. Acha barua pepe yako kwenye {link} na tutakujulisha mara ijayo itakapofunguliwa.',
   'chat.fab': 'Uliza ComboTrader',
   'chat.title': 'Uliza ComboTrader',
   'chat.sub': 'Majibu ndani ya sekunde, wakati wowote. Mtu anaweza kuendelea.',
