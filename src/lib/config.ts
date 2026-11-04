@@ -38,6 +38,7 @@ export const config = {
   tawkPropertyId: e.TAWK_PROPERTY_ID || '',
   tawkWidgetId: e.TAWK_WIDGET_ID || 'default',
   tawkApiKey: e.TAWK_API_KEY || '',
+  tawkWebhookSecret: e.TAWK_WEBHOOK_SECRET || '',
 
   vapidPublic: e.VAPID_PUBLIC_KEY || '',
   vapidPrivate: e.VAPID_PRIVATE_KEY || '',

@@ -2,10 +2,11 @@ import { marketOn } from '../lib/market';
 import { simulated } from '../lib/paystack';
 import type { ReactNode } from 'react';
 import { useC, jsonScript } from './render';
-import { Logo, Csrf, Flash, Money } from './components';
+import { Logo, LogoMark, Csrf, Flash, Money } from './components';
 import { LANGS, langMeta, fmtDate } from '../lib/i18n';
 import { config } from '../lib/config';
 import { latestPrices } from '../lib/prices';
+import { assistantOn } from '../lib/chat';
 import { settings } from '../lib/settings';
 import { circlesVisibleTo, circlesMode } from '../lib/circles';
 import { walletBalance } from '../lib/ledger';
@@ -50,6 +51,40 @@ function Head({ title, description, noindex, image }: { title: string; descripti
   );
 }
 
+/** "Ask ComboTrader": the Support agent answers first; a person takes over in Tawk.to or by email. */
+function Assistant() {
+  const c = useC();
+  return (
+    <div id="assist" className="assist" hidden>
+      <button type="button" className="assist-fab" aria-expanded="false" aria-controls="assist-panel" data-assist-open>
+        <LogoMark size={26} /><span>{c.t('chat.fab')}</span>
+      </button>
+      <section id="assist-panel" className="assist-panel" role="dialog" aria-label={c.t('chat.title')} hidden>
+        <header className="assist-head">
+          <LogoMark size={34} disc />
+          <div><b>{c.t('chat.title')}</b><small>{c.t('chat.sub')}</small></div>
+          <button type="button" className="assist-x" aria-label={c.t('chat.close')} data-assist-close>×</button>
+        </header>
+        <ol className="assist-log" aria-live="polite" data-assist-log><li className="assist-msg bot">{c.t('chat.hello')}</li></ol>
+        <div className="assist-person" data-assist-person hidden>
+          <p>{c.t('chat.person_form')}</p>
+          <form data-assist-person-form className="stack">
+            {!c.user && <><input name="name" autoComplete="name" placeholder={c.t('chat.name')} aria-label={c.t('chat.name')} maxLength={120} />
+            <input name="email" type="email" autoComplete="email" required placeholder={c.t('chat.email')} aria-label={c.t('chat.email')} maxLength={200} /></>}
+            <textarea name="note" rows={2} placeholder={c.t('chat.note')} aria-label={c.t('chat.note')} maxLength={2000} />
+            <button className="btn btn-gold btn-sm" type="submit">{c.t('chat.submit')}</button>
+          </form>
+        </div>
+        <form className="assist-form" data-assist-form>
+          <input name="message" autoComplete="off" required maxLength={1000} placeholder={c.t('chat.placeholder')} aria-label={c.t('chat.placeholder')} />
+          <button className="btn btn-gold btn-sm" type="submit">{c.t('chat.send')}</button>
+        </form>
+        <p className="assist-foot"><button type="button" className="linklike" data-assist-person-btn>{c.t('chat.person')}</button> · <span>{c.t('chat.note_ai')}</span></p>
+      </section>
+    </div>
+  );
+}
+
 function Boot({ withFeed = true }: { withFeed?: boolean }) {
   const c = useC();
   let tawk: Record<string, unknown> | null = null;
@@ -62,9 +97,9 @@ function Boot({ withFeed = true }: { withFeed?: boolean }) {
     }
   }
   const boot = {
-    lang: c.lang, csrf: c.csrf, feed: withFeed && settings().feed_enabled, tawk, vapid: config.vapidPublic || null, loggedIn: !!c.user,
+    lang: c.lang, csrf: c.csrf, feed: withFeed && settings().feed_enabled, tawk, vapid: config.vapidPublic || null, loggedIn: !!c.user, assistant: assistantOn(),
     s: { install: c.t('install.banner'), installBtn: c.t('install.button'), later: c.t('install.later'), copied: c.t('ref.copied'), pwShow: c.t('pw.show'), pwHide: c.t('pw.hide'), close: c.t('feed.close'),
-      pushOn: c.t('notif.push_on'), pushNo: c.t('notif.push_unsupported'), pushBlocked: c.t('notif.push_blocked'), pushFail: c.t('notif.push_failed'), months: c.t('common.months'), pause: c.t('ticker.pause'), play: c.t('ticker.play'),
+      pushOn: c.t('notif.push_on'), pushNo: c.t('notif.push_unsupported'), pushBlocked: c.t('notif.push_blocked'), pushFail: c.t('notif.push_failed'), chatError: c.t('chat.error'), chatLive: c.t('chat.person_live'), chatThinking: c.t('chat.thinking'), months: c.t('common.months'), pause: c.t('ticker.pause'), play: c.t('ticker.play'),
       cookieText: c.t('cookie.text'), cookieAccept: c.t('cookie.accept'), cookieEssential: c.t('cookie.essential'), cookieMore: c.t('cookie.more'),
       ios1: c.t('install.ios_1'), ios2: c.t('install.ios_2'), ios3: c.t('install.ios_3'), iosH: c.t('install.ios_h') },
   };
@@ -130,6 +165,7 @@ function Html({ children, title, description, noindex, bodyClass, feed = true, i
         <div id="feed" className="feed" aria-live="polite" />
         <div id="install-banner" className="install-banner" hidden />
         <div id="cookie-banner" className="cookie-banner" role="dialog" aria-live="polite" hidden />
+        {assistantOn() && <Assistant />}
         <Boot withFeed={feed} />
         <script src={`/app.js?v=${ASSET_V}`} defer />
       </body>
@@ -286,7 +322,7 @@ export const ADMIN_NAV: [string, string, string][] = [
   ['/admin/champions', 'Champions', 'support'], ['/admin/verification', 'Verification', 'support'], ['/admin/circles', 'Harvest Circles', 'operations'], ['/admin/marketplace', 'Marketplace', 'operations'],
   ['/admin/prices', 'Prices', 'operations'], ['/admin/feed', 'Activity feed', 'content'], ['/admin/posts', 'Chronicles (blog)', 'content'],
   ['/admin/figures', 'Homepage numbers', 'content'], ['/admin/faqs', 'FAQs & page text', 'content'], ['/admin/newsletter', 'Newsletter', 'content'], ['/admin/referrals', 'Referrals', 'finance'],
-  ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/agents', 'AI agents', 'any'], ['/admin/marketing', 'Marketing', 'content'], ['/admin/prospects', 'Prospects', 'content'], ['/admin/whatsapp', 'WhatsApp', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],
+  ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/chats', 'Website chats', 'support'], ['/admin/agents', 'AI agents', 'any'], ['/admin/marketing', 'Marketing', 'content'], ['/admin/prospects', 'Prospects', 'content'], ['/admin/whatsapp', 'WhatsApp', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],
   ['/admin/audit', 'Audit log', 'super'], ['/admin/testing', 'Testing', 'super'], ['/admin/settings', 'Settings', 'super'],
 ];
 

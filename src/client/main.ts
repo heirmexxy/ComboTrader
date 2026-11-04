@@ -1,6 +1,6 @@
 // Small progressive enhancements. Every page works without this script.
 type Boot = {
-  lang: string; csrf: string; feed: boolean; vapid: string | null; loggedIn: boolean;
+  lang: string; csrf: string; feed: boolean; vapid: string | null; loggedIn: boolean; assistant?: boolean;
   tawk: { property: string; widget: string; name?: string; email?: string; hash?: string } | null;
   s: Record<string, string>;
 };
@@ -210,6 +210,8 @@ function setConsent(v: 'all' | 'essential') {
   document.cookie = `ct_consent=${v}; Path=/; Max-Age=${365 * 86400}; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
 }
 let tawkLoaded = false;
+let tawkReady = false;
+const tawkWanted = () => { try { return sessionStorage.getItem('ct-tawk') === '1'; } catch { return false; } };
 function loadTawk() {
   if (!boot.tawk || tawkLoaded) return;
   tawkLoaded = true;
@@ -217,6 +219,8 @@ function loadTawk() {
   w.Tawk_API = w.Tawk_API || {};
   w.Tawk_LoadStart = new Date();
   if (boot.tawk.email) w.Tawk_API.visitor = { name: boot.tawk.name, email: boot.tawk.email, ...(boot.tawk.hash ? { hash: boot.tawk.hash } : {}) };
+  // With the assistant on, the Tawk.to bubble stays hidden until the visitor asks for a person.
+  w.Tawk_API.onLoad = () => { tawkReady = true; if (boot.assistant && !tawkWanted()) w.Tawk_API.hideWidget?.(); };
   const s = document.createElement('script');
   s.async = true;
   s.src = `https://embed.tawk.to/${encodeURIComponent(boot.tawk.property)}/${encodeURIComponent(boot.tawk.widget)}`;
@@ -319,3 +323,81 @@ $$<HTMLButtonElement>('[data-send-code]').forEach((b) => b.addEventListener('cli
   } catch { if (msg) msg.textContent = boot.s.close || ''; }
   setTimeout(() => { b.disabled = false; }, 20000); // one new code at most every 20 seconds
 }));
+
+// ---------- "Ask ComboTrader" assistant ----------
+const assist = $('#assist');
+if (assist && boot.assistant) {
+  assist.hidden = false;
+  const panel = $('#assist-panel', assist)!, fab = $<HTMLButtonElement>('[data-assist-open]', assist)!;
+  const log = $('[data-assist-log]', assist)!, form = $<HTMLFormElement>('[data-assist-form]', assist)!;
+  const personBox = $('[data-assist-person]', assist)!, personForm = $<HTMLFormElement>('[data-assist-person-form]', assist)!;
+  const store = { get: (k: string) => { try { return sessionStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch { /* private mode */ } } };
+  let token = store.get('ct-chat') || '';
+  let history: [string, string][] = [];
+  try { history = JSON.parse(store.get('ct-chat-log') || '[]'); } catch { history = []; }
+  const add = (who: 'me' | 'bot' | 'note', text: string, save = true) => {
+    const li = document.createElement('li');
+    li.className = `assist-msg ${who}`;
+    // Plain text; web addresses become links.
+    for (const part of text.split(/(https?:\/\/[^\s)]+)/)) {
+      if (/^https?:\/\//.test(part)) { const a = document.createElement('a'); a.href = part; a.textContent = part.replace(/^https?:\/\/(www\.)?/, ''); a.rel = 'noopener'; if (!part.startsWith(location.origin)) a.target = '_blank'; li.append(a); }
+      else li.append(document.createTextNode(part));
+    }
+    log.append(li); log.scrollTop = log.scrollHeight;
+    if (save) { history.push([who, text]); store.set('ct-chat-log', JSON.stringify(history.slice(-40))); }
+    return li;
+  };
+  for (const [who, text] of history) add(who as 'me', text, false);
+  const open = (on: boolean) => { panel.hidden = !on; fab.setAttribute('aria-expanded', String(on)); assist.classList.toggle('open', on); if (on) (form.elements.namedItem('message') as HTMLInputElement).focus(); store.set('ct-chat-open', on ? '1' : ''); };
+  fab.addEventListener('click', () => open(panel.hidden));
+  $('[data-assist-close]', assist)?.addEventListener('click', () => open(false));
+  if (store.get('ct-chat-open') === '1' && history.length) open(true);
+  const post = async (url: string, data: Record<string, string>) => {
+    const r = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': boot.csrf }, body: JSON.stringify(data) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || boot.s.chatError);
+    return j;
+  };
+  const askPerson = async () => {
+    const w = window as any;
+    if (boot.tawk && getConsent() === 'all') {
+      store.set('ct-tawk', '1');
+      add('note', boot.s.chatLive);
+      if (token) post('/api/assistant/handover', { token, via: 'tawk' }).catch(() => {});
+      loadTawk();
+      const show = () => { try { w.Tawk_API.showWidget(); w.Tawk_API.maximize(); open(false); } catch { /* not ready */ } };
+      if (tawkReady) show(); else { const t0 = Date.now(); const iv = setInterval(() => { if (tawkReady || Date.now() - t0 > 15000) { clearInterval(iv); if (tawkReady) show(); else { personBox.hidden = false; form.hidden = true; } } }, 300); }
+      return;
+    }
+    personBox.hidden = false; form.hidden = true;
+    (personForm.elements.namedItem(boot.loggedIn ? 'note' : 'email') as HTMLInputElement)?.focus();
+  };
+  $('[data-assist-person-btn]', assist)?.addEventListener('click', askPerson);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = form.elements.namedItem('message') as HTMLInputElement;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = ''; add('me', text);
+    const wait = add('bot', boot.s.chatThinking, false); wait.classList.add('wait');
+    const btn = form.querySelector('button')!; btn.disabled = true;
+    try {
+      const j = await post('/api/assistant', { message: text, token, page: location.pathname });
+      token = j.token || token; store.set('ct-chat', token);
+      wait.remove(); add('bot', j.reply);
+      if (j.person) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-ghost btn-sm assist-cta'; b.textContent = (assist.querySelector('[data-assist-person-btn]') as HTMLElement).textContent || ''; b.onclick = askPerson; log.lastElementChild?.append(document.createElement('br'), b); }
+    } catch (err) { wait.remove(); add('note', (err as Error).message || boot.s.chatError, false); }
+    finally { btn.disabled = false; input.focus(); }
+  });
+  personForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(personForm);
+    const data: Record<string, string> = { via: 'message' };
+    fd.forEach((v, k) => { data[k] = String(v); });
+    try {
+      if (!token) { const j = await post('/api/assistant', { message: data.note || '(asked for a person)', token, page: location.pathname }); token = j.token; store.set('ct-chat', token); }
+      const j = await post('/api/assistant/handover', { ...data, token });
+      personBox.hidden = true; form.hidden = false; personForm.reset(); add('note', j.message);
+    } catch (err) { add('note', (err as Error).message, false); }
+  });
+}

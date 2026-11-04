@@ -294,7 +294,7 @@ export function faqMatch(lang: Lang, question: string) {
 const MONEY_WORDS = /withdraw|refund|missing|not (?:received|credited)|debited|wrong amount|fraud|hack|stolen|chargeback|lawyer|court|police|complain|retir|retrait|rembours|kutoa|levant|reembols|سحب|استرداد/i;
 
 /** Answers a Champion (or a visitor when u is null). Returns the reply and whether a person must take over. */
-export async function supportAnswer(u: User | null, question: string, lang: Lang, trigger: string) {
+export async function supportAnswer(u: User | null, question: string, lang: Lang, trigger: string, extra: Record<string, unknown> = {}) {
   const sensitive = MONEY_WORDS.test(question);
   if (useAI('support') && agentOn('support')) {
     try {
@@ -305,7 +305,7 @@ export async function supportAnswer(u: User | null, question: string, lang: Lang
           `Keep replies under 120 words. Answer in ${langName(lang)}. ` +
           `Also write "general_answer": the same answer with no personal details (no names, amounts or dates from the account) so it can be reused for anyone asking this; use "" if the answer depends on this person's account. ` +
           `Return {"reply": string, "escalate": boolean, "reason": string, "general_answer": string}.`,
-        input: { question, champion: u ? championContext(u) : 'visitor without an account', faq: faqsFor(lang).map((f) => ({ q: f.q, a: f.a })), support_email: settings().support_email, site: config.baseUrl },
+        input: { question, champion: u ? championContext(u) : 'visitor without an account', faq: faqsFor(lang).map((f) => ({ q: f.q, a: f.a })), support_email: settings().support_email, site: config.baseUrl, ...extra },
       });
       const escalate = !!data.escalate || sensitive;
       const general = escalate ? '' : String(data.general_answer || '').slice(0, 1500);

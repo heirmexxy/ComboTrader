@@ -595,3 +595,41 @@ a.header-badge:hover { text-decoration: underline; }
 .id-actions { display: grid; gap: 8px; margin: 8px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .id-actions .inline-form { display: flex; gap: 8px; flex-wrap: wrap; }
 .id-actions .inline-form input { flex: 1; min-width: 200px; }
+
+/* ---------- "Ask ComboTrader" chat assistant ---------- */
+.assist { position: fixed; inset-inline-end: 16px; bottom: calc(var(--ticker-h) + 16px); z-index: 48; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.app-body .assist { bottom: calc(var(--ticker-h) + 16px); }
+@media (max-width: 900px) { .app-body .assist { bottom: calc(var(--ticker-h) + 76px); } }
+.assist-fab { display: inline-flex; align-items: center; gap: 8px; background: var(--green); color: #fff; border: 2px solid var(--gold); border-radius: 999px; padding: 8px 16px 8px 10px; font: 600 15px/1 var(--font); box-shadow: 0 10px 30px rgba(0,0,0,.25); cursor: pointer; }
+.assist-fab:hover { background: var(--green-2); }
+.assist.open .assist-fab span { display: none; }
+.assist.open .assist-fab { padding: 8px; }
+.assist-panel { width: min(380px, calc(100vw - 32px)); height: min(560px, calc(100vh - var(--ticker-h) - 120px)); background: var(--paper); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,.28); display: flex; flex-direction: column; overflow: hidden; order: -1; }
+.assist-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--green); color: #fff; }
+.assist-head div { flex: 1; display: grid; }
+.assist-head b { font: 600 18px/1.2 var(--display); }
+.assist-head small { color: #CFE0CF; font-size: 12px; }
+.assist-x { background: none; border: 0; color: #fff; font-size: 26px; line-height: 1; cursor: pointer; padding: 4px 8px; }
+.assist-log { list-style: none; margin: 0; padding: 14px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.assist-msg { max-width: 86%; padding: 9px 12px; border-radius: 14px; font-size: 14.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assist-msg.bot { background: var(--green-3); color: var(--ink); align-self: flex-start; border-end-start-radius: 4px; }
+.assist-msg.me { background: var(--green); color: #fff; align-self: flex-end; border-end-end-radius: 4px; }
+.assist-msg.me a { color: var(--gold-2); }
+.assist-msg.note { align-self: center; background: var(--gold-2); color: var(--ink); font-size: 13px; text-align: center; max-width: 100%; }
+.assist-msg.wait { opacity: .7; font-style: italic; }
+.assist-cta { margin-top: 8px; }
+.assist-person { padding: 10px 14px; border-top: 1px solid var(--line); background: #fff; }
+.assist-person p { margin: 0 0 8px; font-size: 13.5px; }
+.assist-person input, .assist-person textarea { width: 100%; }
+.assist-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); background: #fff; }
+.assist-form input { flex: 1; min-width: 0; }
+.assist-foot { margin: 0; padding: 6px 12px 10px; font-size: 11.5px; color: var(--muted); background: #fff; }
+.linklike { background: none; border: 0; padding: 0; color: var(--green); text-decoration: underline; font: inherit; font-weight: 600; cursor: pointer; }
+.chat-log { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.chat-log li { padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--line); }
+.chat-log li p { margin: 4px 0 0; white-space: pre-wrap; }
+.chat-log .chat-assistant { background: var(--green-3); }
+.chat-log .chat-person { background: var(--gold-2); }
+.chat-log .chat-system { background: transparent; border-style: dashed; font-size: 13px; }
+@media print { .assist { display: none; } }
+.cookie-banner:not([hidden]) ~ .assist, .install-banner:not([hidden]) ~ .assist { display: none; }

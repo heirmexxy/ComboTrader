@@ -11,6 +11,7 @@ import { lotPeriods, rateFor, PERIODS, delayLotPayouts, lateEarnings, allLots, g
 import { approveWithdrawal, completeWithdrawal, finalizeWithdrawal } from '../lib/wallet';
 import * as paystack from '../lib/paystack';
 import { paystackFloat } from '../lib/paysync';
+import { replyByEmail } from '../lib/chat';
 import { allCircles, createCircle, expireCircles, getCircle } from '../lib/circles';
 import { recordPrice, crawlPrices, latestPrices } from '../lib/prices';
 import { notifyWaitlist, runJob, JOBS, sendNewsletter } from '../lib/jobs';
@@ -56,6 +57,7 @@ get('/admin', 'admin:any', async (c) => {
     ['Identity checks', Number(q.val("SELECT COUNT(*) FROM users WHERE kyc_status='pending' AND kyc_method='document'")), '/admin/verification'],
     ['Prices held for review', Number(q.val("SELECT COUNT(*) FROM prices WHERE status='held'")), '/admin/prices'],
     ['Open support tickets', Number(q.val("SELECT COUNT(*) FROM tickets WHERE status='open'")), '/admin/messages'],
+    ['Website chats needing a person', Number(q.val("SELECT COUNT(*) FROM chats WHERE status='needs_person'")), '/admin/chats'],
     ['Referral rewards held', Number(q.val("SELECT COUNT(*) FROM referral_rewards WHERE status='held'")), '/admin/referrals'],
     ['Adjustments to approve', Number(q.val("SELECT COUNT(*) FROM adjustments WHERE status='pending'")), '/admin/ledger'],
   ];
@@ -916,6 +918,46 @@ post('/admin/tickets/:id', 'admin:support', (c) => {
   c.redirect('/admin/messages', ['ok', 'Reply sent.']);
 });
 
+// ============ Website chats ============
+const CHAT_SOURCE: Record<string, string> = { assistant: 'Assistant', tawk: 'Tawk.to chat', tawk_ticket: 'Tawk.to offline message' };
+get('/admin/chats', 'admin:support', (c) => {
+  const f = c.query.f === 'all' ? 'all' : 'attention';
+  const rows = q.all<any>(`SELECT ch.*, (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id=ch.id) n, (SELECT body FROM chat_messages m WHERE m.chat_id=ch.id AND m.sender='visitor' ORDER BY id LIMIT 1) first
+    FROM chats ch ${f === 'all' ? '' : "WHERE ch.status IN ('needs_person','with_person')"} ORDER BY ch.updated_at DESC LIMIT 100`);
+  page(c, 'Website chats', <>
+    <p className="muted">The <b>Ask ComboTrader</b> assistant (Support agent) answers on the website first. When it cannot help or the visitor asks for a person, the team takes over in <b>Tawk.to</b> live chat, or the visitor leaves an email and it waits here. Tawk.to chats and offline messages also arrive here{config.tawkWebhookSecret ? '' : ' once the Tawk.to webhook is set up (TAWK_WEBHOOK_SECRET)'}; the Support agent drafts an email reply for any nobody answered (approve it in AI agents). The assistant is {settings().assistant_enabled ? 'on' : 'off'} (Settings → Website).</p>
+    <div className="btn-row"><a className={`btn btn-sm ${f === 'attention' ? 'btn-primary' : 'btn-ghost'}`} href="/admin/chats">Needs attention</a><a className={`btn btn-sm ${f === 'all' ? 'btn-primary' : 'btn-ghost'}`} href="/admin/chats?f=all">All chats</a></div>
+    <Box title={f === 'all' ? 'All chats' : 'Needs attention'}><Table rows={rows} cols={[
+      ['When', (r) => <D v={r.updated_at} time />], ['Where', (r) => CHAT_SOURCE[r.source] || r.source],
+      ['Who', (r) => r.user_id ? <a href={`/admin/champions/${r.user_id}`}>{r.name || `Champion #${r.user_id}`}</a> : <>{r.name || 'Visitor'}{r.email && <><br /><span className="small">{r.email}</span></>}</>],
+      ['First message', (r) => <a href={`/admin/chats/${r.id}`} className="small">{String(r.first || '—').slice(0, 140)}</a>], ['Messages', (r) => r.n], ['Status', (r) => <S s={r.status} />],
+    ]} empty={f === 'all' ? 'No chats yet.' : 'Nothing waiting.'} /></Box>
+  </>);
+});
+get('/admin/chats/:id', 'admin:support', (c) => {
+  const ch = q.get<any>('SELECT * FROM chats WHERE id=?', Number(c.params.id));
+  if (!ch) throw new HttpError(404, 'Not found');
+  const msgs = q.all<any>('SELECT * FROM chat_messages WHERE chat_id=? ORDER BY id', ch.id);
+  const who: Record<string, string> = { visitor: ch.name || 'Visitor', assistant: 'Assistant', person: 'Kitovu team', system: 'Note' };
+  page(c, `Chat #${ch.id}`, <>
+    <p><a href="/admin/chats">← Website chats</a></p>
+    <Kpis items={[['From', ch.user_id ? <a href={`/admin/champions/${ch.user_id}`}>{ch.name}</a> : (ch.name || 'Visitor'), ch.email || 'no email'], ['Where', CHAT_SOURCE[ch.source] || ch.source, ch.page || ''], ['Status', <S s={ch.status} />], ['Started', <D v={ch.created_at} time />]]} />
+    <Box title="Conversation"><ol className="chat-log">{msgs.map((m) => <li key={m.id} className={`chat-${m.sender}`}><b>{who[m.sender] || m.sender}</b> <span className="small muted"><D v={m.created_at} time /></span><p>{m.body}</p></li>)}</ol></Box>
+    {ch.email ? <Box title={`Reply by email to ${ch.email}`}>
+      <form method="post" action={`/admin/chats/${ch.id}/reply`} className="stack"><Csrf /><textarea name="reply" rows={5} required aria-label="Reply" /><div className="btn-row"><button className="btn btn-primary btn-sm">Send reply</button></div></form>
+    </Box> : <p className="muted">This visitor left no email address{ch.source !== 'assistant' ? '; reply in Tawk.to' : ''}.</p>}
+    <div className="btn-row">{ch.status !== 'closed' && <Act action={`/admin/chats/${ch.id}/close`} label="Mark as done" />}</div>
+  </>);
+});
+post('/admin/chats/:id/reply', 'admin:support', (c) => {
+  try { replyByEmail(Number(c.params.id), c.str('reply', 3000), c.user!.id); c.redirect(`/admin/chats/${c.params.id}`, ['ok', 'Reply sent by email.']); }
+  catch (e: any) { c.redirect(`/admin/chats/${c.params.id}`, ['error', e.message]); }
+});
+post('/admin/chats/:id/close', 'admin:support', (c) => {
+  q.run("UPDATE chats SET status='closed', updated_at=? WHERE id=?", now(), Number(c.params.id));
+  c.redirect('/admin/chats', ['ok', 'Marked as done.']);
+});
+
 // ============ Reports ============
 get('/admin/reports', 'admin:finance', (c) => page(c, 'Reports', <Box><ul className="list">{[
   ['champions.csv', 'Champions (profile, verification, balances)'], ['trades.csv', 'All trades'], ['payouts-due.csv', 'Payouts due now'], ['withdrawals.csv', 'Withdrawals'],
@@ -994,6 +1036,7 @@ get('/admin/settings', 'admin:super', (c) => {
         <F label="Circle fill deadline (days)" name="circle_deadline_days" type="number" value={s.circle_deadline_days} />
         <F label="Max share of a circle one Champion can hold (%)" name="circle_max_share_pct" type="number" value={s.circle_max_share_pct} />
         <F label="Live activity feed" name="feed_enabled" type="checkbox" value={s.feed_enabled} />
+        <F label="“Ask ComboTrader” chat assistant on the website" name="assistant_enabled" type="checkbox" value={s.assistant_enabled} hint="Answers visitors and Champions 24/7 (Support agent); hands over to a person in Tawk.to or by email." />
         <F label="Daily price crawler" name="price_crawler_enabled" type="checkbox" value={s.price_crawler_enabled} />
         <F label="Hold price moves larger than (%)" name="price_hold_threshold_pct" type="number" value={s.price_hold_threshold_pct} />
         <input type="hidden" name="_group" value="features" />
@@ -1080,7 +1123,7 @@ get('/admin/settings', 'admin:super', (c) => {
 });
 const MONEY_KEYS: SettingKey[] = ['paystack_low_balance', 'referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'baseline_payouts', 'plan_min_monthly', 'min_commit_default'];
 const GROUPS: Record<string, SettingKey[]> = {
-  features: ['circles_mode', 'circle_deadline_days', 'circle_max_share_pct', 'feed_enabled', 'price_crawler_enabled', 'price_hold_threshold_pct'],
+  features: ['circles_mode', 'circle_deadline_days', 'circle_max_share_pct', 'feed_enabled', 'assistant_enabled', 'price_crawler_enabled', 'price_hold_threshold_pct'],
   money: ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'pass_card_fees', 'paystack_low_balance'],
   figures: ['baseline_champions', 'baseline_tons', 'baseline_payouts', 'baseline_farmers', 'rank_thresholds'],
   contact: ['support_phone', 'support_whatsapp', 'support_email', 'maintenance_banner'],

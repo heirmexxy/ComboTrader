@@ -753,6 +753,47 @@ await t('paystack balance: shown against withdrawals waiting; approval is held (
   } finally { globalThis.fetch = realFetch; (config as any).paystackSecret = old; }
 });
 
+console.log('\nWebsite chat');
+await t('chat: assistant answers, hands over to a person, Tawk.to transcripts and offline messages get a drafted email reply', async () => {
+  const chat = await import('../src/lib/chat');
+  const crypto = await import('node:crypto');
+  const { config } = await import('../src/lib/config');
+  // 1. Visitor asks a question: rules mode answers from the FAQ and keeps a transcript
+  const a = await chat.assistantTurn({ message: 'How do payouts work?', user: null, lang: 'en', page: '/' });
+  eq(typeof a.token, 'string'); eq(a.reply.length > 0, true);
+  const id = Number(q.val('SELECT id FROM chats WHERE token=?', a.token));
+  eq(Number(q.val('SELECT COUNT(*) FROM chat_messages WHERE chat_id=?', id)), 2);
+  // 2. Asking for a person offers the hand-over; leaving an email puts it in front of the team
+  const b = await chat.assistantTurn({ token: a.token, message: 'Can I talk to a real person?', user: null, lang: 'en' });
+  eq(b.person, true);
+  throws(() => chat.handOver({ token: a.token, user: null, via: 'message', email: 'not-an-email' }), 'email');
+  chat.handOver({ token: a.token, user: null, via: 'message', name: 'Ada Visitor', email: 'ada.v@example.com', note: 'Please call me back' });
+  eq(q.val('SELECT status FROM chats WHERE id=?', id), 'needs_person');
+  eq(chat.replyByEmail(id, 'Hello Ada, here is how it works.', 1).includes('ada.v@example.com'), true);
+  eq(q.val('SELECT status FROM chats WHERE id=?', id), 'answered');
+  // A signed-in Champion's hand-over also opens a support ticket
+  const u = mkUser('chatter@t.ng');
+  const c1 = await chat.assistantTurn({ message: 'hello', user: u as any, lang: 'en' });
+  chat.handOver({ token: c1.token, user: u as any, via: 'message', note: 'need help' });
+  eq(Number(q.val("SELECT COUNT(*) FROM tickets WHERE user_id=? AND subject LIKE 'Website chat%'", u.id)), 1);
+  // 3. Tawk.to webhook: signature, unanswered transcript -> drafted email reply for approval
+  (config as any).tawkWebhookSecret = 'whsec';
+  const raw = Buffer.from(JSON.stringify({ event: 'chat:transcript_created', chat: { id: 'tk1', visitor: { name: 'Bola', email: 'bola@example.com' }, messages: [{ sender: { t: 'v' }, msg: 'What is the minimum amount?' }] } }));
+  eq(chat.tawkSignatureValid(raw, crypto.createHmac('sha1', 'whsec').update(raw).digest('hex')), true);
+  eq(chat.tawkSignatureValid(raw, 'bad'), false);
+  await chat.handleTawk(JSON.parse(raw.toString()));
+  const tid = Number(q.val("SELECT id FROM chats WHERE source='tawk' AND external_id='tk1'"));
+  eq(q.val('SELECT status FROM chats WHERE id=?', tid), 'needs_person');
+  eq(Number(q.val("SELECT COUNT(*) FROM agent_actions WHERE kind='reply_chat' AND payload LIKE ?", `%"chat_id":${tid}%`)), 1);
+  // An answered chat is just stored
+  await chat.handleTawk({ event: 'chat:transcript_created', chat: { id: 'tk2', visitor: { name: 'Chi' }, messages: [{ sender: { t: 'v' }, msg: 'hi' }, { sender: { t: 'a', n: 'Emeka' }, msg: 'Hello!' }] } });
+  eq(q.val("SELECT status FROM chats WHERE external_id='tk2'"), 'closed');
+  // Offline message (ticket)
+  await chat.handleTawk({ event: 'ticket:create', requester: { name: 'Dayo', email: 'dayo@example.com' }, ticket: { id: 'T9', humanId: 9, subject: 'Question', message: 'Do you accept diaspora?' } });
+  eq(Number(q.val("SELECT COUNT(*) FROM chats WHERE source='tawk_ticket' AND external_id='T9'")), 1);
+  (config as any).tawkWebhookSecret = '';
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');

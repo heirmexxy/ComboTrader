@@ -725,6 +725,31 @@ CREATE TABLE trade_sales (
 -- The authenticator app was replaced by codes sent by email.
 UPDATE users SET totp_enabled=0, totp_secret=NULL;
 `,
+`
+-- Website chat: the on-site assistant and chats/offline messages from Tawk.to.
+CREATE TABLE chats (
+  id INTEGER PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  source TEXT NOT NULL,               -- assistant | tawk | tawk_ticket
+  external_id TEXT,
+  user_id INTEGER,
+  name TEXT, email TEXT,
+  lang TEXT NOT NULL DEFAULT 'en',
+  page TEXT,
+  status TEXT NOT NULL DEFAULT 'open', -- open | needs_person | with_person | answered | closed
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX chats_external ON chats(source, external_id) WHERE external_id IS NOT NULL;
+CREATE TABLE chat_messages (
+  id INTEGER PRIMARY KEY,
+  chat_id INTEGER NOT NULL REFERENCES chats(id),
+  sender TEXT NOT NULL,               -- visitor | assistant | person | system
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX chat_messages_chat ON chat_messages(chat_id, id);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

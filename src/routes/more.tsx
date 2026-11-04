@@ -1,5 +1,6 @@
 // Champion routes for Harvest Plan, Gift a Harvest, Keep Growing, impact receipts, data rights, statements and WhatsApp.
 import { handleMetaWebhook, metaSignatureValid } from '../lib/marketing';
+import { assistantOn, assistantTurn, handOver, tawkSignatureValid, handleTawk } from '../lib/chat';
 import { get, post } from '../lib/router';
 import { render } from '../views/render';
 import * as M from '../views/app/more';
@@ -137,6 +138,32 @@ get('/webhooks/meta', 'public', (c) => {
   if (qy['hub.mode'] === 'subscribe' && config.metaVerifyToken && qy['hub.verify_token'] === config.metaVerifyToken) return c.send(200, String(qy['hub.challenge'] || ''));
   c.send(403, 'forbidden');
 });
+// ---------- Website chat ----------
+post('/api/assistant', 'public', async (c) => {
+  if (!assistantOn()) return c.json({ error: 'off' }, 404);
+  const msg = c.str('message', 1000);
+  if (!msg) return c.json({ error: 'empty' }, 400);
+  if (!rateLimit(`chat:${c.ip}`, 40, 3600)) return c.json({ error: c.t('chat.busy') }, 429);
+  try {
+    const r = await assistantTurn({ token: c.str('token', 64), message: msg, user: c.user, lang: c.lang, page: c.str('page', 200) });
+    c.json(r);
+  } catch (e: any) { audit(null, 'chat.error', undefined, String(e?.message || e)); c.json({ error: c.t('chat.error') }, 500); }
+});
+post('/api/assistant/handover', 'public', (c) => {
+  if (!rateLimit(`chat-h:${c.ip}`, 10, 3600)) return c.json({ error: c.t('chat.busy') }, 429);
+  try {
+    handOver({ token: c.str('token', 64), user: c.user, via: c.str('via') === 'tawk' ? 'tawk' : 'message', name: c.str('name', 120), email: c.str('email', 200), note: c.str('note', 2000) });
+    c.json({ ok: true, message: c.user ? c.t('chat.person_done_user') : c.t('chat.person_done') });
+  } catch (e: any) { c.json({ error: e?.message === 'email' ? c.t('chat.email_bad') : c.t('chat.error') }, 400); }
+});
+post('/webhooks/tawk', 'public', async (c) => {
+  if (!tawkSignatureValid(c.rawBody, c.req.headers['x-tawk-signature'] as string)) return c.send(401, 'bad signature');
+  let body: any;
+  try { body = JSON.parse(c.rawBody.toString()); } catch { return c.send(400, 'bad json'); }
+  c.send(200, 'ok');
+  handleTawk(body).then((r) => audit(null, 'tawk.webhook', undefined, r)).catch((e) => audit(null, 'tawk.webhook_error', undefined, String(e?.message || e)));
+});
+
 post('/webhooks/meta', 'public', async (c) => {
   if (!metaSignatureValid(c.rawBody, c.req.headers['x-hub-signature-256'] as string)) return c.send(401, 'bad signature');
   let body: any;
