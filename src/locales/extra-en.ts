@@ -1,5 +1,8 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  "kyc.or_upload": "No BVN to hand? Upload an ID instead",
+  "kyc.ng_doc_intro": "Upload a clear photo or scan of your NIN slip, international passport, driver’s licence or voter’s card, showing the same name as your account. Our team reviews it within two working days.",
+  "kyc.send_doc": "Send for review",
   "code.subject": "Your ComboTrader code: {code}",
   "code.title": "Your security code",
   "code.body.login": "Hi {name}, use this code to finish signing in to ComboTrader.",

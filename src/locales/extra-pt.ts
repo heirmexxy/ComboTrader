@@ -1,5 +1,8 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  "kyc.or_upload": "Não tem o BVN à mão? Envie um documento de identificação",
+  "kyc.ng_doc_intro": "Envie uma foto ou digitalização legível do seu comprovativo NIN, passaporte, carta de condução ou cartão de eleitor, com o mesmo nome da conta. A nossa equipa analisa-o em dois dias úteis.",
+  "kyc.send_doc": "Enviar para análise",
   "code.subject": "O seu código ComboTrader: {code}",
   "code.title": "O seu código de segurança",
   "code.body.login": "Olá {name}, use este código para terminar o início de sessão na ComboTrader.",

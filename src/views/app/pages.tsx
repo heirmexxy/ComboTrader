@@ -384,6 +384,16 @@ export function AppProfile({ banks, bankList, countries, blockers = [] }: { bank
                   <Field label={c.t('bank.number')} name="account_number" required inputMode="numeric" pattern="\d{10}" maxLength={10} value={ng?.account_number} dir="ltr" />
                   <button className="btn btn-green" type="submit">{c.t('kyc.submit')}</button>
                 </form>
+              ) : null}
+              {u.country === 'NG' ? (
+                <details className="kyc-alt"><summary>{c.t('kyc.or_upload')}</summary>
+                  <form method="post" action="/app/profile/kyc-doc" encType="multipart/form-data">
+                    <Csrf />
+                    <p className="small">{c.t('kyc.ng_doc_intro')}</p>
+                    <div className="field"><label htmlFor="doc">{c.t('kyc.upload')}</label><input id="doc" type="file" name="doc" accept="image/jpeg,image/png,application/pdf" required /></div>
+                    <button className="btn btn-ghost" type="submit">{c.t('kyc.send_doc')}</button>
+                  </form>
+                </details>
               ) : (
                 <form method="post" action="/app/profile/kyc-doc" encType="multipart/form-data">
                   <Csrf />

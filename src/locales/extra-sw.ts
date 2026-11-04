@@ -1,5 +1,8 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
+  "kyc.or_upload": "Huna BVN karibu? Pakia kitambulisho badala yake",
+  "kyc.ng_doc_intro": "Pakia picha au skani inayosomeka ya karatasi yako ya NIN, pasipoti, leseni ya udereva au kadi ya mpiga kura, yenye jina sawa na la akaunti yako. Timu yetu itaikagua ndani ya siku mbili za kazi.",
+  "kyc.send_doc": "Tuma ikaguliwe",
   "code.subject": "Msimbo wako wa ComboTrader: {code}",
   "code.title": "Msimbo wako wa usalama",
   "code.body.login": "Habari {name}, tumia msimbo huu kukamilisha kuingia ComboTrader.",

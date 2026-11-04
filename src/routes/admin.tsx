@@ -261,7 +261,7 @@ get('/admin/trail', 'admin:operations', (c) => {
         <F label="Stage" name="stage" options={STAGES.map((s) => [s, s.replace('_', ' ')])} />
         <F label="Date" name="happened_at" type="date" value={now().slice(0, 10)} />
         <F label="Note (what happened, quantities, location)" name="note" type="textarea" rows={3} />
-        <div className="field"><label htmlFor="a-photo">Photo</label><input id="a-photo" type="file" name="photo" accept="image/*" capture="environment" /></div>
+        <div className="field"><label htmlFor="a-photo">Photo</label><input id="a-photo" type="file" name="photo" accept="image/*" /><p className="hint">On a phone you can take a photo or choose one from your gallery.</p></div>
       </Form>
     </Box>
     <Box title="Recent updates"><Table rows={recent} cols={[['Lot', (e) => e.code], ['Stage', (e) => e.stage], ['Date', (e) => <D v={e.happened_at} />], ['Note', (e) => <span className="small">{e.note}</span>], ['Photo', (e) => e.photo_path ? <a href={`/uploads/${e.photo_path}`} target="_blank">view</a> : '—']]} /></Box>
@@ -441,8 +441,15 @@ get('/admin/champions/:id', 'admin:support', (c) => {
         <dt>Country / city</dt><dd>{u.country} {u.city}</dd><dt>Language</dt><dd>{u.lang}</dd><dt>Next of kin</dt><dd>{u.next_of_kin_name} {u.next_of_kin_phone}</dd>
         <dt>Referral code</dt><dd>{u.referral_code}{u.referred_by ? ` · referred by ${who(u.referred_by)}` : ''}</dd><dt>Two-step</dt><dd>Email codes</dd>
         <dt>Joined</dt><dd><D v={u.created_at} /></dd><dt>Circles pilot</dt><dd>{u.circle_pilot ? 'Yes' : 'No'}</dd>
-        {u.id_doc_path && <><dt>ID document</dt><dd><a href={`/admin/files/${u.id_doc_path}`}>View</a></dd></>}
       </dl>
+        <h3 className="h4" id="identity">Identity check</h3>
+        <p><S s={u.kyc_status} /> <span className="muted small">{u.kyc_method ? `by ${u.kyc_method === 'bvn' ? 'BVN (Paystack)' : u.kyc_method === 'document' ? 'uploaded ID' : 'admin'}` : 'not started'}{u.kyc_note ? ` · ${u.kyc_note}` : ''}</span></p>
+        {u.id_doc_path && <p><a className="btn btn-ghost btn-sm" href={`/admin/files/${u.id_doc_path}`} target="_blank">Open their ID document</a></p>}
+        {c.can('support') && <div className="stack id-actions">
+          {u.kyc_status !== 'verified' && <form method="post" action={`/admin/verification/${u.id}`} className="inline-form"><Csrf /><input type="hidden" name="result" value="verified" /><input name="how" placeholder="How you checked (e.g. NIN slip seen, video call)" aria-label="How you checked" required /><button className="btn btn-green btn-sm" type="submit">Mark as verified</button></form>}
+          {u.kyc_status !== 'rejected' && <form method="post" action={`/admin/verification/${u.id}`} className="inline-form"><Csrf /><input type="hidden" name="result" value="rejected" /><input name="reason" placeholder="Reason (the Champion sees this)" aria-label="Reason" required /><button className="btn btn-danger btn-sm" type="submit">Reject</button></form>}
+          {u.kyc_status !== 'none' && <Act action={`/admin/verification/${u.id}`} fields={{ result: 'none' }} label="Reset to not verified" confirm="Reset this Champion's identity check? They will need to verify again before withdrawing." />}
+        </div>}
         <div className="btn-row">
           {u.status === 'active' ? <Act action={`/admin/champions/${u.id}/status`} fields={{ to: 'suspended' }} label="Suspend" tone="danger" confirm="Suspend this account? They will be signed out." /> : <Act action={`/admin/champions/${u.id}/status`} fields={{ to: 'active' }} label="Reactivate" tone="green" />}
           <Act action={`/admin/champions/${u.id}/pilot`} label={u.circle_pilot ? 'Remove from Circles pilot' : 'Add to Circles pilot'} />
@@ -480,7 +487,7 @@ post('/admin/champions/:id/notes', 'admin:support', (c) => {
 get('/admin/verification', 'admin:support', (c) => {
   const rows = q.all<any>("SELECT * FROM users WHERE kyc_status='pending' ORDER BY id");
   page(c, 'Identity verification', <Box title={`Waiting (${rows.length})`}>
-    <p className="muted small">Nigerian Champions are verified automatically through Paystack (BVN + bank account); they appear here only while Paystack is checking. Champions outside Nigeria upload an ID for manual review.</p>
+    <p className="muted small">Champions verify in Profile → Identity verification: in Nigeria by BVN through Paystack (automatic) or by uploading an ID; outside Nigeria by uploading an ID. Uploaded IDs wait here for you. To verify or reject anyone else, open them in Champions → Identity check.</p>
     <Table rows={rows} cols={[
       ['Champion', (u) => <a href={`/admin/champions/${u.id}`}>{u.first_name} {u.last_name}</a>], ['Country', (u) => u.country], ['Method', (u) => u.kyc_method],
       ['Document', (u) => u.id_doc_path ? <a href={`/admin/files/${u.id_doc_path}`} target="_blank">Open</a> : '—'],
@@ -492,11 +499,19 @@ get('/admin/verification', 'admin:support', (c) => {
 post('/admin/verification/:id', 'admin:support', (c) => {
   const u = userById(Number(c.params.id));
   if (!u) throw new HttpError(404, 'Not found');
-  const ok = c.str('result') === 'verified';
-  q.run('UPDATE users SET kyc_status=?, kyc_note=? WHERE id=?', ok ? 'verified' : 'rejected', ok ? null : c.str('reason', 300), u.id);
+  const result = c.str('result');
+  if (result === 'none') {
+    q.run("UPDATE users SET kyc_status='none', kyc_note=NULL WHERE id=?", u.id);
+    audit(c.user!.id, 'kyc.reset', `user:${u.id}`, undefined, c.ip);
+    return c.back(`/admin/champions/${u.id}#identity`, ['ok', 'Identity check reset.']);
+  }
+  const ok = result === 'verified';
+  const how = c.str('how', 200);
+  // A check done by an admin without a submitted ID or BVN is recorded as "admin", with how it was done.
+  q.run('UPDATE users SET kyc_status=?, kyc_note=?, kyc_method=CASE WHEN ? AND kyc_status!=\'pending\' THEN \'admin\' ELSE kyc_method END WHERE id=?', ok ? 'verified' : 'rejected', ok ? (how ? `Checked by admin: ${how}` : null) : c.str('reason', 300), ok ? 1 : 0, u.id);
   notify(u, ok ? 'kyc_verified' : 'kyc_rejected', { reason: c.str('reason', 300) }, { link: '/app/profile', sms: true });
-  audit(c.user!.id, `kyc.${ok ? 'approve' : 'reject'}`, `user:${u.id}`, c.str('reason'), c.ip);
-  c.redirect('/admin/verification', ['ok', ok ? 'Verified.' : 'Rejected.']);
+  audit(c.user!.id, `kyc.${ok ? 'approve' : 'reject'}`, `user:${u.id}`, ok ? how : c.str('reason'), c.ip);
+  c.back('/admin/verification', ['ok', ok ? `${u.first_name} ${u.last_name} is verified.` : 'Rejected. They have been told why.']);
 });
 
 // ============ Harvest Circles ============

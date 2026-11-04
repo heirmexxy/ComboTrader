@@ -298,7 +298,7 @@ export function AdminLayout({ title, children, actions }: { title: string; child
         <header className="admin-header">
           <a href="/admin" className="brand"><Logo /> <span className="admin-tag">Admin</span></a>
           <div className="header-actions">
-            {config.paystackDemo && <a href="/admin/testing" className="tag tag-terra">{simulated() ? 'Test mode: payments simulated' : 'Payments not connected'}</a>}
+            {config.paystackDemo && <a href="/admin/testing" className="tag tag-terra header-badge">{simulated() ? 'Test mode: payments simulated' : 'Payments not connected'}</a>}
             <a href="/" className="small">View website</a>
             <a href="/app" className="small">Champion view</a>
             <span className="small muted">{c.user!.first_name} · {c.user!.admin_roles}</span>
