@@ -49,6 +49,15 @@ export async function runChecks(): Promise<Check[]> {
     const hours = newest ? (Date.now() - newest) / 3600e3 : Infinity;
     out.push({ key: 'backup', name: 'Nightly backup', ok: hours < 27, detail: newest ? `last backup ${Math.round(hours)} hours ago` : 'no backup found in data/backups' });
   }
+  // Off-server backup (deploy/backup-offsite.sh writes data/backups/offsite.txt)
+  if (config.production) {
+    const f = path.join(dataDir, 'backups', 'offsite.txt');
+    try {
+      const [st, , ...rest] = fs.readFileSync(f, 'utf8').trim().split(' ');
+      const hours = (Date.now() - fs.statSync(f).mtimeMs) / 3600e3;
+      out.push({ key: 'offsite', name: 'Off-server backup', ok: st === 'ok' && hours < 27, detail: st === 'ok' ? `last sent ${Math.round(hours)} hours ago: ${rest.join(' ')}` : `last attempt failed: ${rest.join(' ')}` });
+    } catch { out.push({ key: 'offsite', name: 'Off-server backup', ok: true, detail: 'not set up yet (deploy/backup-offsite.sh setup)' }); }
+  }
   // Email and SMS delivery
   const stuck = q.get<any>("SELECT COUNT(*) n, MAX(error) err FROM outbox WHERE status='queued' AND (attempts >= 3 OR created_at <= ?)", new Date(Date.now() - 30 * 60e3).toISOString());
   out.push({ key: 'outbox', name: 'Email and SMS sending', ok: !(config.emailProvider && config.emailApiKey) || !stuck?.n, detail: stuck?.n ? `${stuck.n} messages not sent; last error: ${String(stuck.err || 'waiting').slice(0, 200)}` : 'sending normally' });

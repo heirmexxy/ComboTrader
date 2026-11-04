@@ -94,7 +94,7 @@ export function startScheduler() {
       const l = lastRun('lifecycle');
       if (!l || Date.now() - new Date(l).getTime() > 10 * 60e3) await runJob('lifecycle');
       const ps = lastRun('paystack_sync');
-      if (!ps || Date.now() - new Date(ps).getTime() > 5 * 60e3) await runJob('paystack_sync');
+      if (!ps || Date.now() - new Date(ps).getTime() > 2 * 60e3 - 5e3) await runJob('paystack_sync');
       const w = lastRun('watchdog');
       if (!w || Date.now() - new Date(w).getTime() > 10 * 60e3) await runJob('watchdog');
       if (dueDaily('prices', 6)) await runJob('prices');

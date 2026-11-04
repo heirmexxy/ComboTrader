@@ -1,5 +1,5 @@
 // Fallback for Paystack webhooks. Paystack sends events to one URL per business, and that
-// URL may belong to another Kitovu system. Every few minutes we ask Paystack directly about
+// URL may belong to another Kitovu system. Every 2 minutes we ask Paystack directly about
 // anything still waiting, so payments, withdrawals and BVN checks finish either way.
 import { q } from './db';
 import * as paystack from './paystack';
@@ -16,7 +16,7 @@ export async function syncPaystack(): Promise<string> {
   let paid = 0, failed = 0, sent = 0, returned = 0, kyc = 0, errors = 0;
 
   // Card/bank payments: pending for 3 minutes to 3 days.
-  for (const p of q.all<any>("SELECT reference, created_at FROM payments WHERE status='pending' AND demo=0 AND created_at<=? AND created_at>=? ORDER BY id LIMIT 50", ago(3 * 60e3), ago(3 * 864e5))) {
+  for (const p of q.all<any>("SELECT reference, created_at FROM payments WHERE status='pending' AND demo=0 AND created_at<=? AND created_at>=? ORDER BY id LIMIT 50", ago(90e3), ago(3 * 864e5))) {
     try {
       const v = await paystack.verify(p.reference);
       const old = p.created_at < ago(864e5);
@@ -28,7 +28,7 @@ export async function syncPaystack(): Promise<string> {
   }
 
   // Withdrawals sent to Paystack, still processing after 3 minutes.
-  for (const w of q.all<any>("SELECT reference FROM withdrawals WHERE status='processing' AND updated_at<=? ORDER BY id LIMIT 50", ago(3 * 60e3))) {
+  for (const w of q.all<any>("SELECT reference FROM withdrawals WHERE status='processing' AND updated_at<=? ORDER BY id LIMIT 50", ago(90e3))) {
     try {
       const s = await paystack.verifyTransfer(w.reference);
       if (s === 'success') { completeWithdrawal(w.reference, true); sent++; }
