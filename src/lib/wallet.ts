@@ -130,6 +130,10 @@ export async function sendWithdrawal(id: number) {
   const w = q.get<any>('SELECT * FROM withdrawals WHERE id=?', id)!;
   const b = q.get<any>('SELECT * FROM bank_accounts WHERE id=?', w.bank_account_id);
   if (!b?.recipient_code) throw new Error('No transfer recipient for this bank account');
+  if (!paystack.isDemo()) {
+    const bal = await paystack.balance(true).catch(() => null);
+    if (bal !== null && bal < w.amount + 10000) throw new Error(`The Paystack balance is ${fmtNGN(bal)}, not enough to send ${fmtNGN(w.amount)} plus the transfer fee. Top up the Paystack balance, then approve again. The Champion's money stays reserved meanwhile.`);
+  }
   q.run("UPDATE withdrawals SET status='processing', updated_at=? WHERE id=?", now(), id);
   try {
     const r = await paystack.transfer({ amount: w.amount, recipient: b.recipient_code, reference: w.reference, reason: 'ComboTrader withdrawal' });

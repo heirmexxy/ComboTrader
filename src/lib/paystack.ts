@@ -122,3 +122,14 @@ export async function finalizeTransfer(transferCode: string, otp: string) {
 export async function resendTransferOtp(transferCode: string) {
   return ps('POST', '/transfer/resend_otp', { transfer_code: transferCode, reason: 'transfer' });
 }
+
+let balCache: { at: number; kobo: number } | null = null;
+/** Money available in the Paystack Balance for transfers (NGN, kobo). null when no Paystack key is set. */
+export async function balance(fresh = false): Promise<number | null> {
+  if (isDemo()) return null;
+  if (!fresh && balCache && Date.now() - balCache.at < 60e3) return balCache.kobo;
+  const d: any[] = await ps('GET', '/balance');
+  const kobo = Number((d || []).find((b) => b.currency === 'NGN')?.balance ?? 0);
+  balCache = { at: Date.now(), kobo };
+  return kobo;
+}

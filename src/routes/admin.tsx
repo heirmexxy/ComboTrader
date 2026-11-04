@@ -10,6 +10,7 @@ import { post as postJournal, move, walletAcct, reservedAcct, lotAcct, account, 
 import { lotPeriods, rateFor, PERIODS, delayLotPayouts, lateEarnings, allLots, getLot, duePayouts, upcomingPayouts, payTrade, addTrailEvent, trailFor, STAGES, siteStats, creditReferral, markMatured, lotRemaining } from '../lib/trading';
 import { approveWithdrawal, completeWithdrawal, finalizeWithdrawal } from '../lib/wallet';
 import * as paystack from '../lib/paystack';
+import { paystackFloat } from '../lib/paysync';
 import { allCircles, createCircle, expireCircles, getCircle } from '../lib/circles';
 import { recordPrice, crawlPrices, latestPrices } from '../lib/prices';
 import { notifyWaitlist, runJob, JOBS, sendNewsletter } from '../lib/jobs';
@@ -39,6 +40,7 @@ const who = (id: number | null) => (id ? q.val<string>("SELECT first_name || ' '
 // ============ Overview ============
 get('/admin', 'admin:any', async (c) => {
   const health = c.can('super') ? await runChecks() : [];
+  const pf = c.can('finance') || c.can('super') ? await paystackFloat() : null;
   const since7 = new Date(Date.now() - 7 * 864e5).toISOString(), since30 = new Date(Date.now() - 30 * 864e5).toISOString();
   const committed = Number(q.val("SELECT COALESCE(SUM(amount),0) FROM trades WHERE status IN ('active','matured')"));
   const float = Number(q.val("SELECT COALESCE(SUM(e.amount),0) FROM entries e JOIN ledger_accounts a ON a.id=e.account_id WHERE a.kind='wallet'"));
@@ -63,7 +65,9 @@ get('/admin', 'admin:any', async (c) => {
       ['Open lots', q.val("SELECT COUNT(*) FROM lots WHERE status='open'")], ['Principal due in 7 days', <N k={dueWeek} />, `30 days: ${fmtNGN(dueMonth)}`],
       ['New Champions (30 days)', signups30, `${q.val("SELECT COUNT(*) FROM users WHERE role='champion' AND created_at>=?", since7)} in the last 7 days`],
       ['Sign-up → first trade', champions ? `${Math.round((traders / champions) * 100)}%` : '—', `${traders} of ${champions} Champions`],
-      ['Withdrawals waiting', pendingW.n, fmtNGN(pendingW.s)], ['Ledger check', trialBalance() === 0 ? '✓ balanced' : `✗ off by ${trialBalance()}`],
+      ['Withdrawals waiting', pendingW.n, fmtNGN(pendingW.s)],
+      ...(pf && pf.balance !== null ? [['Paystack balance', <a href="/admin/withdrawals#paystack"><N k={pf.balance} /></a>, pf.low ? `Top up ${fmtNGN(pf.topUp)}` : 'Pays withdrawals'] as [string, any, string]] : []),
+      ['Ledger check', trialBalance() === 0 ? '✓ balanced' : `✗ off by ${trialBalance()}`],
     ]} />
     <div className="grid-2 top">
       <Box title="Needs attention"><ul className="list">{todo.map(([l, n, href]) => <li key={href}><a href={href}>{l}</a><span className={`tag ${n ? 'tag-terra' : 'tag-grey'}`}>{n}</span></li>)}</ul></Box>
@@ -310,7 +314,8 @@ post('/admin/payouts', 'admin:finance', (c) => {
 });
 
 // ============ Withdrawals ============
-get('/admin/withdrawals', 'admin:finance', (c) => {
+get('/admin/withdrawals', 'admin:finance', async (c) => {
+  const pf = await paystackFloat(true);
   const queue = q.all<any>(`SELECT w.*, u.first_name, u.last_name, u.email, b.bank_name, b.account_number, b.account_name, b.details FROM withdrawals w JOIN users u ON u.id=w.user_id LEFT JOIN bank_accounts b ON b.id=w.bank_account_id
     WHERE w.status IN ('requested','approved','manual','processing') ORDER BY w.id`);
   const intlDetails = (uid: number) => q.val<string>("SELECT details FROM bank_accounts WHERE user_id=? AND country!='NG' AND active=1 ORDER BY id DESC", uid);
@@ -318,6 +323,15 @@ get('/admin/withdrawals', 'admin:finance', (c) => {
   const th = settings().dual_approval_threshold;
   page(c, 'Withdrawals', <>
     <p className="muted">Withdrawals above {fmtNGN(th)} need two different admins. Automatic sending below {fmtNGN(settings().auto_withdraw_limit)} {settings().auto_withdraw_limit ? 'is on' : 'is off'} (Settings).{config.paystackDemo && ' Paystack demo mode: transfers are simulated.'}</p>
+    {(pf.balance !== null || pf.error) && <Box title="Paystack balance">
+      <div id="paystack" />
+      {pf.balance !== null ? <Kpis items={[
+        ['Available to send', <N k={pf.balance} />], ['Withdrawals waiting', <N k={pf.waiting} />], ['Minimum to keep', <N k={pf.min} />, 'Change in Settings → Money rules'],
+        ['Top up needed', pf.topUp ? <span className="tag tag-terra"><N k={pf.topUp} /></span> : '₦0', pf.topUp ? 'before approving' : 'balance is enough'],
+      ]} /> : <p className="tag tag-terra">Could not read the Paystack balance: {pf.error}</p>}
+      <p className="small muted">Withdrawals are paid from the Paystack balance, not from Champion payments (those settle to Kitovu’s bank account). Paystack has no way for another app to top it up, so top up on the Paystack dashboard: Home or Balance → <b>Topup</b>, then pay from a Kitovu account (free in Nigeria). The balance is shared with any other Kitovu system on the same Paystack business. Super admins get an email when it falls below what is needed, and the Treasury brief includes it.</p>
+      <div className="btn-row"><a className="btn btn-primary btn-sm" href="https://dashboard.paystack.com/" target="_blank" rel="noopener">Open Paystack to top up</a> <a className="btn btn-ghost btn-sm" href="/admin/withdrawals">Refresh</a></div>
+    </Box>}
     <Box title={`Queue (${queue.length})`}>
       <Table rows={queue} cols={[
         ['Requested', (w) => <D v={w.created_at} time />], ['Champion', (w) => <a href={`/admin/champions/${w.user_id}`}>{w.first_name} {w.last_name}</a>], ['Amount', (w) => <N k={w.amount} />],
@@ -1014,6 +1028,7 @@ get('/admin/settings', 'admin:super', (c) => {
         <F label="Two-admin approval above (₦)" name="dual_approval_threshold" value={naira(s.dual_approval_threshold)} />
         <F label="Identity check required after total funding of (₦)" name="kyc_required_above" value={naira(s.kyc_required_above)} />
         <F label="Pass card fees on to Champions" name="pass_card_fees" type="checkbox" value={s.pass_card_fees} />
+        <F label="Alert when the Paystack balance is below (₦)" name="paystack_low_balance" value={naira(s.paystack_low_balance)} hint="Super admins are emailed, and the Treasury brief flags it. Withdrawals waiting always count too." />
         <input type="hidden" name="_group" value="money" />
       </Form>
     </Box>
@@ -1063,10 +1078,10 @@ get('/admin/settings', 'admin:super', (c) => {
     </Box>
   </>);
 });
-const MONEY_KEYS: SettingKey[] = ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'baseline_payouts', 'plan_min_monthly', 'min_commit_default'];
+const MONEY_KEYS: SettingKey[] = ['paystack_low_balance', 'referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'baseline_payouts', 'plan_min_monthly', 'min_commit_default'];
 const GROUPS: Record<string, SettingKey[]> = {
   features: ['circles_mode', 'circle_deadline_days', 'circle_max_share_pct', 'feed_enabled', 'price_crawler_enabled', 'price_hold_threshold_pct'],
-  money: ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'pass_card_fees'],
+  money: ['referral_reward', 'min_withdrawal', 'auto_withdraw_limit', 'dual_approval_threshold', 'kyc_required_above', 'pass_card_fees', 'paystack_low_balance'],
   figures: ['baseline_champions', 'baseline_tons', 'baseline_payouts', 'baseline_farmers', 'rank_thresholds'],
   contact: ['support_phone', 'support_whatsapp', 'support_email', 'maintenance_banner'],
   payouts: ['auto_payouts', 'coverage_warn_ratio', 'plans_enabled', 'plan_min_monthly', 'plan_max_failures', 'gifts_enabled', 'whatsapp_enabled'],

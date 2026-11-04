@@ -17,6 +17,7 @@ import { userById } from './auth';
 import { walletBalance } from './ledger';
 import { addTrailEvent, getLot, STAGES, siteStats, impactFor, rateFor, lotPeriods } from './trading';
 import { treasurySnapshot } from './treasury';
+import { paystackFloat } from './paysync';
 import { faqsFor } from './content';
 import { config } from './config';
 import { fmtNGN, randomToken } from './util';
@@ -392,17 +393,19 @@ export async function runOnboarding(limit = 25) {
 export async function runTreasury() {
   if (!agentOn('treasury')) return 'off';
   const snap = treasurySnapshot();
+  const pf = await paystackFloat(true);
   const h30 = snap.horizons[1];
   const naira = (k: number) => fmtNGN(k);
   const facts = {
     cash_position_as_of: snap.cashAsOf, overdue_buyers: snap.overdue.map((o) => ({ ...o, outstanding: naira(o.outstanding) })), overdue_total: naira(snap.overdueTotal),
     lots_missing_buyer_terms: snap.missingBuyerTerms,
+    paystack_balance: pf.balance === null ? null : { available: naira(pf.balance), withdrawals_waiting: naira(pf.waiting), minimum: naira(pf.min), top_up_needed: naira(pf.topUp) },
     horizons: snap.horizons.map((h) => ({ days: h.horizon, payouts_due: naira(h.due.total), trades: h.due.count, cash: naira(h.cash), credit_line: naira(h.creditLine), buyer_money_due: naira(h.buyerDue), coverage: h.ratio === null ? 'no payouts due' : h.ratio.toFixed(2), level: h.level })),
   };
   const situations = [
     snap.horizons.some((h) => h.level === 'short') && 'shortfall', snap.horizons.some((h) => h.level === 'warn') && 'thin_cover',
     snap.overdue.length && 'overdue_buyer', !snap.cashAsOf && 'no_cash_position', snap.cashAsOf && snap.cashAsOf < new Date(Date.now() - 7 * 864e5).toISOString() && 'stale_cash_position',
-    snap.missingBuyerTerms.length && 'missing_buyer_terms',
+    snap.missingBuyerTerms.length && 'missing_buyer_terms', pf.low && 'paystack_low',
   ].filter(Boolean) as string[];
   let brief = '', runId: number | null = null;
   if (useAI('treasury')) {
@@ -419,14 +422,16 @@ export async function runTreasury() {
     brief = [`Next 30 days: ${naira(h30.due.total)} due to Champions across ${h30.due.count} trades; available ${naira(h30.available)} (cash ${naira(h30.cash)}, credit line ${naira(h30.creditLine)}, buyer money due ${naira(h30.buyerDue)}). Coverage: ${h30.ratio === null ? 'nothing due' : h30.ratio.toFixed(2)}.`,
       snap.overdue.length ? `Overdue buyers: ${snap.overdue.map((o) => `${o.lot} (${o.buyer}) ${naira(o.outstanding)}, ${o.days} days`).join('; ')}. Kitovu covers these payouts; chase the buyers.` : 'No buyer is overdue.',
       !snap.cashAsOf ? 'No cash position recorded yet — add one in Admin → Treasury.' : `Cash position last updated ${snap.cashAsOf.slice(0, 10)}.`,
+      pf.balance !== null ? `Paystack balance (pays withdrawals): ${pf.summary}` : '',
       snap.missingBuyerTerms.length ? `Add buyer contract value and due date for: ${snap.missingBuyerTerms.join(', ')}.` : '',
       advice.length ? `Suggested actions:\n${advice.map((a) => `- ${a}`).join('\n')}` : ''].filter(Boolean).join('\n');
   }
   const short = snap.horizons.find((h) => h.level === 'short');
   const warn = snap.horizons.find((h) => h.level === 'warn' || h.level === 'unknown');
   const level: Risk = short ? 'high' : warn ? 'medium' : 'info';
-  propose({ agent: 'treasury', kind: 'admin_alert', risk: 'info', title: short ? `Shortfall: payouts in ${short.horizon} days exceed available funds` : warn ? `Coverage needs attention (${warn.horizon} days)` : 'Daily treasury brief', summary: brief,
-    payload: { subject: short ? `ComboTrader treasury: SHORTFALL within ${short.horizon} days` : `ComboTrader treasury brief ${now().slice(0, 10)}`, body: brief }, runId });
+  if (pf.low && !brief.includes('Paystack balance')) brief += `\nPaystack balance (pays withdrawals): ${pf.summary}`;
+  propose({ agent: 'treasury', kind: 'admin_alert', risk: 'info', title: short ? `Shortfall: payouts in ${short.horizon} days exceed available funds` : pf.low ? `Top up the Paystack balance by ${naira(pf.topUp)}` : warn ? `Coverage needs attention (${warn.horizon} days)` : 'Daily treasury brief', summary: brief,
+    payload: { subject: short ? `ComboTrader treasury: SHORTFALL within ${short.horizon} days` : pf.low ? `ComboTrader treasury: top up the Paystack balance (${naira(pf.topUp)})` : `ComboTrader treasury brief ${now().slice(0, 10)}`, body: brief }, runId });
   return `brief written (${level})`;
 }
 

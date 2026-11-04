@@ -8,6 +8,7 @@ import { q, now } from './db';
 import { config } from './config';
 import { settings, setSetting } from './settings';
 import { queueEmail, emailShell, escapeHtml } from './notify';
+import { paystackFloat } from './paysync';
 
 export interface Check { key: string; name: string; ok: boolean; detail: string }
 let certCache: { at: number; days: number | null; error?: string } | null = null;
@@ -54,6 +55,9 @@ export async function runChecks(): Promise<Check[]> {
   // Scheduled jobs
   const failed = q.all<any>("SELECT name, last_status FROM job_runs WHERE last_status LIKE 'error%' AND last_run >= ?", new Date(Date.now() - 864e5).toISOString());
   out.push({ key: 'jobs', name: 'Scheduled jobs', ok: !failed.length, detail: failed.length ? failed.map((j) => `${j.name}: ${String(j.last_status).slice(0, 120)}`).join('; ') : 'all ran without errors' });
+  // Paystack balance (pays withdrawals)
+  const pf = await paystackFloat();
+  if (pf.balance !== null || pf.error) out.push({ key: 'paystack', name: 'Paystack balance', ok: !pf.low, detail: pf.summary });
   // Security certificate
   const cert = await certDaysLeft();
   if (cert.days !== null || cert.error) out.push({ key: 'cert', name: 'Security certificate (https)', ok: cert.days !== null && cert.days >= 14, detail: cert.days !== null ? `expires in ${cert.days} days` : `could not check: ${cert.error}` });

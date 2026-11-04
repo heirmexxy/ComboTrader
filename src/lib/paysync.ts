@@ -6,6 +6,8 @@ import * as paystack from './paystack';
 import { confirmPayment, completeWithdrawal } from './wallet';
 import { notify } from './notify';
 import { audit } from './audit';
+import { settings } from './settings';
+import { fmtNGN } from './util';
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
@@ -48,4 +50,19 @@ export async function syncPaystack(): Promise<string> {
   const out = `${paid} payments credited, ${failed} closed, ${sent} withdrawals paid, ${returned} returned, ${kyc} identities verified${errors ? `, ${errors} lookups failed` : ''}`;
   if (paid + failed + sent + returned + kyc) audit(null, 'paystack.sync', undefined, out);
   return out;
+}
+
+/** Paystack Balance against what must leave it soon: withdrawals waiting, plus a safety minimum set in Settings. */
+export async function paystackFloat(fresh = false) {
+  const waiting = Number(q.val("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE route='paystack' AND status IN ('requested','approved','processing')"));
+  const walletTotal = Number(q.val("SELECT COALESCE(SUM(e.amount),0) FROM entries e JOIN ledger_accounts a ON a.id=e.account_id WHERE a.kind='wallet'"));
+  const min = Number(settings().paystack_low_balance || 0);
+  let bal: number | null = null, error: string | null = null;
+  try { bal = await paystack.balance(fresh); } catch (e: any) { error = String(e?.message || e); }
+  const need = Math.max(waiting, min);
+  const topUp = bal === null ? 0 : Math.max(0, need - bal);
+  const low = bal !== null && topUp > 0;
+  const summary = bal === null ? (error ? `could not read the Paystack balance (${error})` : 'no Paystack key')
+    : `${fmtNGN(bal)} in the Paystack balance; ${fmtNGN(waiting)} of withdrawals waiting; minimum kept ${fmtNGN(min)}${low ? `. Top up at least ${fmtNGN(topUp)}.` : ''}`;
+  return { balance: bal, waiting, walletTotal, min, topUp, low, error, summary };
 }

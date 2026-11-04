@@ -724,6 +724,35 @@ await t('paystack sync: without webhooks, pending payments, withdrawals and BVN 
   } finally { globalThis.fetch = realFetch; (config as any).paystackSecret = old; }
 });
 
+await t('paystack balance: shown against withdrawals waiting; approval is held (not failed) when the balance is too low; watchdog flags it', async () => {
+  const { paystackFloat } = await import('../src/lib/paysync');
+  const { runChecks } = await import('../src/lib/watchdog');
+  const { config } = await import('../src/lib/config');
+  const { approveWithdrawal } = await import('../src/lib/wallet');
+  const old = config.paystackSecret; (config as any).paystackSecret = 'sk_test_x';
+  const realFetch = globalThis.fetch; let transfers = 0;
+  globalThis.fetch = (async (url: string) => {
+    const ok = (data: any) => new Response(JSON.stringify({ status: true, data }), { status: 200 });
+    if (url.endsWith('/balance')) return ok([{ currency: 'NGN', balance: 50_000 }]);
+    if (url.includes('/transfer')) { transfers++; return ok({ status: 'success', transfer_code: 'TRF_x' }); }
+    return ok({});
+  }) as any;
+  try {
+    const u = mkUser('bal@t.ng'); await fund(u.id, 5_000_00);
+    const bank = q.insert('bank_accounts', { user_id: u.id, bank_code: '058', bank_name: 'GTBank', account_number: '0123456789', account_name: 'BAL T', recipient_code: 'RCP_x', active: 1, created_at: now() }).id;
+    const wid = q.insert('withdrawals', { user_id: u.id, bank_account_id: bank, amount: 2_000_00, route: 'paystack', status: 'requested', reference: 'CTW-BAL1', created_at: now(), updated_at: now() }).id;
+    const f = await paystackFloat(true);
+    eq(f.balance, 50_000); eq(f.waiting >= 2_000_00, true); eq(f.low, true); eq(f.topUp > 0, true);
+    let msg = '';
+    try { await approveWithdrawal(wid, 1); } catch (e: any) { msg = e.message; }
+    eq(msg.includes('Paystack balance'), true, msg); eq(transfers, 0);
+    eq(q.val('SELECT status FROM withdrawals WHERE id=?', wid), 'requested', 'stays waiting, not failed');
+    const checks = await runChecks();
+    eq(checks.find((c) => c.key === 'paystack')?.ok, false);
+    q.run("DELETE FROM withdrawals WHERE id=?", wid);
+  } finally { globalThis.fetch = realFetch; (config as any).paystackSecret = old; }
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');
