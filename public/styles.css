@@ -633,3 +633,4 @@ a.header-badge:hover { text-decoration: underline; }
 .chat-log .chat-system { background: transparent; border-style: dashed; font-size: 13px; }
 @media print { .assist { display: none; } }
 .cookie-banner:not([hidden]) ~ .assist, .install-banner:not([hidden]) ~ .assist { display: none; }
+.assist [hidden], .assist[hidden] { display: none !important; }
