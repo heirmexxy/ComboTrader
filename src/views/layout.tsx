@@ -30,13 +30,14 @@ function Head({ title, description, noindex, image }: { title: string; descripti
       <meta property="og:title" content={full} />
       <meta property="og:description" content={desc} />
       <meta property="og:type" content="website" />
-      <meta property="og:image" content={image || `${config.baseUrl}/icons/og.png`} />
+      <meta property="og:image" content={image || `${config.baseUrl}/icons/og.png?v=2`} />
       <meta name="twitter:card" content="summary_large_image" />
       <link rel="canonical" href={config.baseUrl + c.path} />
       <link rel="manifest" href="/manifest.webmanifest" />
       <meta name="theme-color" content="#1F4D2B" />
-      <link rel="icon" href="/icons/icon-192.png" />
-      <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+      <link rel="icon" href="/icons/icon.svg?v=2" type="image/svg+xml" />
+      <link rel="icon" href="/icons/favicon-32.png?v=2" sizes="32x32" type="image/png" />
+      <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=2" />
       <meta name="apple-mobile-web-app-capable" content="yes" />
       <meta name="mobile-web-app-capable" content="yes" />
       <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

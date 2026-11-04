@@ -62,9 +62,10 @@ code { background: var(--cream); padding: 1px 5px; border-radius: 5px; font-size
 .header-row { display: flex; align-items: center; gap: 18px; min-height: 64px; }
 .brand { text-decoration: none; display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .logo { display: inline-flex; align-items: center; gap: 8px; }
-.logo-word { font: 800 19px/1 var(--font); letter-spacing: .02em; color: var(--green); }
+.logo-word { font: 600 22px/1 var(--display); letter-spacing: -.01em; color: var(--green); }
 .logo-word.light { color: #fff; }
-.logo-word b { color: var(--gold); font-weight: 800; }
+.logo-word b { color: var(--gold); font-weight: 600; }
+.logo-word:not(.light) b { color: var(--green); }
 .main-nav { display: flex; gap: 2px; flex: 1; justify-content: center; }
 .main-nav a { color: #EAF1EA; text-decoration: none; padding: 8px 9px; border-radius: 8px; font-size: 14px; font-weight: 500; white-space: nowrap; }
 .main-nav a:hover, .main-nav a[aria-current] { background: rgba(255,255,255,.1); color: #fff; }
@@ -491,7 +492,7 @@ main > .flash { margin: 16px auto; max-width: 1140px; }
   .stat { border-top: 1px solid rgba(31,77,43,.15); }
   .hide-sm { display: none; }
   .header-row { gap: 10px; }
-  .logo-word { font-size: 16px; }
+  .logo-word { font-size: 19px; }
   .wallet-pill { padding: 6px 10px; font-size: 13px; }
   .wallet-pill svg { display: none; }
   .app-header .lang-menu summary span, .site-header .lang-menu summary span { display: none; }

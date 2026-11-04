@@ -6,14 +6,20 @@ import { approx } from '../lib/geo';
 import { lotPct, lotRemaining, STAGES, type Lot, lotRates, lotPeriods } from '../lib/trading';
 import { LuCheck, LuMapPin, LuUsers, LuWheat, LuClock, LuFileCheck } from 'react-icons/lu';
 
+/** ComboTrader mark: a "C" with a leaf growing out through its opening. Source files: public/brand/. */
+export function LogoMark({ size = 30, disc = false }: { size?: number; disc?: boolean }) {
+  return (
+    <svg viewBox={disc ? '-110 -110 220 220' : '-100 -100 200 200'} width={size} height={size} aria-hidden="true">
+      {disc && <circle r="104" fill="#1F4D2B" />}
+      <path d="M48.6,-50.4 A70,70 0 1 0 48.6,50.4" fill="none" stroke="#D4A017" strokeWidth="22" strokeLinecap="round"/><path d="M-20.0,40.0 C-14.4,-9.0 42.9,-40.1 78.0,-42.0 Q30.3,0.6 -20.0,40.0Z" fill="#E9C65A"/><path d="M-20.0,40.0 C29.3,43.1 70.0,-7.8 78.0,-42.0 Q30.3,0.6 -20.0,40.0Z" fill="#F6E7B5"/><path d="M-14.1,35.1 Q30.3,0.6 64.7,-30.0" fill="none" stroke="#1F4D2B" strokeWidth="4" strokeLinecap="round"/>
+    </svg>
+  );
+}
 export function Logo({ light = true }: { light?: boolean }) {
   return (
     <span className="logo" aria-label="ComboTrader">
-      <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
-        <circle cx="16" cy="16" r="15" fill="#D4A017" />
-        <path d="M16 25V11M16 15c-3.5 0-6-2.2-6-5.5 3.5 0 6 2.2 6 5.5zm0 4c3.5 0 6-2.2 6-5.5-3.5 0-6 2.2-6 5.5zm0 4c-3 0-5.2-1.9-5.2-4.8 3 0 5.2 1.9 5.2 4.8z" fill="none" stroke="#1F4D2B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      <span className={light ? 'logo-word light' : 'logo-word'}>COMBO<b>TRADER</b></span>
+      <LogoMark size={30} disc={!light} />
+      <span className={light ? 'logo-word light' : 'logo-word'}>Combo<b>Trader</b></span>
     </span>
   );
 }
