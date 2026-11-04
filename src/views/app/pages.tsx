@@ -373,7 +373,7 @@ export function AppProfile({ banks, bankList, countries, blockers = [] }: { bank
         </Card>
         <div>
           <Card title={<span id="kyc">{c.t('profile.verification')} <Tag tone={toneFor(u.kyc_status)}>{c.t(`kyc.${u.kyc_status}`)}</Tag></span>}>
-            {u.kyc_status === 'verified' ? <p className="ok-line"><LuShieldCheck aria-hidden /> {c.t('kyc.verified')}</p> : u.kyc_status === 'pending' ? <p>{c.t('kyc.submitted')}</p> : <>
+            {u.kyc_status === 'verified' ? <p className="ok-line"><LuShieldCheck aria-hidden /> {c.t('kyc.verified')}</p> : u.kyc_status === 'pending' ? <p>{c.t(u.kyc_method === 'bvn' ? 'kyc.pending_bvn' : 'kyc.submitted')}</p> : <>
               {u.kyc_note && <p className="flash flash-error">{u.kyc_note}</p>}
               {u.country === 'NG' ? (
                 <form method="post" action="/app/profile/kyc">

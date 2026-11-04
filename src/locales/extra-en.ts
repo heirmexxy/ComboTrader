@@ -1,5 +1,6 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  'kyc.pending_bvn': 'We’re waiting for Paystack to confirm your BVN. This usually takes a few minutes; we’ll email you when it’s done.',
   "kyc.or_upload": "No BVN to hand? Upload an ID instead",
   "kyc.ng_doc_intro": "Upload a clear photo or scan of your NIN slip, international passport, driver’s licence or voter’s card, showing the same name as your account. Our team reviews it within two working days.",
   "kyc.send_doc": "Send for review",

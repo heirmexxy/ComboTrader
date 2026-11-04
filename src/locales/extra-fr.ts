@@ -1,5 +1,6 @@
 // Nouvelles fonctions — français (à faire relire par un locuteur natif).
 const x: Record<string, string> = {
+  'kyc.pending_bvn': 'Nous attendons que Paystack confirme votre BVN. Cela prend généralement quelques minutes ; nous vous enverrons un e-mail dès que c’est fait.',
   "kyc.or_upload": "Pas de BVN sous la main ? Envoyez plutôt une pièce d’identité",
   "kyc.ng_doc_intro": "Envoyez une photo ou un scan lisible de votre fiche NIN, passeport, permis de conduire ou carte d’électeur, au même nom que votre compte. Notre équipe l’examine sous deux jours ouvrés.",
   "kyc.send_doc": "Envoyer pour vérification",
