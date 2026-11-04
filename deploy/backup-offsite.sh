@@ -31,7 +31,7 @@ run() {
     sudo -u "$APP_USER" "$NODE" --disable-warning=ExperimentalWarning dist/cli.mjs backup "$db" >/dev/null
   fi
   local name="combotrader-$(date +%F-%H%M).tar.gz.enc" tmp; tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' RETURN
+  trap 'rm -rf "${tmp:-}"; trap - RETURN' RETURN
   if ! tar -czf - -C "$APP_DIR" "$db" $( [ -d data/uploads ] && echo data/uploads ) | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$KEY" -out "$tmp/$name"; then
     status error "could not create the encrypted file"; echo "Backup failed while encrypting."; exit 1
   fi
