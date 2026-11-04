@@ -12,7 +12,7 @@ permissions:
   contents: read
 concurrency: uptime
 env:
-  SITE: https://beta.combotrader.com.ng
+  SITE: https://www.combotrader.com.ng
 jobs:
   check:
     runs-on: ubuntu-24.04
