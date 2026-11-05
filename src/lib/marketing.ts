@@ -21,6 +21,7 @@ import { walletBalance } from './ledger';
 import { marketOn, openListings, quote } from './market';
 import { BRAND, MARK_SVG, BRAND_VOICE, useBrandFonts } from './brand';
 import { liReady, liPost } from './linkedin';
+import { GRAPH, fbPageId, fbPageToken, igUserId } from './meta';
 
 // ================= Channels =================
 export const CHANNELS = ['facebook', 'instagram', 'linkedin', 'x', 'telegram'] as const;
@@ -35,8 +36,8 @@ export const CHANNEL_SETUP: Record<Channel, string> = {
 };
 export function channelReady(ch: string) {
   switch (ch) {
-    case 'facebook': return !!(config.fbPageId && config.fbPageToken);
-    case 'instagram': return !!(config.igUserId && config.fbPageToken);
+    case 'facebook': return !!(fbPageId() && fbPageToken());
+    case 'instagram': return !!(igUserId() && fbPageToken());
     case 'linkedin': return liReady();
     case 'x': return !!(config.xApiKey && config.xApiSecret && config.xAccessToken && config.xAccessSecret);
     case 'telegram': return !!(config.telegramBotToken && config.telegramChannel);
@@ -45,9 +46,8 @@ export function channelReady(ch: string) {
 }
 export const wantedChannels = () => String(settings().social_channels).split(',').map((x) => x.trim()).filter((x): x is Channel => (CHANNELS as readonly string[]).includes(x));
 
-const GRAPH = 'https://graph.facebook.com/v21.0';
 async function graph(p: string, params: Record<string, string>, method: 'GET' | 'POST' = 'POST') {
-  const body = new URLSearchParams({ ...params, access_token: config.fbPageToken });
+  const body = new URLSearchParams({ ...params, access_token: fbPageToken() });
   const res = method === 'GET' ? await fetch(`${GRAPH}/${p}?${body}`, { signal: AbortSignal.timeout(30_000) }) : await fetch(`${GRAPH}/${p}`, { method, body, signal: AbortSignal.timeout(60_000) });
   const j: any = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(j?.error?.message || `Meta ${res.status}`);
@@ -66,11 +66,11 @@ const imageUrl = (rel: string | null) => (rel ? `${config.baseUrl}/uploads/${rel
 /** Publishes to one channel. Returns the post id on that channel. */
 async function publishTo(ch: Channel, text: string, short: string, image: string | null): Promise<string> {
   const img = imageUrl(image);
-  if (ch === 'facebook') return (img ? await graph(`${config.fbPageId}/photos`, { url: img, caption: text }) : await graph(`${config.fbPageId}/feed`, { message: text })).id;
+  if (ch === 'facebook') return (img ? await graph(`${fbPageId()}/photos`, { url: img, caption: text }) : await graph(`${fbPageId()}/feed`, { message: text })).id;
   if (ch === 'instagram') {
     if (!img) throw new Error('Instagram needs an image');
-    const c = await graph(`${config.igUserId}/media`, { image_url: img, caption: text });
-    return (await graph(`${config.igUserId}/media_publish`, { creation_id: c.id })).id;
+    const c = await graph(`${igUserId()}/media`, { image_url: img, caption: text });
+    return (await graph(`${igUserId()}/media_publish`, { creation_id: c.id })).id;
   }
   if (ch === 'linkedin') return liPost(text, image ? path.resolve(config.uploadsDir, 'public', image) : null);
   if (ch === 'x') {
@@ -311,7 +311,7 @@ function replyTemplate(key: string, fallback: string) {
   learn({ agent: 'social', kind: 'template', key, content: { title: key, body: fallback }, source: 'rules' });
   return fallback;
 }
-async function sendDm(recipient: string, text: string) { if (!config.fbPageToken) return false; await graph('me/messages', { recipient: JSON.stringify({ id: recipient }), message: JSON.stringify({ text: text.slice(0, 1900) }), messaging_type: 'RESPONSE' }); return true; }
+async function sendDm(recipient: string, text: string) { if (!fbPageToken()) return false; await graph('me/messages', { recipient: JSON.stringify({ id: recipient }), message: JSON.stringify({ text: text.slice(0, 1900) }), messaging_type: 'RESPONSE' }); return true; }
 /** Handles a Meta webhook for the Page and Instagram: lead forms, comments and direct messages. */
 export async function handleMetaWebhook(body: any) {
   let n = 0;
@@ -334,13 +334,13 @@ export async function handleMetaWebhook(body: any) {
       const isComment = (ch.field === 'feed' && v.item === 'comment' && v.verb === 'add') || (isIg && ch.field === 'comments');
       if (!isComment) continue;
       const cid = String(v.comment_id || v.id || ''); const text = String(v.message || v.text || '');
-      const from = String(v.from?.id || ''); if (!cid || from === config.fbPageId || from === config.igUserId) continue;
+      const from = String(v.from?.id || ''); if (!cid || from === fbPageId() || from === igUserId()) continue;
       if (q.get('SELECT 1 FROM social_inbox WHERE external_id=?', `c:${cid}`)) continue;
       let reply: string | null = null;
       if (s.social_auto_reply && agentOn('social') && INTEREST.test(text)) {
         const link = trackedLink('/join', { channel: isIg ? 'instagram' : 'facebook', campaign: 'comment-reply' }).url;
         reply = fill(replyTemplate('reply:comment', 'Thanks for asking! How it works, the open Trade Lots and how to start are all here: {link}'), { link });
-        try { if (config.fbPageToken) { if (isIg) await graph(`${cid}/replies`, { message: reply }); else await graph(`${cid}/private_replies`, { message: reply }); } }
+        try { if (fbPageToken()) { if (isIg) await graph(`${cid}/replies`, { message: reply }); else await graph(`${cid}/private_replies`, { message: reply }); } }
         catch (e: any) { audit(null, 'social.reply_failed', cid, e.message); reply = null; }
       }
       q.insert('social_inbox', { channel: isIg ? 'instagram' : 'facebook', kind: 'comment', external_id: `c:${cid}`, author: v.from?.name || v.from?.username || null, text: text.slice(0, 2000), reply, replied_at: reply ? now() : null, created_at: now() });
@@ -350,7 +350,7 @@ export async function handleMetaWebhook(body: any) {
     for (const m of entry.messaging || []) {
       const mid = String(m.message?.mid || ''); const text = String(m.message?.text || '');
       const sender = String(m.sender?.id || '');
-      if (!mid || !text || m.message?.is_echo || sender === config.fbPageId || sender === config.igUserId) continue;
+      if (!mid || !text || m.message?.is_echo || sender === fbPageId() || sender === igUserId()) continue;
       if (q.get('SELECT 1 FROM social_inbox WHERE external_id=?', `m:${mid}`)) continue;
       let reply: string | null = null;
       if (s.social_auto_reply && agentOn('social')) {

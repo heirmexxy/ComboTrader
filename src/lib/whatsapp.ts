@@ -2,6 +2,7 @@
 // to check balance, trades, payout dates, Harvest Trail updates and open lots, or ask a question (answered by the
 // support agent, with hand-over to a person). Nothing on WhatsApp can move money.
 import crypto from 'node:crypto';
+import { GRAPH } from './meta';
 import { q, now } from './db';
 import { config } from './config';
 import { settings } from './settings';
@@ -28,7 +29,7 @@ export async function sendWhatsApp(to: string, body: string) {
   const digits = to.replace(/\D/g, '');
   q.insert('wa_messages', { phone: digits, user_id: userByPhone(digits)?.id ?? null, direction: 'out', body: body.slice(0, 4000), created_at: now() });
   if (!waLive()) return false;
-  const res = await fetch(`https://graph.facebook.com/v21.0/${config.waPhoneId}/messages`, {
+  const res = await fetch(`${GRAPH}/${config.waPhoneId}/messages`, {
     method: 'POST', headers: { Authorization: `Bearer ${config.waToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: digits, type: 'text', text: { preview_url: true, body: body.slice(0, 4000) } }),
   });

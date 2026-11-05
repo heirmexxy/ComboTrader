@@ -25,6 +25,7 @@ import { savePublicImage } from '../lib/uploads';
 import { audit } from '../lib/audit';
 import { parseNaira, fmtNGN } from '../lib/util';
 import { config } from '../lib/config';
+import { metaAuth, metaConfigured, metaAuthUrl, metaExchange, metaPages, metaChoosePage, metaDisconnect, metaRedirect } from '../lib/meta';
 import { liAuth, liConfigured, liAuthUrl, liExchange, liAdminPages, liChoosePage, liDisconnect, liDaysLeft, liRedirect, liToken } from '../lib/linkedin';
 import { hmac, safeEqual } from '../lib/util';
 import { HttpError, type Ctx } from '../lib/http';
@@ -269,7 +270,7 @@ get('/admin/marketing', 'admin:content', (c) => {
       <Box title="Where new Champions came from (30 days)">{bySource.length ? <Table rows={bySource} cols={[['Source', (r) => r.src], ['Sign-ups', (r) => r.n], ['Traded', (r) => r.traded]]} /> : <p className="muted">No sign-ups yet in this period.</p>}</Box>
       <Box title="Channels">
         <Table rows={[...CHANNELS]} cols={[['Channel', (ch) => <><b>{CHANNEL_NAMES[ch]}</b>{!wantedChannels().includes(ch) && <span className="tag tag-grey">not used</span>}</>],
-          ['Status', (ch) => ch === 'linkedin' && liConfigured() ? <LinkedInStatus /> : channelReady(ch) ? <span className="tag tag-green">connected: posts publish automatically</span> : <span className="small">Copy &amp; post: ready-made text and image below. To connect, add {CHANNEL_SETUP[ch]} to the server settings file.</span>]]} />
+          ['Status', (ch) => ch === 'linkedin' && liConfigured() ? <LinkedInStatus /> : (ch === 'facebook' || ch === 'instagram') && metaConfigured() ? <MetaStatus ch={ch} /> : channelReady(ch) ? <span className="tag tag-green">connected: posts publish automatically</span> : <span className="small">Copy &amp; post: ready-made text and image below. To connect, add {CHANNEL_SETUP[ch]} to the server settings file.</span>]]} />
         <p className="small">Comments, DMs and lead forms: in your Meta app, subscribe the Page (fields <code>feed</code>, <code>messages</code>, <code>leadgen</code>) and Instagram (<code>comments</code>, <code>messages</code>) to <code>{meta}</code> with the verify token in META_VERIFY_TOKEN. Your ads and posts can also point to <a href="/join" target="_blank">{config.baseUrl}/join</a>, which captures leads with consent.</p>
       </Box>
     </div>
@@ -708,3 +709,47 @@ post('/admin/linkedin/pages', 'admin:content', (c) => {
   c.redirect('/admin/marketing', ['ok', `LinkedIn posts will go to ${c.str('name', 120) || urn}.`]);
 });
 post('/admin/linkedin/disconnect', 'admin:content', (c) => { liDisconnect(); audit(c.user!.id, 'linkedin.disconnect'); c.redirect('/admin/marketing', ['ok', 'LinkedIn disconnected.']); });
+
+// ---------- Facebook & Instagram connection ----------
+function MetaStatus({ ch }: { ch: 'facebook' | 'instagram' }) {
+  const a = metaAuth();
+  if (ch === 'instagram') return a?.page_id ? (a.ig_id ? <span className="small"><span className="tag tag-green">connected</span> @{a.ig_username}</span> : <span className="small">No Instagram professional account is linked to {a.page_name}. Link it in the Instagram app (Settings → Account type and tools), then <a href="/admin/meta/pages">refresh</a>.</span>) : <span className="small muted">Connects together with Facebook.</span>;
+  if (a?.page_id) return <span className="small"><span className="tag tag-green">connected</span> posting as <b>{a.page_name}</b>{a.subscribed ? '; comments, messages and lead forms come in' : '; comments and messages not subscribed yet'}. <a href="/admin/meta/connect">Reconnect</a> · <a href="/admin/meta/pages">Change Page</a></span>;
+  if (a?.user_token) return <span className="small">Signed in. <a href="/admin/meta/pages">Choose the Page to post as</a></span>;
+  return <span className="small"><a className="btn btn-primary btn-sm" href="/admin/meta/connect">Connect Facebook &amp; Instagram</a> Sign in as an admin of the ComboTrader Page.</span>;
+}
+get('/admin/meta/connect', 'admin:content', (c) => {
+  if (!metaConfigured()) return c.redirect('/admin/marketing', ['error', 'Add META_APP_ID and META_APP_SECRET to the server settings first.']);
+  const state = randomToken(16);
+  c.setCookie('meta_state', `${state}.${hmac(state)}`, { maxAge: 600 });
+  c.redirect(metaAuthUrl(state));
+});
+get('/admin/meta/callback', 'admin:content', async (c) => {
+  const [state, sig] = String(c.cookies.meta_state || '').split('.');
+  c.setCookie('meta_state', '', { maxAge: 0 });
+  if (c.query.error) return c.redirect('/admin/marketing', ['error', `Facebook: ${String(c.query.error_description || c.query.error_reason || c.query.error).slice(0, 200)}`]);
+  if (!state || !sig || !safeEqual(hmac(state), sig) || state !== c.query.state) return c.redirect('/admin/marketing', ['error', 'Facebook sign-in expired. Please try again.']);
+  try {
+    await metaExchange(String(c.query.code || ''));
+    audit(c.user!.id, 'meta.connect', undefined, undefined, c.ip);
+    const pages = (await metaPages()).filter((p) => p.canPost);
+    if (pages.length === 1) { const r = await metaChoosePage(pages[0].id); return c.redirect('/admin/marketing', ['ok', `Connected: Facebook Page ${r.page}${r.instagram ? ` and Instagram @${r.instagram}` : ''}.`]); }
+    c.redirect('/admin/meta/pages');
+  } catch (e: any) { audit(c.user!.id, 'meta.error', undefined, String(e.message).slice(0, 300)); c.redirect('/admin/marketing', ['error', String(e.message).slice(0, 300)]); }
+});
+get('/admin/meta/pages', 'admin:content', async (c) => {
+  if (!metaAuth()?.user_token) return c.redirect('/admin/meta/connect');
+  let pages: Awaited<ReturnType<typeof metaPages>> = [], err = '';
+  try { pages = await metaPages(); } catch (e: any) { err = e.message; }
+  page(c, 'Choose a Facebook Page', <Box title="Post as which Page?">
+    {err && <p className="error">{err}</p>}
+    {pages.length ? <ul className="list">{pages.map((p) => <li key={p.id}><span>{p.name} {p.ig ? <span className="small">· Instagram @{p.ig.username}</span> : <span className="small muted">· no Instagram linked</span>}{!p.canPost && <span className="tag tag-grey">no posting permission</span>}</span>{p.canPost && <Act action="/admin/meta/pages" fields={{ id: p.id }} label="Use this Page" tone="primary" />}</li>)}</ul>
+      : !err && <p>This Facebook account doesn’t manage any Pages that shared access with ComboTrader. <a href="/admin/meta/connect">Reconnect</a> and, when Facebook asks, select the ComboTrader Page (and its Instagram account).</p>}
+    <p className="small muted">Redirect URL registered in the Meta app: <code>{metaRedirect()}</code></p>
+  </Box>);
+});
+post('/admin/meta/pages', 'admin:content', async (c) => {
+  try { const r = await metaChoosePage(c.str('id', 40)); audit(c.user!.id, 'meta.page', c.str('id', 40)); c.redirect('/admin/marketing', ['ok', `Connected: Facebook Page ${r.page}${r.instagram ? ` and Instagram @${r.instagram}` : ''}.`]); }
+  catch (e: any) { c.redirect('/admin/meta/pages', ['error', e.message]); }
+});
+post('/admin/meta/disconnect', 'admin:content', (c) => { metaDisconnect(); audit(c.user!.id, 'meta.disconnect'); c.redirect('/admin/marketing', ['ok', 'Facebook & Instagram disconnected.']); });

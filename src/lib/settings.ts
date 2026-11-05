@@ -11,7 +11,8 @@ export const DEFAULTS = {
   dual_approval_threshold: 500000000, // ₦5,000,000 needs a second approver
   kyc_required_above: 200000000, // ₦2,000,000 cumulative funding before an identity check is required
   pass_card_fees: false,
-  linkedin_auth: '', // set by Admin → Marketing → Connect LinkedIn (token, page)
+  linkedin_auth: '',
+  meta_auth: '', // set by Admin → Marketing → Connect Facebook & Instagram (Page, Page token, Instagram account) // set by Admin → Marketing → Connect LinkedIn (token, page)
   assistant_enabled: true, // the 'Ask ComboTrader' chat on the website (Support agent; humans take over in Tawk.to)
   paystack_low_balance: 10000000, // kobo: ₦100,000 — alert when the Paystack balance falls below this (or below withdrawals waiting)
   feed_enabled: true,

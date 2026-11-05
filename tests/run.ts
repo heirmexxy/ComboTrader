@@ -832,6 +832,33 @@ await t('linkedin: connect stores the token, finds the page, posts with the bran
   } finally { globalThis.fetch = real; li.liDisconnect(); (config as any).linkedinClientId = ''; (config as any).linkedinClientSecret = ''; }
 });
 
+await t('meta: connect exchanges for a long-lived token, picks the Page with its Instagram, subscribes the webhook; posting uses it', async () => {
+  const meta = await import('../src/lib/meta');
+  const mk = await import('../src/lib/marketing');
+  const { config } = await import('../src/lib/config');
+  (config as any).metaAppId = 'app'; (config as any).metaAppSecret = 'sec';
+  const real = globalThis.fetch; const seen: string[] = [];
+  globalThis.fetch = (async (url: string, init: any) => {
+    seen.push(url.split('?')[0]);
+    const ok = (d: any) => new Response(JSON.stringify(d), { status: 200 });
+    if (url.includes('oauth/access_token') && url.includes('fb_exchange_token')) return ok({ access_token: 'LONG' });
+    if (url.includes('oauth/access_token')) return ok({ access_token: 'SHORT' });
+    if (url.includes('me/accounts')) return ok({ data: [{ id: '555', name: 'ComboTrader', access_token: 'PAGE', tasks: ['MANAGE', 'CREATE_CONTENT'], instagram_business_account: { id: '777', username: 'combotraderofficial' } }] });
+    if (url.includes('subscribed_apps')) return ok({ success: true });
+    return ok({ id: 'p1' });
+  }) as any;
+  try {
+    eq(mk.channelReady('facebook'), false);
+    eq(meta.metaAuthUrl('s').includes('/v25.0/dialog/oauth'), true);
+    await meta.metaExchange('code');
+    const r = await meta.metaChoosePage('555');
+    eq(r.page, 'ComboTrader'); eq(r.instagram, 'combotraderofficial'); eq(r.subscribed, true);
+    eq(meta.fbPageToken(), 'PAGE'); eq(meta.igUserId(), '777');
+    eq(mk.channelReady('facebook') && mk.channelReady('instagram'), true);
+    eq(seen.every((u) => !u.includes('graph.facebook.com') || u.includes('/v25.0/')), true);
+  } finally { globalThis.fetch = real; meta.metaDisconnect(); (config as any).metaAppId = ''; (config as any).metaAppSecret = ''; }
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');

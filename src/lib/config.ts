@@ -57,10 +57,11 @@ export const config = {
   waNumber: e.WHATSAPP_NUMBER || '', // public number shown to Champions, e.g. 2348012345678
 
   // Social channels (each one is optional; without it, posts for that channel are prepared for copy-and-post)
+  metaAppId: (e.META_APP_ID || '').trim(), metaLoginConfigId: (e.META_LOGIN_CONFIG_ID || '').trim(),
   fbPageId: e.FACEBOOK_PAGE_ID || '',
   fbPageToken: e.FACEBOOK_PAGE_TOKEN || '', // long-lived Page access token (also used for Instagram, Messenger and Lead Ads)
   igUserId: e.INSTAGRAM_BUSINESS_ID || '',
-  metaAppSecret: e.META_APP_SECRET || e.WHATSAPP_APP_SECRET || '',
+  metaAppSecret: (e.META_APP_SECRET || e.WHATSAPP_APP_SECRET || '').trim(),
   metaVerifyToken: e.META_VERIFY_TOKEN || e.WHATSAPP_VERIFY_TOKEN || '',
   linkedinToken: e.LINKEDIN_TOKEN || '',
   linkedinClientId: (e.LINKEDIN_CLIENT_ID || '').trim(), linkedinClientSecret: (e.LINKEDIN_CLIENT_SECRET || '').trim(),
