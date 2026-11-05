@@ -15,7 +15,7 @@ const x: Record<string, string> = {
   'chat.fab': 'Demandez à ComboTrader',
   'chat.title': 'Demandez à ComboTrader',
   'chat.sub': 'Réponse en quelques secondes, à toute heure. Une personne peut prendre le relais.',
-  'chat.hello': 'Bonjour ! Je suis l’assistant ComboTrader. Posez-moi vos questions sur le fonctionnement des opérations, les lots ouverts, les paiements ou votre compte.',
+  'chat.hello': 'Bonjour ! Je suis Tolu, l’assistant IA de ComboTrader. Posez-moi vos questions sur le fonctionnement des opérations, les lots ouverts, les paiements ou votre compte.',
   'chat.placeholder': 'Écrivez votre question…',
   'chat.send': 'Envoyer',
   'chat.person': 'Parler à une personne',

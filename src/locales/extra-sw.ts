@@ -15,7 +15,7 @@ const x: Record<string, string> = {
   'chat.fab': 'Uliza ComboTrader',
   'chat.title': 'Uliza ComboTrader',
   'chat.sub': 'Majibu ndani ya sekunde, wakati wowote. Mtu anaweza kuendelea.',
-  'chat.hello': 'Habari! Mimi ni msaidizi wa ComboTrader. Niulize jinsi biashara zinavyofanya kazi, kuhusu lot zilizo wazi, malipo au akaunti yako.',
+  'chat.hello': 'Habari! Mimi ni Tolu, msaidizi wa AI wa ComboTrader. Niulize jinsi biashara zinavyofanya kazi, kuhusu lot zilizo wazi, malipo au akaunti yako.',
   'chat.placeholder': 'Andika swali lako…',
   'chat.send': 'Tuma',
   'chat.person': 'Ongea na mtu',

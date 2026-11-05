@@ -20,6 +20,7 @@ import { runLibrary } from './library';
 import { fmtNGN, lagosNow } from './util';
 import { offMessage, playbookFor, TARGETS_90, PROSPECT_SEGMENTS, PROSPECT_REGIONS } from '../content/playbook';
 import { marked } from 'marked';
+import { PERSONAS } from './personas';
 
 /** What the Chief of Staff may ask each agent to do. */
 export const TASK_KINDS = {
@@ -34,7 +35,9 @@ export const TASK_KINDS = {
 } as const;
 export type TaskKind = keyof typeof TASK_KINDS;
 interface TaskIn { kind: TaskKind; detail?: Record<string, unknown>; reason: string }
-interface Rec { priority: number; text: string; link?: string }
+export const ADMIN_ROLES = ['super', 'finance', 'operations', 'content', 'support'] as const;
+export type AdminRole = typeof ADMIN_ROLES[number];
+interface Rec { key: string; roles: AdminRole[]; priority: number; text: string; link?: string }
 
 const ago = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
 const num = (sql: string, ...p: (string | number | null)[]) => Number(q.val(sql, ...p) ?? 0);
@@ -93,28 +96,28 @@ function kindScore(kind: TaskKind) { const l = bestLesson('chief', 'advice', `ta
 
 export function rulePlan(f: Facts) {
   const recs: Rec[] = [], tasks: TaskIn[] = [];
-  if (f.health.length) recs.push({ priority: 1, text: `System health needs attention: ${f.health.join('; ')}.`, link: '/admin' });
-  if (f.paystack?.low) recs.push({ priority: 1, text: `Top up the Paystack balance: ${f.paystack.summary}`, link: '/admin/withdrawals' });
+  if (f.health.length) recs.push({ key: 'health', roles: ['super'], priority: 1, text: `System health needs attention: ${f.health.join('; ')}.`, link: '/admin' });
+  if (f.paystack?.low) recs.push({ key: 'paystack_low', roles: ['finance'], priority: 1, text: `Top up the Paystack balance: ${f.paystack.summary}`, link: '/admin/withdrawals' });
   const short = f.treasury.find((h) => h.level === 'short');
   if (short) {
-    recs.push({ priority: 1, text: `Treasury shows a shortfall within ${short.days} days. Review cash, the credit line and buyer money due; I’ve paused promotion of new lots for 7 days.`, link: '/admin/treasury' });
+    recs.push({ key: 'treasury_short', roles: ['finance'], priority: 1, text: `Treasury shows a shortfall within ${short.days} days. Review cash, the credit line and buyer money due; I’ve paused promotion of new lots for 7 days.`, link: '/admin/treasury' });
     if (!String(settings().social_paused_until || '').startsWith(lagosNow().toISOString().slice(0, 10)) && !recentTask('social.pause_promotion', '', 6)) tasks.push({ kind: 'social.pause_promotion', detail: { days: 7 }, reason: `Treasury short within ${short.days} days` });
   }
-  if (f.overdue_buyers) recs.push({ priority: 2, text: `${f.overdue_buyers} buyer payment${f.overdue_buyers > 1 ? 's are' : ' is'} overdue. Chase them; Champions are still paid on time.`, link: '/admin/treasury' });
+  if (f.overdue_buyers) recs.push({ key: 'buyers_overdue', roles: ['finance'], priority: 2, text: `${f.overdue_buyers} buyer payment${f.overdue_buyers > 1 ? 's are' : ' is'} overdue. Chase them; Champions are still paid on time.`, link: '/admin/treasury' });
   for (const l of f.lots) {
     if (l.days_left <= 5 && l.pct < 70 && !short) {
       // Prefer what has worked before: try the better-scoring push first, and both when far behind.
       const order: TaskKind[] = kindScore('email.lot_push') >= kindScore('social.promote_lot') ? ['email.lot_push', 'social.promote_lot'] : ['social.promote_lot', 'email.lot_push'];
       const both = l.pct < 40 || l.days_left <= 2;
       for (const k of both ? order : order.slice(0, 1)) if (!recentTask(k, l.code, 3)) tasks.push({ kind: k, detail: { lot_code: l.code, pct_before: l.pct }, reason: `${l.code} is ${l.pct}% funded with ${l.days_left} days left` });
-      if (l.days_left <= 2 && l.pct < 50) recs.push({ priority: 2, text: `${l.title} (${l.code}) is ${l.pct}% funded and closes in ${l.days_left} days. Decide whether to extend the closing date or reduce the lot size.`, link: '/admin/lots' });
+      if (l.days_left <= 2 && l.pct < 50) recs.push({ key: `lot_decide:${l.code}`, roles: ['operations'], priority: 2, text: `${l.title} (${l.code}) is ${l.pct}% funded and closes in ${l.days_left} days. Decide whether to extend the closing date or reduce the lot size.`, link: '/admin/lots' });
     }
   }
-  if (!f.lots.length && f.week.leads + f.week.signups > 0) recs.push({ priority: 2, text: `No lots are open, but ${f.week.leads} leads and ${f.week.signups} sign-ups came in this week. Open the next lot when a buyer order is ready.`, link: '/admin/lots' });
-  if (f.queue.total > 20 || f.queue.oldest_hours > 48) recs.push({ priority: 3, text: `${f.queue.total} agent proposals are waiting (oldest ${f.queue.oldest_hours}h). I’ve triaged them: approve the safe ones in one click.`, link: '/admin/chief#triage' });
-  if (f.waiting.chats) recs.push({ priority: 2, text: `${f.waiting.chats} website or WhatsApp chat${f.waiting.chats > 1 ? 's have' : ' has'} waited over 4 hours for a person.`, link: '/admin/chats' });
-  if (f.waiting.withdrawals) recs.push({ priority: 2, text: `${f.waiting.withdrawals} withdrawal${f.waiting.withdrawals > 1 ? 's have' : ' has'} waited over a day.`, link: '/admin/withdrawals' });
-  if (f.waiting.id_checks) recs.push({ priority: 3, text: `${f.waiting.id_checks} ID document${f.waiting.id_checks > 1 ? 's' : ''} waiting for review.`, link: '/admin/verification' });
+  if (!f.lots.length && f.week.leads + f.week.signups > 0) recs.push({ key: 'no_lots', roles: ['operations'], priority: 2, text: `No lots are open, but ${f.week.leads} leads and ${f.week.signups} sign-ups came in this week. Open the next lot when a buyer order is ready.`, link: '/admin/lots' });
+  if (f.queue.total > 20 || f.queue.oldest_hours > 48) recs.push({ key: 'queue', roles: ['super'], priority: 3, text: `${f.queue.total} agent proposals are waiting (oldest ${f.queue.oldest_hours}h). I’ve triaged them: approve the safe ones in one click.`, link: '/admin/chief#triage' });
+  if (f.waiting.chats) recs.push({ key: 'chats_waiting', roles: ['support'], priority: 2, text: `${f.waiting.chats} website or WhatsApp chat${f.waiting.chats > 1 ? 's have' : ' has'} waited over 4 hours for a person.`, link: '/admin/chats' });
+  if (f.waiting.withdrawals) recs.push({ key: 'withdrawals_waiting', roles: ['finance'], priority: 2, text: `${f.waiting.withdrawals} withdrawal${f.waiting.withdrawals > 1 ? 's have' : ' has'} waited over a day.`, link: '/admin/withdrawals' });
+  if (f.waiting.id_checks) recs.push({ key: 'id_checks', roles: ['support'], priority: 3, text: `${f.waiting.id_checks} ID document${f.waiting.id_checks > 1 ? 's' : ''} waiting for review.`, link: '/admin/verification' });
   if (f.week.verified_not_funded >= 3 && !recentTask('onboarding.run', '', 3)) tasks.push({ kind: 'onboarding.run', reason: `${f.week.verified_not_funded} verified Champions haven’t funded yet`, detail: { stuck_before: f.week.verified_not_funded } });
   // What's working: favour the how-to topic with the best clicks per post (needs at least 2 posts each).
   const topics = f.learn_topics.filter((t: any) => t.posts >= 2 && t.topic).map((t: any) => ({ ...t, cpp: t.clicks / t.posts })).sort((a: any, b: any) => b.cpp - a.cpp);
@@ -137,7 +140,7 @@ export function rulePlan(f: Facts) {
   // Progress against the 90-day targets (pro rata).
   const d = Math.min(90, Math.max(1, f.progress.days_since_start));
   const behind = (Object.keys(TARGETS_90) as (keyof typeof TARGETS_90)[]).filter((k) => f.progress[k] < (TARGETS_90[k] * d) / 90 * 0.6);
-  if (d >= 14 && behind.length) recs.push({ priority: 3, text: `Behind the 90-day plan on ${behind.map((k) => `${k.replace('_', ' ')} (${f.progress[k]} of ${Math.round((TARGETS_90[k] * d) / 90)} expected by day ${d})`).join(', ')}.`, link: '/admin/chief' });
+  if (d >= 14 && behind.length) recs.push({ key: 'behind_plan', roles: ['super', 'content'], priority: 3, text: `Behind the 90-day plan on ${behind.map((k) => `${k.replace('_', ' ')} (${f.progress[k]} of ${Math.round((TARGETS_90[k] * d) / 90)} expected by day ${d})`).join(', ')}.`, link: '/admin/chief' });
   return { recs: recs.sort((a, b) => a.priority - b.priority), tasks };
 }
 
@@ -239,12 +242,12 @@ export async function runChief(trigger = 'daily') {
   const past = q.all<any>("SELECT kind, reason, result, outcome FROM agent_tasks WHERE created_at>=? ORDER BY id DESC LIMIT 20", ago(21));
   if (useAI('chief')) {
     try {
-      const r = await completeJson<{ headline: string; recommendations?: { priority: number; text: string; link?: string }[]; tasks?: { kind: string; detail?: Record<string, unknown>; reason: string }[] }>('chief', { trigger, maxTokens: 2500,
-        system: `${POLICY}\n${playbookFor('chief')}\nYou are ComboTrader's Chief of Staff. You coordinate the other agents and brief the founder each morning. From the facts, the rule-based plan already made, past tasks and their outcomes, and what has worked, write: "headline" (2 sentences: the state of the business today and the single most important thing), up to 4 extra "recommendations" for the founder that the rules missed (priority 1 = urgent … 5 = nice to have; concrete, with numbers from the facts; link to an admin page if useful), and up to 3 extra "tasks" for agents, ONLY of these kinds: ${Object.entries(TASK_KINDS).map(([k, v]) => `${k} (${v.what}; needs ${v.needs || 'nothing'})`).join('; ')}. Do not repeat tasks already in the plan. Prefer task kinds that have worked before. Never suggest anything that moves money, changes rates or terms, or contacts people who haven't opted in. Return {"headline":string,"recommendations":[{"priority":number,"text":string,"link":string}],"tasks":[{"kind":string,"detail":object,"reason":string}]}.`,
+      const r = await completeJson<{ headline: string; recommendations?: { priority: number; text: string; link?: string; for?: string }[]; tasks?: { kind: string; detail?: Record<string, unknown>; reason: string }[] }>('chief', { trigger, maxTokens: 2500,
+        system: `${POLICY}\n${playbookFor('chief')}\nYou are ComboTrader's Chief of Staff. You coordinate the other agents and brief the founder each morning. From the facts, the rule-based plan already made, past tasks and their outcomes, and what has worked, write: "headline" (2 sentences: the state of the business today and the single most important thing), up to 4 extra "recommendations" that the rules missed (priority 1 = urgent … 5 = nice to have; concrete, with numbers from the facts; link to an admin page if useful; "for" = the admin role that should decide it: super (the founder: strategy, people, anything cross-team), finance (cash, Paystack, payouts, withdrawals, buyer payments), operations (lots, Harvest Trail, prices, circles), content (posts, emails, newsletter, blog, prospects) or support (Champions, chats, tickets, ID checks)), and up to 3 extra "tasks" for agents, ONLY of these kinds: ${Object.entries(TASK_KINDS).map(([k, v]) => `${k} (${v.what}; needs ${v.needs || 'nothing'})`).join('; ')}. Do not repeat tasks already in the plan. Prefer task kinds that have worked before. Never suggest anything that moves money, changes rates or terms, or contacts people who haven't opted in. Return {"headline":string,"recommendations":[{"priority":number,"text":string,"link":string,"for":string}],"tasks":[{"kind":string,"detail":object,"reason":string}]}.`,
         input: { facts: f, rule_plan: plan, past_tasks: past, what_worked: whatWorks(), triage: { safe: tri.safe.length, needs_review: tri.review.length } } });
       runId = r.runId; mode = 'ai';
       headline = String(r.data.headline || '').slice(0, 600);
-      extraRecs = (r.data.recommendations || []).slice(0, 4).filter((x) => x?.text).map((x) => ({ priority: Math.min(5, Math.max(1, Number(x.priority) || 3)), text: String(x.text).slice(0, 400), link: typeof x.link === 'string' && x.link.startsWith('/admin') ? x.link : undefined }));
+      extraRecs = (r.data.recommendations || []).slice(0, 4).filter((x) => x?.text).map((x) => ({ key: `ai:${String(x.text).toLowerCase().replace(/[^a-z]+/g, ' ').trim().slice(0, 48)}`, roles: [(ADMIN_ROLES as readonly string[]).includes(String(x.for)) ? x.for as AdminRole : 'super'], priority: Math.min(5, Math.max(1, Number(x.priority) || 3)), text: String(x.text).slice(0, 400), link: typeof x.link === 'string' && x.link.startsWith('/admin') ? x.link : undefined }));
       extra = (r.data.tasks || []).slice(0, 3).filter((t) => t && t.kind in TASK_KINDS && !plan.tasks.some((p) => p.kind === t.kind)).map((t) => ({ kind: t.kind as TaskKind, detail: t.detail || {}, reason: String(t.reason || 'Chief of Staff').slice(0, 300) }));
     } catch (e) { if (!(e instanceof AiUnavailable)) audit(null, 'agent.chief_error', undefined, String((e as Error).message)); }
   }
@@ -256,21 +259,83 @@ export async function runChief(trigger = 'daily') {
     if (settings().chief_assign) { const id = assign(t, 'chief'); assigned.push({ id, t, result: id ? await runTask(id) : 'agent is off' }); }
     else assigned.push({ id: null, t });
   }
-  if (!settings().chief_assign && assigned.length) recs.push({ priority: 4, text: `Suggested agent tasks (assignment is switched off): ${assigned.map((a) => `${a.t.kind} (${a.t.reason})`).join('; ')}.`, link: '/admin/chief' });
+  if (!settings().chief_assign && assigned.length) recs.push({ key: 'tasks_suggested', roles: ['super'], priority: 4, text: `Suggested agent tasks (assignment is switched off): ${assigned.map((a) => `${a.t.kind} (${a.t.reason})`).join('; ')}.`, link: '/admin/chief' });
   if (!headline) headline = recs.length ? `${recs.filter((r) => r.priority <= 2).length} urgent item${recs.filter((r) => r.priority <= 2).length === 1 ? '' : 's'} today. ${f.lots.length} lot${f.lots.length === 1 ? '' : 's'} open; ${f.week.signups} sign-ups and ${f.week.funded_naira} funded this week.` : `All quiet. ${f.lots.length} lot${f.lots.length === 1 ? '' : 's'} open; ${f.week.signups} sign-ups and ${f.week.funded_naira} funded this week.`;
-  const md = briefMarkdown(f, headline, recs, assigned, tri);
-  const id = q.insert('chief_briefs', { period: trigger, headline, body: md, facts: JSON.stringify(f).slice(0, 50000), mode, run_id: runId, created_at: now() }).id;
-  const subject = `ComboTrader brief ${f.date}: ${recs.filter((r) => r.priority <= 2).length ? `${recs.filter((r) => r.priority <= 2).length} need you` : 'all quiet'}`;
-  const html = marked.parse(escapeHtml(md).replace(/\]\(\/admin/g, `](${config.baseUrl}/admin`), { async: false }) as string;
-  for (const a of q.all<any>("SELECT email FROM users WHERE role='admin' AND status='active' AND admin_roles LIKE '%super%'")) queueEmail(a.email, subject, emailShell(escapeHtml(subject), html, { label: 'Open the brief', url: `${config.baseUrl}/admin/chief` }));
-  return `brief #${id} (${mode}): ${recs.length} recommendations, ${assigned.length} tasks${scored ? `, ${scored} outcomes learned` : ''}`;
+  const id = q.insert('chief_briefs', { period: trigger, headline, body: '', facts: JSON.stringify(f).slice(0, 50000), mode, run_id: runId, created_at: now() }).id;
+  const kept = syncDecisions(recs, id);
+  const waiting = q.all<any>("SELECT * FROM chief_recs WHERE status='open' AND created_at<=? ORDER BY priority, created_at", ago(2));
+  const md = briefMarkdown(f, headline, kept, assigned, tri, waiting);
+  q.run('UPDATE chief_briefs SET body=? WHERE id=?', md, id);
+  const urgent = kept.filter((r) => r.priority <= 2).length;
+  const subject = `${PERSONAS.chief.name} · ComboTrader brief ${f.date}: ${urgent ? `${urgent} need you` : 'all quiet'}`;
+  const admins = q.all<any>("SELECT id, email, first_name, admin_roles FROM users WHERE role='admin' AND status='active'");
+  for (const a of admins.filter((x) => rolesOf(x.admin_roles).includes('super'))) queueEmail(a.email, subject, emailShell(escapeHtml(subject), mdHtml(md), { label: 'Open the brief', url: `${config.baseUrl}/admin/chief` }));
+  // Everyone else gets only what is theirs to decide, with the facts for their role.
+  let sent = 0;
+  for (const a of admins.filter((x) => !rolesOf(x.admin_roles).includes('super'))) {
+    const mine = rolesOf(a.admin_roles);
+    const rows = q.all<any>("SELECT * FROM chief_recs WHERE status='open' ORDER BY priority, created_at").filter((r) => rolesOf(r.roles).some((x) => mine.includes(x)));
+    if (!rows.length) continue;
+    const body = roleBriefMarkdown(a.first_name, mine, rows, f);
+    const sub = `${PERSONAS.chief.name} (Chief of Staff): ${rows.length} decision${rows.length === 1 ? '' : 's'} for you today`;
+    queueEmail(a.email, sub, emailShell(escapeHtml(sub), mdHtml(body), { label: 'Decide in the admin', url: `${config.baseUrl}/admin/chief#decisions` }));
+    sent++;
+  }
+  return `brief #${id} (${mode}): ${kept.length} recommendations, ${assigned.length} tasks${sent ? `, ${sent} role briefs sent` : ''}${scored ? `, ${scored} outcomes learned` : ''}`;
 }
 
-function briefMarkdown(f: Facts, headline: string, recs: Rec[], tasks: { t: TaskIn; result?: string }[], tri: ReturnType<typeof triage>) {
+// ---------- Decisions routed to the team ----------
+export const rolesOf = (s: string | null | undefined) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean) as AdminRole[];
+const mdHtml = (md: string) => marked.parse(escapeHtml(md).replace(/&gt;/g, '>').replace(/\]\(\/admin/g, `](${config.baseUrl}/admin`), { async: false }) as string;
+const ROLE_NAME: Record<AdminRole, string> = { super: 'Founder', finance: 'Finance', operations: 'Operations', content: 'Content', support: 'Support' };
+/** Keeps one open decision per situation: updates it while the situation lasts, closes it when the situation clears,
+ * and does not raise again for 7 days something a person chose “not now” on (unless it is urgent). */
+export function syncDecisions(recs: Rec[], briefId: number) {
+  const kept: Rec[] = [];
+  for (const r of recs) {
+    const open = q.get<any>("SELECT id FROM chief_recs WHERE key=? AND status='open'", r.key);
+    if (open) { q.run('UPDATE chief_recs SET text=?, priority=?, link=?, roles=?, seen=seen+1, brief_id=?, updated_at=? WHERE id=?', r.text, r.priority, r.link || null, r.roles.join(','), briefId, now(), open.id); kept.push(r); continue; }
+    if (r.priority > 1 && q.get("SELECT 1 FROM chief_recs WHERE key=? AND status='dismissed' AND decided_at>=?", r.key, ago(7))) continue;
+    q.insert('chief_recs', { key: r.key, roles: r.roles.join(','), priority: r.priority, text: r.text, link: r.link || null, status: 'open', seen: 1, brief_id: briefId, created_at: now(), updated_at: now() });
+    kept.push(r);
+  }
+  const keys = new Set(recs.map((r) => r.key));
+  for (const o of q.all<any>("SELECT id, key FROM chief_recs WHERE status='open'")) if (!keys.has(o.key)) q.run("UPDATE chief_recs SET status='resolved', note='The situation cleared', decided_at=?, updated_at=? WHERE id=?", now(), now(), o.id);
+  return kept;
+}
+export function decide(id: number, by: number, roles: AdminRole[], action: 'done' | 'dismissed', note: string) {
+  const r = q.get<any>("SELECT * FROM chief_recs WHERE id=? AND status='open'", id);
+  if (!r) return 'Already decided.';
+  if (!roles.includes('super') && !rolesOf(r.roles).some((x) => roles.includes(x))) return 'This decision is for another role.';
+  q.run('UPDATE chief_recs SET status=?, note=?, decided_by=?, decided_at=?, updated_at=? WHERE id=?', action, note.slice(0, 500) || null, by, now(), now(), id);
+  audit(by, `chief.decision_${action}`, String(id), { key: r.key, note });
+  return action === 'done' ? 'Marked done.' : 'Noted. I won’t raise it again for 7 days unless it becomes urgent.';
+}
+function roleSnapshot(roles: AdminRole[], f: Facts) {
+  const out: string[] = [];
+  if (roles.includes('finance')) out.push(`**Finance:** ${f.paystack ? f.paystack.summary : 'Paystack balance not available'}. Treasury cover: ${f.treasury.map((h) => `${h.days} days ${h.level}`).join(', ')}. Overdue buyer payments: ${f.overdue_buyers}. Withdrawals waiting over a day: ${f.waiting.withdrawals}. Funded this week: ${f.week.funded_naira}.`);
+  if (roles.includes('operations')) out.push(`**Operations:** ${f.lots.length ? f.lots.map((l) => `${l.code} ${l.pct}% funded, ${l.days_left} days left`).join('; ') : 'no lots open'}.`);
+  if (roles.includes('support')) out.push(`**Support:** ${f.waiting.chats} chats waiting over 4 hours, ${f.waiting.tickets} open tickets, ${f.waiting.id_checks} ID documents to review, ${f.week.verified_not_funded} verified Champions not yet funded.`);
+  if (roles.includes('content')) out.push(`**Content:** ${f.queue.by.filter((b) => /^(social|email|growth|prospector)\//.test(b)).join(', ') || 'nothing'} waiting for approval. This week: ${f.week.leads} new leads, ${f.week.signups} sign-ups.${whatWorks().length ? ` Working: ${whatWorks().join('; ')}.` : ''}`);
+  return out;
+}
+function roleBriefMarkdown(first: string, roles: AdminRole[], rows: any[], f: Facts) {
+  return [
+    `Good morning ${first},`,
+    `Here is what needs a decision from ${roles.map((r) => ROLE_NAME[r]).join(' / ')} today. When you have acted, mark it **Done** in the admin (or **Not now**, with a note); I check again tomorrow and tell the founder about anything still waiting after two days.`,
+    `## Your decisions\n${rows.map((r, i) => `${i + 1}. ${r.priority <= 2 ? '**' : ''}${r.text}${r.priority <= 2 ? '**' : ''}${r.link ? ` [Open](${r.link})` : ''}${r.seen > 1 ? ` _(raised ${r.seen} times since ${String(r.created_at).slice(0, 10)})_` : ''}`).join('\n')}`,
+    `## Your numbers\n${roleSnapshot(roles, f).map((x) => `- ${x}`).join('\n')}`,
+    `${PERSONAS.chief.name}, Chief of Staff (AI agent)`,
+  ].join('\n\n');
+}
+
+function briefMarkdown(f: Facts, headline: string, recs: Rec[], tasks: { t: TaskIn; result?: string }[], tri: ReturnType<typeof triage>, waiting: any[] = []) {
   const p = f.progress, d = Math.min(90, Math.max(1, p.days_since_start));
   return [
     `**${headline}**`,
-    recs.length ? `## Needs your decision\n${recs.map((r, i) => `${i + 1}. ${r.priority <= 2 ? '**' : ''}${r.text}${r.priority <= 2 ? '**' : ''}${r.link ? ` [Open](${r.link})` : ''}`).join('\n')}` : '## Needs your decision\nNothing today.',
+    recs.length ? `## Decisions today\n${recs.map((r, i) => `${i + 1}. ${r.priority <= 2 ? '**' : ''}${r.text}${r.priority <= 2 ? '**' : ''} _(${r.roles.map((x) => ROLE_NAME[x]).join(', ')})_${r.link ? ` [Open](${r.link})` : ''}`).join('\n')}` : '## Decisions today\nNothing today.',
+    waiting.length ? `## Waiting on the team (over 2 days)\n${waiting.map((w) => `- ${w.text} _(${rolesOf(w.roles).map((x) => ROLE_NAME[x]).join(', ')}, since ${String(w.created_at).slice(0, 10)})_`).join('\n')}` : '',
+    (() => { const d = q.all<any>("SELECT r.text, r.status, r.note, u.first_name FROM chief_recs r LEFT JOIN users u ON u.id=r.decided_by WHERE r.status IN ('done','dismissed') AND r.decided_at>=?", ago(1)); return d.length ? `## Decided since yesterday\n${d.map((x) => `- ${x.status === 'done' ? 'Done' : 'Not now'}${x.first_name ? ` (${x.first_name})` : ''}: ${x.text}${x.note ? `. Note: ${x.note}` : ''}`).join('\n')}` : ''; })(),
     tasks.length ? `## What I asked the agents to do\n${tasks.map((a) => `- **${a.t.kind}**: ${a.t.reason}${a.result ? `. Result: ${a.result}` : ''}`).join('\n')}` : '',
     `## Approval queue\n${tri.safe.length} low-risk, on-message item${tri.safe.length === 1 ? '' : 's'} ready to approve together; ${tri.review.length} need${tri.review.length === 1 ? 's' : ''} your judgement. [Review](/admin/chief#triage)`,
     `## Open lots\n${f.lots.length ? f.lots.map((l) => `- ${l.title} (${l.code}): ${l.pct}% funded, ${l.days_left} days left, ${l.remaining} to go`).join('\n') : 'None open.'}`,

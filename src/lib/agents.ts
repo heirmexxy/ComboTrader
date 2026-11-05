@@ -23,20 +23,21 @@ import { paystackFloat } from './paysync';
 import { faqsFor } from './content';
 import { config } from './config';
 import { fmtNGN, randomToken } from './util';
+import { agentLabel } from './personas';
 import { translate, isLang, LANGS, type Lang } from './i18n';
 import type { User } from './http';
 
 export const AGENTS = {
-  chief: { name: 'Chief of Staff', what: 'Reads the whole platform each morning, briefs you with ranked recommendations, assigns tasks to the other agents, measures whether they worked and adjusts. Cannot move money or publish anything itself.' },
-  support: { name: 'Support', what: 'Answers tickets and WhatsApp questions from the FAQs and the Champion\'s own account; hands over anything about money movement.' },
-  onboarding: { name: 'Onboarding', what: 'Finds Champions stuck in sign-up, verification, payment or a paused Harvest Plan and drafts a personal next step.' },
-  treasury: { name: 'Treasury', what: 'Checks payouts due against cash, credit line and buyer money due; writes the daily brief and raises shortfall alerts.' },
-  risk: { name: 'Risk', what: 'Looks for shared bank accounts, shared devices, fast in-and-out money and referral rings; proposes flags for review.' },
-  growth: { name: 'Growth', what: 'Drafts the weekly newsletter and social posts from real lots, Trail updates, prices and payouts. Never contacts people who have not opted in.' },
-  ops: { name: 'Ops copilot', what: 'Turns field notes into Harvest Trail updates and contract summaries into draft lots, for an admin to approve.' },
-  social: { name: 'Social media', what: 'Plans and writes posts from real lots, Trail updates, prices and how-to topics; makes the images; publishes to Facebook, Instagram, LinkedIn, X and Telegram (or prepares them to copy); answers comments and DMs that ask how to join; captures Facebook/Instagram lead-form sign-ups.' },
-  email: { name: 'Email marketing', what: 'Sends lifecycle emails to Champions: welcome series, payout reminders, “your money is back” offers, new-lot alerts and win-backs; tests newsletter subject lines. Every email is tracked and has an unsubscribe link.' },
-  prospector: { name: 'Prospector', what: 'Finds new Champions: invites people who joined the waitlist, newsletter, contact form or WhatsApp; asks happy Champions to refer friends; researches organisations (cooperatives, faith groups, diaspora associations) and drafts outreach. Follows up, stops on unsubscribe.' },
+  chief: { name: agentLabel('chief'), what: 'Reads the whole platform each morning, briefs you with ranked recommendations, assigns tasks to the other agents, measures whether they worked and adjusts. Cannot move money or publish anything itself.' },
+  support: { name: agentLabel('support'), what: 'Answers tickets and WhatsApp questions from the FAQs and the Champion\'s own account; hands over anything about money movement.' },
+  onboarding: { name: agentLabel('onboarding'), what: 'Finds Champions stuck in sign-up, verification, payment or a paused Harvest Plan and drafts a personal next step.' },
+  treasury: { name: agentLabel('treasury'), what: 'Checks payouts due against cash, credit line and buyer money due; writes the daily brief and raises shortfall alerts.' },
+  risk: { name: agentLabel('risk'), what: 'Looks for shared bank accounts, shared devices, fast in-and-out money and referral rings; proposes flags for review.' },
+  growth: { name: agentLabel('growth'), what: 'Drafts the weekly newsletter and social posts from real lots, Trail updates, prices and payouts. Never contacts people who have not opted in.' },
+  ops: { name: agentLabel('ops'), what: 'Turns field notes into Harvest Trail updates and contract summaries into draft lots, for an admin to approve.' },
+  social: { name: agentLabel('social'), what: 'Plans and writes posts from real lots, Trail updates, prices and how-to topics; makes the images; publishes to Facebook, Instagram, LinkedIn, X and Telegram (or prepares them to copy); answers comments and DMs that ask how to join; captures Facebook/Instagram lead-form sign-ups.' },
+  email: { name: agentLabel('email'), what: 'Sends lifecycle emails to Champions: welcome series, payout reminders, “your money is back” offers, new-lot alerts and win-backs; tests newsletter subject lines. Every email is tracked and has an unsubscribe link.' },
+  prospector: { name: agentLabel('prospector'), what: 'Finds new Champions: invites people who joined the waitlist, newsletter, contact form or WhatsApp; asks happy Champions to refer friends; researches organisations (cooperatives, faith groups, diaspora associations) and drafts outreach. Follows up, stops on unsubscribe.' },
 } as const;
 export type AgentName = keyof typeof AGENTS;
 export const agentOn = (a: AgentName) => String(settings().agents_enabled).split(',').map((s) => s.trim()).includes(a);
@@ -304,7 +305,7 @@ export async function supportAnswer(u: User | null, question: string, lang: Lang
     try {
       const { data, runId } = await completeJson<{ reply: string; escalate: boolean; reason?: string; general_answer?: string }>('support', {
         fast: true, trigger,
-        system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('support')}\nYou are the ComboTrader support assistant. Answer using the FAQ and the Champion's own account data below. ` +
+        system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('support')}\nYou are the ComboTrader support assistant (Tolu). Answer using the FAQ and the Champion's own account data below. ` +
           `Set escalate=true (and say a team member will follow up within one working day) for: anything about money that is missing, late or wrong; withdrawals; complaints; account access; identity checks that failed; anything you cannot answer from the data. ` +
           `Keep replies under 120 words. Answer in ${langName(lang)}. ` +
           `Also write "general_answer": the same answer with no personal details (no names, amounts or dates from the account) so it can be reused for anyone asking this; use "" if the answer depends on this person's account. ` +

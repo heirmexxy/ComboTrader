@@ -774,6 +774,15 @@ CREATE TABLE chief_briefs (
 );
 UPDATE settings SET value = '"chief,' || substr(value, 2) WHERE key='agents_enabled' AND value NOT LIKE '%chief%';
 `,
+`
+-- Chief of Staff decisions routed to the admin whose role owns them.
+CREATE TABLE chief_recs (
+  id INTEGER PRIMARY KEY, key TEXT NOT NULL, roles TEXT NOT NULL, priority INTEGER NOT NULL, text TEXT NOT NULL, link TEXT,
+  status TEXT NOT NULL DEFAULT 'open', -- open | done | dismissed | resolved
+  note TEXT, seen INTEGER NOT NULL DEFAULT 1, brief_id INTEGER, decided_by INTEGER, decided_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX chief_recs_key ON chief_recs(key, status);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

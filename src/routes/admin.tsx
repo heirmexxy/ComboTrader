@@ -1,4 +1,5 @@
 // Admin back office. Every money action is logged; large ones need two admins.
+import { agentLabel } from '../lib/personas';
 import fs from 'node:fs';
 import { get, post } from '../lib/router';
 import { render } from '../views/render';
@@ -1056,7 +1057,7 @@ get('/admin/settings', 'admin:super', (c) => {
     </Box>
     <Box title="AI agents" id="agents">
       <form method="post" action="/admin/settings" className="form-grid"><Csrf />
-        <fieldset className="field"><legend>Agents switched on</legend>{['chief', 'support', 'onboarding', 'treasury', 'risk', 'growth', 'ops', 'prospector', 'social', 'email'].map((a) => <label key={a} className="check"><input type="checkbox" name="agents_enabled[]" value={a} defaultChecked={String(s.agents_enabled).split(',').includes(a)} /> <span>{a}</span></label>)}</fieldset>
+        <fieldset className="field"><legend>Agents switched on</legend>{['chief', 'support', 'onboarding', 'treasury', 'risk', 'growth', 'ops', 'prospector', 'social', 'email'].map((a) => <label key={a} className="check"><input type="checkbox" name="agents_enabled[]" value={a} defaultChecked={String(s.agents_enabled).split(',').includes(a)} /> <span>{agentLabel(a)}</span></label>)}</fieldset>
         <F label="Autonomy" name="agent_autonomy" value={s.agent_autonomy} options={[['review', 'Review everything — a person approves every message (recommended to start)'], ['auto_low', 'Send low-risk messages automatically (FAQ answers, onboarding nudges)']]} hint="Agents can never move money, approve withdrawals or change balances, whatever this says." />
         <F label="Maximum model calls per 24 hours" name="agent_daily_limit" type="number" value={s.agent_daily_limit} />
         <input type="hidden" name="_group" value="agents" />

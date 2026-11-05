@@ -1,5 +1,6 @@
 // Claude API client for the ComboTrader agents. Without ANTHROPIC_API_KEY the agents run in demo mode
 // (rule-based drafts), so the whole pipeline — proposals, approvals, execution — works and can be tested.
+import { personaLine } from './personas';
 import { q, now } from './db';
 import { config } from './config';
 import { settings } from './settings';
@@ -40,7 +41,7 @@ export async function completeJson<T = any>(agent: string, o: { system: string; 
       headers: { 'x-api-key': config.anthropicKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
         model, max_tokens: o.maxTokens || 1500,
-        system: `${o.system}\n\nReply with one JSON object only, no prose before or after it.`,
+        system: `${personaLine(agent)}\n${o.system}\n\nReply with one JSON object only, no prose before or after it.`,
         messages: [{ role: 'user', content: input }],
         ...(o.tools ? { tools: o.tools } : {}),
       }),

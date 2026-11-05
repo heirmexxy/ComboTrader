@@ -953,6 +953,25 @@ await t('chief: briefs from facts, assigns tasks for a lot that is behind, pause
   const bad = agents.propose({ agent: 'social', kind: 'publish_social', risk: 'low', title: 'Guaranteed returns!', payload: { text: 'Risk-free profit' } });
   const tri = C.triage();
   eq(tri.safe.includes(good), true, 'safe'); eq(tri.safe.includes(bad), false, 'off-message held');
+  // Decisions go to the admin whose role owns them; a decision can be marked done; cleared situations close themselves.
+  const fin = mkUser('fin@t.ng'); q.run("UPDATE users SET role='admin', admin_roles='finance' WHERE id=?", fin.id);
+  q.run("UPDATE chief_recs SET status='resolved'");
+  q.run("DELETE FROM outbox WHERE recipient='fin@t.ng'");
+  const recs = [{ key: 'paystack_low', roles: ['finance' as const], priority: 1, text: 'Top up Paystack', link: '/admin/withdrawals' }, { key: 'chats_waiting', roles: ['support' as const], priority: 2, text: '2 chats waiting' }];
+  C.syncDecisions(recs, 0);
+  eq(Number(q.val("SELECT COUNT(*) FROM chief_recs WHERE status='open'")), 2);
+  C.syncDecisions(recs, 0);
+  eq(Number(q.val("SELECT seen FROM chief_recs WHERE key='paystack_low' AND status='open'")), 2, 'one open decision per situation');
+  const rid = Number(q.val("SELECT id FROM chief_recs WHERE key='chats_waiting' AND status='open'"));
+  eq(C.decide(rid, fin.id, ['finance'], 'done', ''), 'This decision is for another role.');
+  C.syncDecisions([recs[0]], 0);
+  eq(q.val('SELECT status FROM chief_recs WHERE id=?', rid), 'resolved', 'cleared by itself');
+  await C.runChief('test');
+  const finMail = q.get<any>("SELECT * FROM outbox WHERE recipient='fin@t.ng' ORDER BY id DESC LIMIT 1");
+  if (Number(q.val("SELECT COUNT(*) FROM chief_recs WHERE status='open' AND roles LIKE '%finance%'"))) eq(!!finMail && String(finMail.subject).includes('Adaeze'), true, 'finance admin got a role brief');
+  const fid = Number(q.val("SELECT id FROM chief_recs WHERE status='open' AND roles LIKE '%finance%' LIMIT 1") || 0); eq(fid > 0, true, 'finance has a decision');
+  if (fid) { eq(C.decide(fid, fin.id, ['finance'], 'dismissed', 'next week'), 'Noted. I won’t raise it again for 7 days unless it becomes urgent.'); }
+  eq((await import('../src/lib/personas')).agentLabel('chief'), 'Adaeze · Chief of Staff');
   q.run("UPDATE lots SET status='closed' WHERE code='T-CHIEF'");
 });
 
