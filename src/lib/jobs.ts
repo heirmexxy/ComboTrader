@@ -18,6 +18,7 @@ import { autoSendSmallWithdrawals } from './wallet';
 import * as paystack from './paystack';
 import { syncPaystack } from './paysync';
 import { runLibrary, runSequences, seedLibrary } from './library';
+import { runChief } from './chief';
 import { walletBalance, trialBalance } from './ledger';
 import { fmtNGN, lagosNow } from './util';
 import { audit } from './audit';
@@ -72,6 +73,7 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async paystack_sync() { return syncPaystack(); },
   async library() { seedLibrary(); return runLibrary(); },
   async sequences() { return runSequences(); },
+  async chief() { return runChief('daily'); },
   async reconcile() { return reconcile(); },
   async weekly() { return weeklySummary(); },
 };
@@ -104,6 +106,7 @@ export function startScheduler() {
       if (dueDaily('nudges', 9)) await runJob('nudges');
       if (dueDaily('plans', 9)) await runJob('plans');
       if (dueDaily('agents', 7)) await runJob('agents');
+      if (dueDaily('chief', 8)) await runJob('chief');
       if (dueDaily('library', 8)) await runJob('library');
       const sq = lastRun('sequences');
       if (!sq || Date.now() - new Date(sq).getTime() > 3600e3) await runJob('sequences');

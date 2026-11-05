@@ -187,7 +187,7 @@ export function runSequences() {
     const v = { name: (String(l.name || '').trim().split(/\s+/)[0]) || 'there', site: config.baseUrl };
     const subject = fillName(step.subject, v);
     const ck = `${l.seq}-${step.key}-${v.name}`;
-    if (!cache.has(ck)) cache.set(ck, { html: trackHtmlLinks(marked.parse(fillName(step.body, v), { async: false }) as string, { channel: 'email', campaign: `seq-${l.seq}-${step.key}` }), cta: trackedLink(step.cta.path, { channel: 'email', campaign: `seq-${l.seq}-${step.key}` }) });
+    if (!cache.has(ck)) cache.set(ck, { html: trackHtmlLinks(marked.parse(fillName(step.body, v), { async: false }) as string, { channel: 'email', campaign: `seq-${l.seq}-${step.key}` }), cta: trackedLink(step.cta.path, { channel: 'email', campaign: `seq-${l.seq}-${step.key}` }).url });
     const { html, cta } = cache.get(ck)!;
     queueEmail(l.email, subject, emailShell(escapeHtml(subject), `<div data-seq="${l.seq}-${step.key}">${html}</div><p style="font-size:12px;color:#777;margin-top:24px">You’re receiving this because you asked to hear from ComboTrader. <a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: step.cta.label, url: cta }));
     const next = s.steps[l.seq_step + 1];
@@ -201,7 +201,7 @@ export function runSequences() {
 function notifyBlogList(post: any) {
   const cap = Math.max(0, Number(settings().sequence_daily_cap || 200) - sentToday());
   const people = q.all<any>("SELECT * FROM leads WHERE lists LIKE '%blog%' AND consent=1 AND email IS NOT NULL AND status NOT IN ('unsubscribed','bounced') LIMIT ?", cap);
-  const link = trackedLink(`/chronicles/${post.slug}`, { channel: 'email', campaign: `blog-${post.slug}` });
+  const link = trackedLink(`/chronicles/${post.slug}`, { channel: 'email', campaign: `blog-${post.slug}` }).url;
   for (const l of people) {
     const subject = `New on ComboTrader: ${post.title}`;
     queueEmail(l.email, subject, emailShell(escapeHtml(post.title), `<div data-seq="blog">${post.excerpt ? `<p>${escapeHtml(post.excerpt)}</p>` : ''}</div><p style="font-size:12px;color:#777;margin-top:24px"><a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: 'Read the article', url: link }));

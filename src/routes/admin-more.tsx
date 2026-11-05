@@ -29,6 +29,7 @@ import { libraryStats, parseContacts, importContacts, runLibrary, seedLibrary, r
 import { BLOG, NEWSLETTERS, SEQUENCES, RESPONSES } from '../content/library';
 import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCES } from '../content/playbook';
 import { marked } from 'marked';
+import { runChief, triage as chiefTriage, approveSafe as chiefApproveSafe, assignTask, lotPct as chiefLotPct, TASK_KINDS, type TaskKind } from '../lib/chief';
 import { escapeHtml } from '../lib/notify';
 import { metaAuth, metaConfigured, metaAuthUrl, metaExchange, metaPages, metaChoosePage, metaDisconnect, metaRedirect, metaWhoAmI } from '../lib/meta';
 import { liAuth, liConfigured, liAuthUrl, liExchange, liAdminPages, liChoosePage, liDisconnect, liDaysLeft, liRedirect, liToken } from '../lib/linkedin';
@@ -854,3 +855,47 @@ get('/admin/playbook', 'admin:any', (c) => page(c, 'Marketing & sales playbook',
     <Box title="Prospector sources">{SOURCES.prospect.map((s) => <p key={s.type} className="small"><b>{s.type}:</b> {s.where}</p>)}<p className="small"><b>Listening:</b> {SOURCES.listen.join('; ')}</p></Box>
   </div>
 </>));
+
+// ---------- Chief of Staff ----------
+get('/admin/chief', 'admin:any', (c) => {
+  const brief = q.get<any>('SELECT * FROM chief_briefs ORDER BY id DESC LIMIT 1');
+  const older = q.all<any>('SELECT id, headline, mode, created_at FROM chief_briefs ORDER BY id DESC LIMIT 14 OFFSET 1');
+  const tasks = q.all<any>('SELECT * FROM agent_tasks ORDER BY id DESC LIMIT 40');
+  const tri = chiefTriage();
+  const acts = new Map(q.all<any>(`SELECT id, agent, title, risk FROM agent_actions WHERE status='proposed'`).map((a) => [a.id, a]));
+  const s = settings();
+  page(c, 'Chief of Staff', <>
+    <p className="muted">Every morning at 8:00 (after the other agents) the Chief of Staff reads the whole platform, emails super admins a brief with ranked recommendations, and asks the other agents to act on what it finds: push a lot that is behind, pause promotion when Treasury is short, favour the topics getting clicks, switch off wording that keeps losing, nudge stuck Champions, find new organisations. Three days later it checks whether each task moved the result and remembers which kinds work. It cannot move money, change rates or publish anything itself: what agents produce still waits for your approval in <a href="/admin/agents">AI agents</a>. Mode: <b>{agentMode('chief')}</b>{agentMode('chief') === 'rules' ? ' (fixed thresholds; switch to AI in AI agents for a written brief and judgement)' : ''}.</p>
+    <div className="btn-row"><Act action="/admin/chief/run" label="Run the brief now" tone="primary" /><Act action="/admin/chief/assign" label={s.chief_assign ? 'Stop assigning tasks (recommend only)' : 'Allow it to assign tasks'} fields={{ on: s.chief_assign ? '0' : '1' }} /></div>
+    {brief ? <Box title={`Brief · ${String(brief.created_at).slice(0, 16).replace('T', ' ')} (${brief.mode})`}><div className="prose" dangerouslySetInnerHTML={{ __html: marked.parse(escapeHtml(brief.body).replace(/&gt;/g, '>'), { async: false }) as string }} /></Box> : <Box title="No brief yet"><p className="muted">Run the brief now to see the first one.</p></Box>}
+    <Box title="Approval triage" id="triage">
+      <p className="small muted">Low-risk proposals with no off-message wording (no promises of returns, guarantees or “investment” language), excluding outreach, replies and account flags, which always need a person.</p>
+      {tri.safe.length ? <><ul className="list">{tri.safe.map((id) => acts.get(id)).filter(Boolean).map((a: any) => <li key={a.id}><span><b>{a.agent}</b> · {a.title}</span></li>)}</ul><Act action="/admin/chief/approve-safe" label={`Approve these ${tri.safe.length}`} tone="green" confirm={`Approve ${tri.safe.length} low-risk proposals?`} /></> : <p className="muted">Nothing safe to batch-approve.</p>}
+      {tri.review.length ? <p className="small">{tri.review.length} other proposal{tri.review.length === 1 ? '' : 's'} need your judgement in <a href="/admin/agents">AI agents</a>.</p> : null}
+    </Box>
+    <Box title="Ask an agent to do something">
+      <Form action="/admin/chief/task" submit="Assign and run">
+        <F label="Task" name="kind" options={Object.entries(TASK_KINDS).map(([k, v]) => [k, `${v.agent}: ${v.what}`] as [string, string])} />
+        <F label="Lot code (lot tasks)" name="lot_code" placeholder="e.g. MZ-2611" />
+        <F label="Topic (boost) or days (pause)" name="value" />
+      </Form>
+    </Box>
+    <Box title="Tasks and what came of them"><Table rows={tasks} cols={[['When', (t) => String(t.created_at).slice(0, 10)], ['Agent', (t) => t.assigned_to], ['Task', (t) => <><b>{t.kind}</b><br /><span className="small muted">{t.reason}</span></>], ['Result', (t) => <span className="small">{t.status}: {t.result}</span>], ['Did it work?', (t) => <span className="small">{t.outcome || (t.status === 'done' ? 'checking after 3 days' : '')}</span>], ['By', (t) => t.created_by === 'chief' ? 'Chief' : 'you']]} empty="No tasks yet." /></Box>
+    {older.length ? <Box title="Earlier briefs"><ul className="list">{older.map((b) => <li key={b.id}><span>{String(b.created_at).slice(0, 10)} · {b.headline}</span><a className="btn btn-ghost btn-sm" href={`/admin/chief/brief/${b.id}`} target="_blank">Open</a></li>)}</ul></Box> : null}
+  </>);
+});
+get('/admin/chief/brief/:id', 'admin:any', (c) => { const b = q.get<any>('SELECT * FROM chief_briefs WHERE id=?', Number(c.params.id)); if (!b) throw new HttpError(404, 'Not found'); c.html(previewShell(`Brief ${String(b.created_at).slice(0, 10)}`, escapeHtml(b.body).replace(/&gt;/g, '>'))); });
+post('/admin/chief/run', 'admin:any', async (c) => { const r = await runChief('manual'); c.redirect('/admin/chief', ['ok', r === 'off' ? 'The Chief of Staff is switched off in Settings → Agents.' : `Done: ${r}.`]); });
+post('/admin/chief/assign', 'admin:super', (c) => { setSetting('chief_assign', c.str('on', 1) === '1'); audit(c.user!.id, 'chief.assign', undefined, c.str('on', 1)); c.redirect('/admin/chief', ['ok', 'Saved.']); });
+post('/admin/chief/approve-safe', 'admin:any', (c) => { const n = chiefApproveSafe(c.user!.id); c.redirect('/admin/chief#triage', ['ok', `${n} approved.`]); });
+post('/admin/chief/task', 'admin:any', async (c) => {
+  const kind = c.str('kind', 40) as TaskKind;
+  if (!(kind in TASK_KINDS)) return c.redirect('/admin/chief', ['error', 'Unknown task.']);
+  const lot = c.str('lot_code', 30).toUpperCase(), v = c.str('value', 60);
+  const detail: Record<string, unknown> = {};
+  if (kind === 'social.promote_lot' || kind === 'email.lot_push') { if (!lot) return c.redirect('/admin/chief', ['error', 'Give the lot code.']); detail.lot_code = lot; detail.pct_before = chiefLotPct(lot); }
+  if (kind === 'social.pause_promotion') detail.days = Math.min(30, Math.max(1, Number(v) || 7));
+  if (kind === 'social.boost_topic') { if (!v) return c.redirect('/admin/chief', ['error', 'Give the topic.']); detail.topic = v; }
+  const r = await assignTask({ kind, detail, reason: 'Asked by an admin' }, c.user!.id);
+  c.redirect('/admin/chief', [r.ok ? 'ok' : 'error', r.message]);
+});

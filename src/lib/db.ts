@@ -758,6 +758,22 @@ ALTER TABLE leads ADD COLUMN seq_step INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE leads ADD COLUMN seq_next_at TEXT;
 CREATE INDEX leads_seq ON leads(seq, seq_next_at);
 `,
+`
+-- Chief of Staff: tasks it assigns to agents (and their measured outcomes) and its daily briefs.
+CREATE TABLE agent_tasks (
+  id INTEGER PRIMARY KEY,
+  assigned_to TEXT NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '{}', reason TEXT,
+  status TEXT NOT NULL DEFAULT 'open', -- open | done | skipped | failed
+  result TEXT, outcome TEXT, scored INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL, created_at TEXT NOT NULL, done_at TEXT
+);
+CREATE INDEX agent_tasks_kind ON agent_tasks(kind, created_at);
+CREATE TABLE chief_briefs (
+  id INTEGER PRIMARY KEY, period TEXT NOT NULL, headline TEXT NOT NULL, body TEXT NOT NULL,
+  facts TEXT, mode TEXT NOT NULL, run_id INTEGER, created_at TEXT NOT NULL
+);
+UPDATE settings SET value = '"chief,' || substr(value, 2) WHERE key='agents_enabled' AND value NOT LIKE '%chief%';
+`,
 ];
 
 export function openDb(file = config.dbFile) {

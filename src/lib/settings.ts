@@ -19,6 +19,11 @@ export const DEFAULTS = {
   library_newsletter_at: '',
   sequences_enabled: true, // send email sequences to opted-in contacts
   sequence_daily_cap: 200, // most sequence/blog emails per 24 hours
+  social_paused_until: '', // Chief of Staff: pause promoting new lots (e.g. when Treasury is short)
+  social_boost: '', // Chief of Staff: {"topic":"how","until":"…"} favour a topic that is working
+  chief_start_at: '', // day 1 of the 90-day plan (set on the first Chief of Staff run)
+  chief_assign: true, // Chief of Staff may assign tasks to agents directly (their outputs still follow your approval rules)
+  contact_cap_week: 2, // most marketing emails a Champion gets in 7 days, across all agents
   assistant_enabled: true, // the 'Ask ComboTrader' chat on the website (Support agent; humans take over in Tawk.to)
   paystack_low_balance: 10000000, // kobo: ₦100,000 — alert when the Paystack balance falls below this (or below withdrawals waiting)
   feed_enabled: true,
@@ -59,7 +64,7 @@ export const DEFAULTS = {
   // WhatsApp companion
   whatsapp_enabled: true,
   // AI agents
-  agents_enabled: 'support,onboarding,treasury,risk,growth,ops,prospector,social,email',
+  agents_enabled: 'chief,support,onboarding,treasury,risk,growth,ops,prospector,social,email',
   social_posts_per_week: 3, // the Social agent plans this many posts a week (Mon, Wed, Fri…)
   social_post_hour: 10, // Lagos time
   social_channels: 'facebook,instagram,linkedin,x,telegram', // where posts go (connected channels publish; others become copy-ready)

@@ -145,15 +145,25 @@ export async function postCard(o: { eyebrow: string; headline: string; lines: st
 }
 
 // ================= Social: planning =================
-type Plan = { kind: string; ref: string; key: string; url: string; facts: Record<string, string | number>; card: { eyebrow: string; headline: string; lines: string[]; photo?: string | null } };
+export type Plan = { kind: string; ref: string; key: string; url: string; facts: Record<string, string | number>; card: { eyebrow: string; headline: string; lines: string[]; photo?: string | null } };
 const LEARN_TOPICS = ['how', 'periods', 'trail', 'circles', 'plans', 'verify', 'risk'];
 const posted = (ref: string) => !!q.get('SELECT 1 FROM social_posts WHERE ref=?', ref);
 const isoWeek = () => { const d = lagosNow(); const y = d.getUTCFullYear(); const start = Date.UTC(y, 0, 1); return `${y}-W${String(Math.ceil(((d.getTime() - start) / 864e5 + new Date(start).getUTCDay() + 1) / 7)).padStart(2, '0')}`; };
 function rangeOf(l: any) { const p = lotPeriods(l); const a = p[0], b = p[p.length - 1]; return a === b ? { periods: `${a} months`, rates: `${rateFor(a) / 100}%` } : { periods: `${a}–${b} months`, rates: `${rateFor(a) / 100}%–${rateFor(b) / 100}%` }; }
 
 /** What to post next: a new lot first, then fresh Trail news, milestones, weekly prices, then how-to topics in turn. */
+/** A post about one lot (used when the Chief of Staff asks Social to push a lot that is behind). */
+export function planForLot(code: string): Plan | null {
+  const lot = q.get<any>("SELECT l.*, c.name AS commodity_name FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.code=? AND l.status='open'", code);
+  if (!lot) return null;
+  const r = rangeOf(lot);
+  const closes = new Date(lot.closes_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+  return { kind: 'lot', ref: `lot:${lot.code}:push:${now().slice(0, 10)}`, key: 'post:lot', url: `/lots/${lot.code}`, facts: { title: lot.title, commodity: lot.commodity_name, region: lot.region || 'Nigeria', periods: r.periods, rates: r.rates, closes },
+    card: { eyebrow: `Closes ${closes}`, headline: lot.title, lines: [`Earn ${r.rates} per annum`, `Stay ${r.periods}`, 'Signed buyer · Harvest Trail'] } };
+}
+const socialPaused = () => { const u = String(settings().social_paused_until || ''); return !!u && u > now(); };
 export function planNextPost(): Plan {
-  const lot = q.get<any>("SELECT l.*, c.name AS commodity_name FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' AND l.closes_at>? AND NOT EXISTS (SELECT 1 FROM social_posts s WHERE s.ref='lot:' || l.code) ORDER BY COALESCE(l.opened_at, l.created_at) DESC", now());
+  const lot = socialPaused() ? null : q.get<any>("SELECT l.*, c.name AS commodity_name FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' AND l.closes_at>? AND NOT EXISTS (SELECT 1 FROM social_posts s WHERE s.ref='lot:' || l.code) ORDER BY COALESCE(l.opened_at, l.created_at) DESC", now());
   if (lot) {
     const r = rangeOf(lot);
     return { kind: 'lot', ref: `lot:${lot.code}`, key: 'post:lot', url: `/lots/${lot.code}`, facts: { title: lot.title, commodity: lot.commodity_name, region: lot.region || 'Nigeria', periods: r.periods, rates: r.rates, closes: new Date(lot.closes_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }) },
@@ -179,7 +189,9 @@ export function planNextPost(): Plan {
     return { kind: 'prices', ref: `prices:${week}`, key: 'post:prices', url: '/prices', facts: { prices: list.join(', ') }, card: { eyebrow: 'Prices this week', headline: 'Farm-gate prices', lines: list.slice(0, 3) } };
   }
   const lastByTopic = (t: string) => String(q.val("SELECT MAX(created_at) FROM social_posts WHERE ref LIKE ?", `learn:${t}:%`) || '');
-  const topic = LEARN_TOPICS.slice().sort((a, b) => lastByTopic(a).localeCompare(lastByTopic(b)))[0];
+  // The Chief of Staff can ask Social to favour a topic that is working (settings.social_boost = {"topic","until"}).
+  let boost = ''; try { const b = JSON.parse(String(settings().social_boost || '{}')); if (b.topic && LEARN_TOPICS.includes(b.topic) && String(b.until) > now() && !lastByTopic(b.topic).startsWith(now().slice(0, 10))) boost = b.topic; } catch { /* none */ }
+  const topic = boost || LEARN_TOPICS.slice().sort((a, b) => lastByTopic(a).localeCompare(lastByTopic(b)))[0];
   const HEAD: Record<string, [string, string[]]> = {
     how: ['How ComboTrader works', ['Pick a lot with a signed buyer', 'Choose 4 to 12 months', 'Get paid on your payout date']],
     periods: ['Stay longer, earn more', [`${rateFor(4) / 100}% a year for 4 months`, `${rateFor(12) / 100}% a year for 12 months`]],
@@ -219,15 +231,15 @@ function shorten(text: string, max = 250) {
 }
 
 /** Writes and proposes the next post. Returns a status line. */
-export async function createPost(force = false): Promise<string> {
+export async function createPost(force = false, override: Plan | null = null): Promise<string> {
   const s = settings();
-  const plan = planNextPost();
+  const plan = override || planNextPost();
   const day = lagosNow().getUTCDay();
   const perWeek = Math.max(0, Math.min(14, Number(s.social_posts_per_week) || 0));
   const days = [1, 3, 5, 2, 4, 6, 0].slice(0, Math.min(7, perWeek));
   const today = lagosNow().toISOString().slice(0, 10);
   const postedToday = Number(q.val("SELECT COUNT(*) FROM social_posts WHERE substr(created_at,1,10)=?", today) ?? 0);
-  if (!force && (postedToday > 0 || (!days.includes(day) && plan.kind !== 'lot'))) return 'not a posting day';
+  if (!force && !override && (postedToday > 0 || (!days.includes(day) && plan.kind !== 'lot'))) return 'not a posting day';
   let text = '', short = '', template: string | null = null, lessonId: number | null = null, runId: number | null = null;
   if (useAI('social')) {
     try {
@@ -432,6 +444,7 @@ export function campaignAudience(c: string): Recipient[] {
       return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND u.kyc_status='verified' AND u.created_at<=? AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id AND p.status='success') AND ${notSent("''")} LIMIT 300`, d(-3))
         .map((u) => ({ user_id: u.id, ref: '', vars: name(u) }));
     case 'lot_closing': {
+      if (String(settings().social_paused_until || '') > now()) return [];
       const lot = q.get<any>("SELECT l.* FROM lots l WHERE l.status='open' AND l.closes_at BETWEEN ? AND ? AND (SELECT COALESCE(SUM(t.amount),0) FROM trades t WHERE t.lot_id=l.id AND t.status!='cancelled') < l.target_amount * 0.9 ORDER BY l.closes_at", d(1), d(3));
       if (!lot) return [];
       const date = new Date(lot.closes_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
@@ -439,6 +452,7 @@ export function campaignAudience(c: string): Recipient[] {
         .map((u) => ({ user_id: u.id, ref: lot.code, vars: { ...name(u), lot: lot.title, date } }));
     }
     case 'new_lot': {
+      if (String(settings().social_paused_until || '') > now()) return [];
       const lot = q.get<any>("SELECT * FROM lots WHERE status='open' AND closes_at>? AND COALESCE(opened_at, created_at)>=? ORDER BY COALESCE(opened_at, created_at) DESC", now(), d(-3));
       if (!lot) return [];
       const r = rangeOf(lot);
@@ -449,6 +463,27 @@ export function campaignAudience(c: string): Recipient[] {
   return [];
 }
 const unsubLink = (uid: number) => `${config.baseUrl}/email/stop/${uid}.${hmac(`stop:${uid}`).slice(0, 16)}`;
+
+/** Champions who funded before and aren't in this lot yet (Chief of Staff: push a lot that is behind). */
+export function lotPushAudience(code: string): Recipient[] {
+  const lot = q.get<any>("SELECT * FROM lots WHERE code=? AND status='open'", code);
+  if (!lot || String(settings().social_paused_until || '') > now()) return [];
+  const date = new Date(lot.closes_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+  const base = "u.status='active' AND u.role='champion' AND u.marketing_opt_in=1 AND u.email_verified_at IS NOT NULL";
+  return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id AND p.status='success') AND NOT EXISTS (SELECT 1 FROM trades t WHERE t.user_id=u.id AND t.lot_id=?) AND NOT EXISTS (SELECT 1 FROM campaign_sends s WHERE s.campaign='lot_closing' AND s.user_id=u.id AND s.ref=?) LIMIT 500`, lot.id, lot.code)
+    .map((u) => ({ user_id: u.id, ref: lot.code, vars: { name: u.first_name, lot: lot.title, date } }));
+}
+/** Proposes one campaign to a given audience (same path as the daily run). */
+export async function proposeCampaign(c: typeof CAMPAIGN_KEYS[number], people: Recipient[]) {
+  if (!people.length) return 0;
+  const lib = (CHAMPION_EMAILS as Record<string, { subject: string; body: string }>)[c];
+  const v = pickVariant('email', 'template', `email:${c}`, 'en') || (lib ? (() => { const id = learn({ agent: 'email', kind: 'template', key: `email:${c}`, lang: 'en', content: { title: lib.subject, body: lib.body }, source: 'rules' }); return q.get<any>('SELECT * FROM agent_lessons WHERE id=?', id); })() : null);
+  if (!v) return 0;
+  const t = parseLesson<{ title: string; body: string }>(v)!;
+  propose({ agent: 'email', kind: 'send_campaign', risk: 'low', title: `Email “${c.replace('_', ' ')}” to ${people.length} Champion${people.length === 1 ? '' : 's'} (requested by Chief of Staff)`,
+    summary: `${fill(t.title, people[0].vars)} — ${fill(t.body, people[0].vars).slice(0, 300)}`, payload: { campaign: c, lang: 'en', lesson_id: v.id, title: t.title, body: t.body, recipients: people } });
+  return people.length;
+}
 
 /** Proposes this run's lifecycle emails: one batch per campaign and language. */
 export async function runEmail() {
@@ -525,11 +560,13 @@ registerExecutors({
     for (const r of (p.recipients || []) as Recipient[]) {
       const u = q.get<any>('SELECT * FROM users WHERE id=?', r.user_id);
       if (!u || u.status !== 'active' || !u.marketing_opt_in) continue;
+      // One contact limit across all agents: promotional emails stop once someone has had enough this week.
+      if (!['maturity', 'paid_out'].includes(p.campaign) && Number(q.val("SELECT COUNT(*) FROM campaign_sends WHERE user_id=? AND sent_at>=? AND campaign NOT IN ('maturity','paid_out')", u.id, new Date(Date.now() - 7 * 864e5).toISOString()) ?? 0) >= Number(settings().contact_cap_week || 2)) continue;
       if (q.run('INSERT OR IGNORE INTO campaign_sends (campaign, ref, user_id, lesson_id, sent_at) VALUES (?,?,?,?,?)', p.campaign, r.ref || '', u.id, lessonId, now()).changes === 0) continue;
       const title = fill(String(p.title), r.vars), body = fill(String(p.body), r.vars);
       const link = forRecipient(trackedLink(CAMPAIGN_LINK[p.campaign]?.(r) || '/app', { channel: 'email', campaign: `email-${p.campaign}`, lessonId }).url, { userId: u.id });
       queueEmail(u.email, title, emailShell(escapeHtml(title), `<p>${escapeHtml(body).replace(/\n/g, '<br>')}</p><p style="font-size:12px;color:#777;margin-top:24px">${escapeHtml(translate(u.lang, 'agent.unsub'))} <a href="${unsubLink(u.id)}">${unsubLink(u.id)}</a></p>`,
-        { label: translate(u.lang, `mkt.${p.campaign}.cta`), url: link }));
+        { label: translate(u.lang, `mkt.${p.campaign}.cta`) !== `mkt.${p.campaign}.cta` ? translate(u.lang, `mkt.${p.campaign}.cta`) : ({ verify_reminder: 'Verify now', fund_reminder: 'Fund your wallet', lot_closing: 'See the lot' } as Record<string, string>)[p.campaign] || 'Open ComboTrader', url: link }));
       trackOutcome(lessonId, `email:${p.campaign}`, { userId: u.id });
       sent++;
     }

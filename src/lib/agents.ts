@@ -27,6 +27,7 @@ import { translate, isLang, LANGS, type Lang } from './i18n';
 import type { User } from './http';
 
 export const AGENTS = {
+  chief: { name: 'Chief of Staff', what: 'Reads the whole platform each morning, briefs you with ranked recommendations, assigns tasks to the other agents, measures whether they worked and adjusts. Cannot move money or publish anything itself.' },
   support: { name: 'Support', what: 'Answers tickets and WhatsApp questions from the FAQs and the Champion\'s own account; hands over anything about money movement.' },
   onboarding: { name: 'Onboarding', what: 'Finds Champions stuck in sign-up, verification, payment or a paused Harvest Plan and drafts a personal next step.' },
   treasury: { name: 'Treasury', what: 'Checks payouts due against cash, credit line and buyer money due; writes the daily brief and raises shortfall alerts.' },

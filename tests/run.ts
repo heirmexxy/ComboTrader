@@ -917,6 +917,45 @@ await t('library: 50 articles and 50 newsletters, all on-message; import needs c
   const nl = L.renderNewsletter(1)!; eq(nl.body.includes('## Open Trade Lots'), true); eq(nl.body.includes('{name}'), false);
 });
 
+console.log('\nChief of Staff');
+await t('chief: briefs from facts, assigns tasks for a lot that is behind, pauses promotion when short, learns which tasks worked, triages safe approvals', async () => {
+  const C = await import('../src/lib/chief');
+  setSetting('agent_mode', 'rules'); setSetting('chief_assign', true); setSetting('social_paused_until', '');
+  const closes = new Date(Date.now() + 3 * 864e5).toISOString();
+  mkLot('T-CHIEF', { status: 'open', closes_at: closes, opened_at: now() });
+  const f = await C.gatherFacts();
+  const lf = f.lots.find((l) => l.code === 'T-CHIEF')!; eq(lf.pct, 0); eq(lf.days_left <= 3, true);
+  const plan = C.rulePlan(f);
+  const short = f.treasury.some((h) => h.level === 'short');
+  if (!short) eq(plan.tasks.some((x) => x.kind === 'email.lot_push' || x.kind === 'social.promote_lot'), true, 'pushes the lot that is behind');
+  eq(plan.tasks.every((x) => x.kind in C.TASK_KINDS), true);
+  const r = await C.runChief('test');
+  eq(r.startsWith('brief #'), true, r);
+  const brief = q.get<any>('SELECT * FROM chief_briefs ORDER BY id DESC LIMIT 1');
+  eq(brief.body.includes('90-day plan'), true); eq(brief.body.includes('T-CHIEF'), true);
+  eq(Number(q.val("SELECT COUNT(*) FROM agent_tasks WHERE created_by='chief'")) >= 1, true, 'assigned tasks');
+  eq(Number(q.val("SELECT COUNT(*) FROM agent_tasks WHERE created_by='chief' AND status='open'")), 0, 'tasks ran');
+  eq(Number(q.val("SELECT COUNT(*) FROM agent_tasks WHERE created_by='chief' AND kind LIKE '%lot%' AND created_at>=?", new Date(Date.now() - 60e3).toISOString())) <= 2, true);
+  // Does not repeat the same lot push the next morning.
+  await C.runChief('test');
+  eq(Number(q.val("SELECT COUNT(*) FROM agent_tasks WHERE kind IN ('email.lot_push','social.promote_lot') AND detail LIKE '%T-CHIEF%'")) <= 2, true, 'no repeat');
+  // Treasury short: promotion paused through a task.
+  const id = await C.assignTask({ kind: 'social.pause_promotion', detail: { days: 2 }, reason: 'test' }, 1);
+  eq(id.ok, true, id.message); eq(JSON.parse(String(q.val("SELECT value FROM settings WHERE key='social_paused_until'"))) > now(), true);
+  setSetting('social_paused_until', '');
+  // Learning: a lot push that moved funding by 10+ points counts as a win.
+  const tid = q.insert('agent_tasks', { assigned_to: 'email', kind: 'email.lot_push', detail: JSON.stringify({ lot_code: 'T-CHIEF', pct_before: -20 }), reason: 'x', status: 'done', created_by: 'chief', created_at: now(), done_at: new Date(Date.now() - 4 * 864e5).toISOString() }).id;
+  eq(C.scoreTasks() >= 1, true);
+  eq(String(q.val('SELECT outcome FROM agent_tasks WHERE id=?', tid)).startsWith('worked'), true);
+  eq(Number(q.val("SELECT wins FROM agent_lessons WHERE agent='chief' AND key='task:email.lot_push'")) >= 1, true);
+  // Triage: low-risk, on-message proposals are safe; off-message wording is not.
+  const good = agents.propose({ agent: 'social', kind: 'publish_social', risk: 'low', title: 'Harvest Trail update', payload: { text: 'Planting has started in Iseyin.' } });
+  const bad = agents.propose({ agent: 'social', kind: 'publish_social', risk: 'low', title: 'Guaranteed returns!', payload: { text: 'Risk-free profit' } });
+  const tri = C.triage();
+  eq(tri.safe.includes(good), true, 'safe'); eq(tri.safe.includes(bad), false, 'off-message held');
+  q.run("UPDATE lots SET status='closed' WHERE code='T-CHIEF'");
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');

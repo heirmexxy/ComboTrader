@@ -88,3 +88,6 @@ export function playbookFor(agent: 'social' | 'email' | 'prospector' | 'growth' 
     default: return `${head}\nAudiences:\n${seg}\nLocations by phase: ${LOCATIONS.map((l) => `phase ${l.phase}: ${l.places.join(', ')}`).join('; ')}.\n${rules}`;
   }
 }
+
+/** Proposed 90-day targets from the briefing pack (the Chief of Staff tracks progress against them). */
+export const TARGETS_90 = { leads: 2000, signups: 600, first_trades: 200, circles: 10, prospects_talking: 40 } as const;
