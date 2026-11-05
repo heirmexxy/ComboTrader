@@ -16,7 +16,7 @@ import { marketOn, openListings, quote, buyUnits, houseUser } from '../lib/marke
 import { userById as uById } from '../lib/auth';
 import { testModeAvailable, simulatedPayments, addSampleLots, clearTestData, testTables } from '../lib/testmode';
 import { randomToken, isEmail } from '../lib/util';
-import { handleInbound, waLive } from '../lib/whatsapp';
+import { handleInbound, waLive, sendWhatsApp } from '../lib/whatsapp';
 import { planSaved } from '../lib/plans';
 import { importUsers, parseCsv } from '../lib/account';
 import { getLot, allLots, siteStats } from '../lib/trading';
@@ -574,6 +574,9 @@ get('/admin/whatsapp', 'admin:support', (c) => {
       <Box title="Conversations"><Table rows={convs} cols={[['Phone', (r) => <a href={`/admin/whatsapp?phone=${r.phone}`}>+{r.phone}</a>], ['Champion', (r) => r.uid ? <a href={`/admin/champions/${r.uid}`}>{r.first_name} {r.last_name}</a> : <span className="muted">unknown</span>], ['Messages', (r) => r.n], ['Last', (r) => <D v={r.last} time />]]} /></Box>
       <Box title={phone ? `+${phone}` : 'Simulator'}>
         {phone && <div className="chat">{msgs.map((m) => <div key={m.id} className={`msg ${m.direction}`}>{m.body}<br /><span className="muted small">{m.created_at.slice(11, 16)}</span></div>)}</div>}
+        {phone && waLive() && <form method="post" action="/admin/whatsapp/reply" className="stack"><Csrf /><input type="hidden" name="phone" value={phone} />
+          <textarea name="text" rows={3} required aria-label="Reply" placeholder="Reply as ComboTrader…" />
+          <div className="btn-row"><button className="btn btn-primary btn-sm">Send on WhatsApp</button><span className="small muted">WhatsApp allows free-form replies within 24 hours of their last message.</span></div></form>}
         <Form action="/admin/whatsapp/simulate" submit="Send as this phone">
           <F label="Phone (digits, e.g. 2348012345678)" name="phone" value={phone} required />
           <F label="Message" name="text" value="MENU" required hint="Try MENU, 1 (balance), 2 (trades), 3 (payout), 4 (trail), 5 (lots), 6 (plan), 7 (person), or a question." />
@@ -581,6 +584,15 @@ get('/admin/whatsapp', 'admin:support', (c) => {
       </Box>
     </div>
   </>);
+});
+post('/admin/whatsapp/reply', 'admin:support', async (c) => {
+  const phone = c.str('phone', 20).replace(/\D/g, '');
+  try {
+    await sendWhatsApp(phone, c.str('text', 3000));
+    q.run("UPDATE chats SET status='answered', updated_at=? WHERE source='whatsapp' AND external_id=?", now(), phone);
+    audit(c.user!.id, 'whatsapp.reply', `+${phone}`);
+    c.redirect(`/admin/whatsapp?phone=${phone}`, ['ok', 'Sent.']);
+  } catch (e: any) { c.redirect(`/admin/whatsapp?phone=${phone}`, ['error', `Not sent: ${String(e.message).slice(0, 200)}`]); }
 });
 post('/admin/whatsapp/simulate', 'admin:support', async (c) => {
   const phone = c.str('phone', 20).replace(/\D/g, '');

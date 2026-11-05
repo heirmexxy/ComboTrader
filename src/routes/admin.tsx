@@ -919,7 +919,7 @@ post('/admin/tickets/:id', 'admin:support', (c) => {
 });
 
 // ============ Website chats ============
-const CHAT_SOURCE: Record<string, string> = { assistant: 'Assistant', tawk: 'Tawk.to chat', tawk_ticket: 'Tawk.to offline message' };
+const CHAT_SOURCE: Record<string, string> = { assistant: 'Assistant', tawk: 'Tawk.to chat', tawk_ticket: 'Tawk.to offline message', whatsapp: 'WhatsApp' };
 get('/admin/chats', 'admin:support', (c) => {
   const f = c.query.f === 'all' ? 'all' : 'attention';
   const rows = q.all<any>(`SELECT ch.*, (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id=ch.id) n, (SELECT body FROM chat_messages m WHERE m.chat_id=ch.id AND m.sender='visitor' ORDER BY id LIMIT 1) first
@@ -943,7 +943,7 @@ get('/admin/chats/:id', 'admin:support', (c) => {
     <p><a href="/admin/chats">← Website chats</a></p>
     <Kpis items={[['From', ch.user_id ? <a href={`/admin/champions/${ch.user_id}`}>{ch.name}</a> : (ch.name || 'Visitor'), ch.email || 'no email'], ['Where', CHAT_SOURCE[ch.source] || ch.source, ch.page || ''], ['Status', <S s={ch.status} />], ['Started', <D v={ch.created_at} time />]]} />
     <Box title="Conversation"><ol className="chat-log">{msgs.map((m) => <li key={m.id} className={`chat-${m.sender}`}><b>{who[m.sender] || m.sender}</b> <span className="small muted"><D v={m.created_at} time /></span><p>{m.body}</p></li>)}</ol></Box>
-    {ch.email ? <Box title={`Reply by email to ${ch.email}`}>
+    {ch.source === 'whatsapp' ? <p><a className="btn btn-primary btn-sm" href={`/admin/whatsapp?phone=${ch.external_id}`}>Open the WhatsApp conversation and reply</a></p> : ch.email ? <Box title={`Reply by email to ${ch.email}`}>
       <form method="post" action={`/admin/chats/${ch.id}/reply`} className="stack"><Csrf /><textarea name="reply" rows={5} required aria-label="Reply" /><div className="btn-row"><button className="btn btn-primary btn-sm">Send reply</button></div></form>
     </Box> : <p className="muted">This visitor left no email address{ch.source !== 'assistant' ? '; reply in Tawk.to' : ''}.</p>}
     <div className="btn-row">{ch.status !== 'closed' && <Act action={`/admin/chats/${ch.id}/close`} label="Mark as done" />}</div>

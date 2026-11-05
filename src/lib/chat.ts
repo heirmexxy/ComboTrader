@@ -26,6 +26,7 @@ export const chatMessages = (chatId: number) => q.all<any>('SELECT * FROM chat_m
 const chatByToken = (token: string) => (token ? q.get<any>("SELECT * FROM chats WHERE token=? AND source='assistant'", token) : null);
 
 /** Open lots in plain words, so the assistant can answer "what can I join now?". */
+export function openLotsForAgents() { return openLots(); }
 function openLots() {
   return q.all<any>("SELECT l.*, c.name AS commodity_name FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' AND l.closes_at>? ORDER BY l.closes_at LIMIT 8", now())
     .map((l) => {

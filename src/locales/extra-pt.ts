@@ -1,5 +1,13 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  'code.body.whatsapp': 'Olá {name}, alguém pediu para ligar o WhatsApp à sua conta ComboTrader. Se foi você, envie este código à ComboTrader no WhatsApp. Se não, ignore este e-mail.',
+  'wa.menu_guest': 'Olá da ComboTrader 🌾 Pergunte-me o que quiser sobre como funcionam as operações, os pagamentos ou como começar, ou responda:\n5 Lotes abertos\n7 Falar com uma pessoa\nJá é Champion? Responda 1 para ligar este número à sua conta e ver aqui a carteira e as operações.',
+  'wa.guest_hint': 'Responda 5 para lotes abertos, 7 para uma pessoa. É novo? Registe-se grátis: https://www.combotrader.com.ng/signup',
+  'wa.guest_hint_link': 'Responda 5 para lotes abertos, 7 para uma pessoa, ou 1 para ligar este número à sua conta ComboTrader.',
+  'wa.link_code': 'Para mostrar a sua conta aqui, precisamos de confirmar que é você. Enviámos um código de 6 dígitos para {email}. Responda com esse código para ligar este número de WhatsApp.',
+  'wa.link_bad': 'Esse código não corresponde ou expirou. Responda 1 para receber um novo.',
+  'wa.linked': 'Obrigado {name}, este número de WhatsApp está agora ligado à sua conta ComboTrader. 🌾',
+  'wa.link_needed': 'Para ver aqui a carteira e as operações, adicione este número de WhatsApp ao seu perfil ComboTrader ({profile}) e volte a escrever-nos. Ainda sem conta? Registe-se grátis: {signup}',
   'chat.lots_open': 'Estes lotes estão abertos agora:',
   'chat.lots_closes': 'fecha a {date}.',
   'chat.lots_all': 'Ver todos os lotes abertos: {link}',

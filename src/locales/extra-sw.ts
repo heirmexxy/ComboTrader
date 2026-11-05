@@ -1,5 +1,13 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
+  'code.body.whatsapp': 'Habari {name}, mtu ameomba kuunganisha WhatsApp na akaunti yako ya ComboTrader. Kama ni wewe, tuma msimbo huu kwa ComboTrader kwenye WhatsApp. Kama si wewe, puuza barua pepe hii.',
+  'wa.menu_guest': 'Habari kutoka ComboTrader 🌾 Niulize chochote kuhusu jinsi biashara zinavyofanya kazi, malipo au jinsi ya kuanza, au jibu:\n5 Lot zilizo wazi\n7 Ongea na mtu\nTayari ni Champion? Jibu 1 kuunganisha namba hii na akaunti yako na kuona pochi na biashara zako hapa.',
+  'wa.guest_hint': 'Jibu 5 kwa lot zilizo wazi, 7 kwa mtu. Mgeni? Jisajili bure: https://www.combotrader.com.ng/signup',
+  'wa.guest_hint_link': 'Jibu 5 kwa lot zilizo wazi, 7 kwa mtu, au 1 kuunganisha namba hii na akaunti yako ya ComboTrader.',
+  'wa.link_code': 'Ili kuonyesha akaunti yako hapa, tunahitaji kuthibitisha kuwa ni wewe. Tumetuma msimbo wa tarakimu 6 kwa {email}. Jibu kwa msimbo huo kuunganisha namba hii ya WhatsApp.',
+  'wa.link_bad': 'Msimbo huo haulingani au umeisha muda. Jibu 1 kupata mpya.',
+  'wa.linked': 'Asante {name}, namba hii ya WhatsApp sasa imeunganishwa na akaunti yako ya ComboTrader. 🌾',
+  'wa.link_needed': 'Ili kuona pochi na biashara zako hapa, ongeza namba hii ya WhatsApp kwenye wasifu wako wa ComboTrader ({profile}), kisha tutumie ujumbe tena. Huna akaunti? Jisajili bure: {signup}',
   'chat.lots_open': 'Lot hizi ziko wazi sasa:',
   'chat.lots_closes': 'inafungwa {date}.',
   'chat.lots_all': 'Tazama lot zote zilizo wazi: {link}',

@@ -373,13 +373,30 @@ await t('treasury, onboarding, risk and growth agents run in demo mode', async (
   for (const name of ['treasury', 'onboarding', 'risk', 'growth']) { const r = await agents.AGENT_JOBS[name](); if (String(r).startsWith('error')) throw new Error(`${name}: ${r}`); }
   eq(Number(q.val("SELECT COUNT(*) FROM agent_actions WHERE agent='treasury'")) >= 1, true);
 });
-await t('WhatsApp: unknown numbers are told to sign up; verified Champions get their balance', async () => {
+await t('WhatsApp: anyone gets answers; a Champion links their number once with an emailed code, then sees their balance', async () => {
   const r1 = await wa.handleInbound('2348000000000', 'hi', 'wamid.1');
-  eq(r1.includes('/signup'), true);
-  q.run("UPDATE users SET phone='+2348031112222', phone_verified_at=? WHERE id=?", now(), ada.id);
+  eq(r1.includes('could not match'), false); eq(r1.includes('5'), true);
+  const r1b = await wa.handleInbound('08000000000', 'What happens if a buyer pays late?', 'wamid.1b');
+  eq(r1b.includes('balance sheet'), true, 'visitors get real answers');
+  const r1c = await wa.handleInbound('2348000000000', '1', 'wamid.1c');
+  eq(r1c.includes('/app/profile'), true, 'account details need a linked account');
+  // Ada has this number on her profile but has not linked WhatsApp yet
+  q.run("UPDATE users SET phone='+2348031112222', phone_verified_at=NULL WHERE id=?", ada.id);
   const r2 = await wa.handleInbound('2348031112222', '1', 'wamid.2');
-  eq(r2.includes(fmtTest(walletBalance(ada.id))), true);
-  eq(await wa.handleInbound('2348031112222', '1', 'wamid.2'), '', 'duplicate webhook ignored');
+  eq(r2.includes(fmtTest(walletBalance(ada.id))), false, 'no balance before linking');
+  const mail = q.get<any>("SELECT body FROM outbox WHERE recipient=? AND channel='email' ORDER BY id DESC LIMIT 1", ada.email);
+  const code = String(mail.body).match(/>(\d{6})</)![1];
+  eq((await wa.handleInbound('2348031112222', '000000', 'wamid.3')).length > 0, true);
+  eq(q.val('SELECT phone_verified_at FROM users WHERE id=?', ada.id), null, 'wrong code does not link');
+  const r3 = await wa.handleInbound('2348031112222', code, 'wamid.4');
+  eq(q.val('SELECT phone_verified_at IS NOT NULL FROM users WHERE id=?', ada.id), 1);
+  eq(r3.includes(ada.first_name), true);
+  const r4 = await wa.handleInbound('08031112222', '1', 'wamid.5');
+  eq(r4.includes(fmtTest(walletBalance(ada.id))), true, 'local 080… format matches too');
+  eq(await wa.handleInbound('2348031112222', '1', 'wamid.5'), '', 'duplicate webhook ignored');
+  // Asking for a person puts the conversation in front of the team
+  await wa.handleInbound('2348000000000', '7', 'wamid.6');
+  eq(q.val("SELECT status FROM chats WHERE source='whatsapp' AND external_id='2348000000000'"), 'needs_person');
 });
 await t('live Claude path: request shape, JSON reply, run logged with tokens', async () => {
   const { config } = await import('../src/lib/config');

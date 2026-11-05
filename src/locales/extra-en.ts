@@ -1,5 +1,13 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  'code.body.whatsapp': 'Hi {name}, someone asked to link WhatsApp to your ComboTrader account. If it was you, send this code to ComboTrader on WhatsApp. If not, ignore this email.',
+  'wa.menu_guest': 'Hello from ComboTrader 🌾 Ask me anything about how trades work, payouts or getting started, or reply:\n5 Open Trade Lots\n7 Talk to a person\nAlready a Champion? Reply 1 to link this number to your account and see your wallet and trades here.',
+  'wa.guest_hint': 'Reply 5 for open lots, 7 for a person. New here? Sign up free at https://www.combotrader.com.ng/signup',
+  'wa.guest_hint_link': 'Reply 5 for open lots, 7 for a person, or 1 to link this number to your ComboTrader account.',
+  'wa.link_code': 'To show your account here, we need to confirm it’s you. We’ve emailed a 6-digit code to {email}. Reply with that code to link this WhatsApp number.',
+  'wa.link_bad': 'That code didn’t match or has expired. Reply 1 to get a new one.',
+  'wa.linked': 'Thanks {name}, this WhatsApp number is now linked to your ComboTrader account. 🌾',
+  'wa.link_needed': 'To see your wallet and trades here, add this WhatsApp number to your ComboTrader profile ({profile}), then message us again. No account yet? Sign up free: {signup}',
   'chat.lots_open': 'These Trade Lots are open now:',
   'chat.lots_closes': 'closes {date}.',
   'chat.lots_all': 'See all open lots: {link}',
