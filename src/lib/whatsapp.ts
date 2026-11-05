@@ -124,7 +124,7 @@ export async function handleInbound(from: string, text: string, waId?: string | 
       }
       return t('wa.link_needed', { signup: `${config.baseUrl}/signup`, profile: `${config.baseUrl}/app/profile` });
     }
-    const r = await supportAnswer(null, text, lang, `whatsapp:${digits}`, { channel: 'WhatsApp (plain text, short, no markdown)', open_trade_lots: openLotsForAgents(), latest_message: text, sender_name: profileName || '' });
+    const r = await supportAnswer(null, text, lang, `whatsapp:${digits}`, { channel: 'WhatsApp (plain text, short, no markdown)', persona: 'chief', open_trade_lots: openLotsForAgents(), latest_message: text, sender_name: profileName || '' });
     if (r.escalate) flagForTeam(digits, profileName, text, cand?.id ?? null);
     return `${r.reply}\n\n${t(cand ? 'wa.guest_hint_link' : 'wa.guest_hint')}`;
   }
@@ -158,7 +158,7 @@ export async function handleInbound(from: string, text: string, waId?: string | 
     }
   }
   // Free text → support agent.
-  const r = await supportAnswer(u, text, lang, `whatsapp:${digits}`, { channel: 'WhatsApp (plain text, short, no markdown)', open_trade_lots: openLotsForAgents(), latest_message: text });
+  const r = await supportAnswer(u, text, lang, `whatsapp:${digits}`, { channel: 'WhatsApp (plain text, short, no markdown)', persona: 'chief', open_trade_lots: openLotsForAgents(), latest_message: text });
   if (r.escalate) {
     q.insert('tickets', { user_id: u.id, subject: `WhatsApp: ${text.slice(0, 60)}`, body: `${text}\n\n[Assistant draft] ${r.reply}`, created_at: now() });
     audit(null, 'whatsapp.handover', `user:${u.id}`, r.reason);

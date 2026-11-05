@@ -1,7 +1,7 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
   'code.body.whatsapp': 'Hi {name}, someone asked to link WhatsApp to your ComboTrader account. If it was you, send this code to ComboTrader on WhatsApp. If not, ignore this email.',
-  'wa.menu_guest': 'Hello from ComboTrader 🌾 Ask me anything about how trades work, payouts or getting started, or reply:\n5 Open Trade Lots\n7 Talk to a person\nAlready a Champion? Reply 1 to link this number to your account and see your wallet and trades here.',
+  'wa.menu_guest': 'Hi, I’m Adaeze, AI Chief of Staff at ComboTrader 🌾\nComboTrader, by Kitovu Technology, lets you fund real farm produce deals: your money buys crops that a named buyer has already agreed to purchase, and you can follow every lot from farm to buyer.\n\nAsk me anything about how trades work, payouts or getting started, or reply:\n5 Open Trade Lots\n7 Talk to a person\nAlready a Champion? Reply 1 to link this number to your account and see your wallet and trades here.',
   'wa.guest_hint': 'Reply 5 for open lots, 7 for a person. New here? Sign up free at https://www.combotrader.com.ng/signup',
   'wa.guest_hint_link': 'Reply 5 for open lots, 7 for a person, or 1 to link this number to your ComboTrader account.',
   'wa.link_code': 'To show your account here, we need to confirm it’s you. We’ve emailed a 6-digit code to {email}. Reply with that code to link this WhatsApp number.',
@@ -258,7 +258,7 @@ const x: Record<string, string> = {
   'wa.off': 'ComboTrader on WhatsApp is resting for now. Please use combotrader.com.ng or email support.',
   'wa.unknown': 'Welcome to ComboTrader! We could not match this number to a verified account. Create your free account at {url}, or add and verify this number in your profile, then message us again.',
   'wa.stopped': 'You will not get WhatsApp updates from us. Send MENU any time to start again.',
-  'wa.menu': 'Hello {name} 🌾 Reply with a number:\n1 Wallet balance\n2 My trades\n3 Next payout\n4 Latest Harvest Trail update\n5 Open Trade Lots\n6 My Harvest Plan\n7 Talk to a person\nOr just type your question.',
+  'wa.menu': 'Hello {name}, Adaeze here, AI Chief of Staff at ComboTrader 🌾 Reply with a number:\n1 Wallet balance\n2 My trades\n3 Next payout\n4 Latest Harvest Trail update\n5 Open Trade Lots\n6 My Harvest Plan\n7 Talk to a person\nOr just type your question.',
   'wa.menu_hint': 'Reply MENU for options.', 'wa.balance': 'Wallet: {amount} available, {reserved} reserved.',
   'wa.no_trades': 'You have no active trades. See open lots: {url}', 'wa.trades_head': 'Your active trades:', 'wa.pays_on': 'pays {date}',
   'wa.next_payout': 'Next payout: {lot} — {amount} plus earnings on {date}. Kitovu pays on that date whatever the buyer does.',

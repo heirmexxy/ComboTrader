@@ -1,7 +1,7 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
   'code.body.whatsapp': 'Habari {name}, mtu ameomba kuunganisha WhatsApp na akaunti yako ya ComboTrader. Kama ni wewe, tuma msimbo huu kwa ComboTrader kwenye WhatsApp. Kama si wewe, puuza barua pepe hii.',
-  'wa.menu_guest': 'Habari kutoka ComboTrader 🌾 Niulize chochote kuhusu jinsi biashara zinavyofanya kazi, malipo au jinsi ya kuanza, au jibu:\n5 Lot zilizo wazi\n7 Ongea na mtu\nTayari ni Champion? Jibu 1 kuunganisha namba hii na akaunti yako na kuona pochi na biashara zako hapa.',
+  'wa.menu_guest': 'Habari, mimi ni Adaeze, Chief of Staff wa AI wa ComboTrader 🌾\nComboTrader, ya Kitovu Technology, inakuwezesha kufadhili biashara halisi za mazao ya shamba: pesa yako inanunua mazao ambayo mnunuzi anayejulikana ameshakubali kununua, na unafuatilia kila lot kutoka shambani hadi kwa mnunuzi.\n\nNiulize chochote kuhusu jinsi biashara zinavyofanya kazi, malipo au jinsi ya kuanza, au jibu:\n5 Lot zilizo wazi\n7 Ongea na mtu\nTayari ni Champion? Jibu 1 kuunganisha namba hii na akaunti yako na kuona pochi na biashara zako hapa.',
   'wa.guest_hint': 'Jibu 5 kwa lot zilizo wazi, 7 kwa mtu. Mgeni? Jisajili bure: https://www.combotrader.com.ng/signup',
   'wa.guest_hint_link': 'Jibu 5 kwa lot zilizo wazi, 7 kwa mtu, au 1 kuunganisha namba hii na akaunti yako ya ComboTrader.',
   'wa.link_code': 'Ili kuonyesha akaunti yako hapa, tunahitaji kuthibitisha kuwa ni wewe. Tumetuma msimbo wa tarakimu 6 kwa {email}. Jibu kwa msimbo huo kuunganisha namba hii ya WhatsApp.',
@@ -252,7 +252,7 @@ const x: Record<string, string> = {
   'wa.off': 'ComboTrader kwenye WhatsApp imepumzika kwa sasa. Tumia combotrader.com.ng au barua pepe ya msaada.',
   'wa.unknown': 'Karibu ComboTrader! Namba hii haijaunganishwa na akaunti iliyothibitishwa. Fungua akaunti bure kwenye {url}, au ongeza na uthibitishe namba hii kwenye wasifu, kisha tutumie ujumbe tena.',
   'wa.stopped': 'Hutapokea taarifa za WhatsApp kutoka kwetu. Tuma MENU wakati wowote kuanza tena.',
-  'wa.menu': 'Habari {name} 🌾 Jibu kwa namba:\n1 Salio la pochi\n2 Biashara zangu\n3 Malipo yajayo\n4 Taarifa ya karibuni ya Njia\n5 Makundi wazi\n6 Mpango wangu\n7 Ongea na mtu\nAu andika swali lako.',
+  'wa.menu': 'Habari {name}, ni Adaeze, Chief of Staff wa AI wa ComboTrader 🌾 Jibu kwa namba:\n1 Salio la pochi\n2 Biashara zangu\n3 Malipo yajayo\n4 Taarifa ya karibuni ya Njia\n5 Makundi wazi\n6 Mpango wangu\n7 Ongea na mtu\nAu andika swali lako.',
   'wa.menu_hint': 'Jibu MENU kwa chaguo.', 'wa.balance': 'Pochi: {amount} inapatikana, {reserved} imehifadhiwa.',
   'wa.no_trades': 'Huna biashara inayoendelea. Makundi wazi: {url}', 'wa.trades_head': 'Biashara zako zinazoendelea:', 'wa.pays_on': 'inalipa {date}',
   'wa.next_payout': 'Malipo yajayo: {lot} — {amount} pamoja na mapato tarehe {date}. Kitovu hulipa tarehe hiyo bila kujali mnunuzi.',

@@ -28,7 +28,7 @@ export class AiUnavailable extends Error {}
  * One model call that must return JSON. The system prompt states the policy; `input` is the data.
  * Logged to agent_runs with token counts so admins can see cost.
  */
-export async function completeJson<T = any>(agent: string, o: { system: string; input: unknown; trigger?: string; fast?: boolean; maxTokens?: number; tools?: unknown[] }): Promise<{ data: T; runId: number }> {
+export async function completeJson<T = any>(agent: string, o: { system: string; input: unknown; trigger?: string; fast?: boolean; maxTokens?: number; tools?: unknown[]; persona?: string }): Promise<{ data: T; runId: number }> {
   if (!aiLive()) throw new AiUnavailable('No ANTHROPIC_API_KEY');
   if (agentMode(agent) === 'rules') throw new AiUnavailable('Agent is in rules mode');
   if (callsToday() >= settings().agent_daily_limit) throw new AiUnavailable('Daily agent limit reached');
@@ -41,7 +41,7 @@ export async function completeJson<T = any>(agent: string, o: { system: string; 
       headers: { 'x-api-key': config.anthropicKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
         model, max_tokens: o.maxTokens || 1500,
-        system: `${personaLine(agent)}\n${o.system}\n\nReply with one JSON object only, no prose before or after it.`,
+        system: `${personaLine(o.persona || agent)}\n${o.system}\n\nReply with one JSON object only, no prose before or after it.`,
         messages: [{ role: 'user', content: input }],
         ...(o.tools ? { tools: o.tools } : {}),
       }),

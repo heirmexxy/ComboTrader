@@ -1,7 +1,7 @@
 // Nouvelles fonctions — français (à faire relire par un locuteur natif).
 const x: Record<string, string> = {
   'code.body.whatsapp': 'Bonjour {name}, quelqu’un a demandé à relier WhatsApp à votre compte ComboTrader. Si c’est vous, envoyez ce code à ComboTrader sur WhatsApp. Sinon, ignorez cet e-mail.',
-  'wa.menu_guest': 'Bonjour de la part de ComboTrader 🌾 Posez-moi vos questions sur le fonctionnement des opérations, les paiements ou comment commencer, ou répondez :\n5 Lots ouverts\n7 Parler à une personne\nDéjà Champion ? Répondez 1 pour relier ce numéro à votre compte et voir ici votre portefeuille et vos opérations.',
+  'wa.menu_guest': 'Bonjour, je suis Adaeze, Chief of Staff IA de ComboTrader 🌾\nComboTrader, de Kitovu Technology, vous permet de financer de vraies opérations de produits agricoles : votre argent achète des récoltes qu’un acheteur identifié s’est déjà engagé à acheter, et vous suivez chaque lot de la ferme à l’acheteur.\n\nPosez-moi vos questions sur le fonctionnement des opérations, les paiements ou comment commencer, ou répondez :\n5 Lots ouverts\n7 Parler à une personne\nDéjà Champion ? Répondez 1 pour relier ce numéro à votre compte et voir ici votre portefeuille et vos opérations.',
   'wa.guest_hint': 'Répondez 5 pour les lots ouverts, 7 pour une personne. Nouveau ? Inscrivez-vous gratuitement : https://www.combotrader.com.ng/signup',
   'wa.guest_hint_link': 'Répondez 5 pour les lots ouverts, 7 pour une personne, ou 1 pour relier ce numéro à votre compte ComboTrader.',
   'wa.link_code': 'Pour afficher votre compte ici, nous devons confirmer qu’il s’agit bien de vous. Nous avons envoyé un code à 6 chiffres à {email}. Répondez avec ce code pour relier ce numéro WhatsApp.',
@@ -252,7 +252,7 @@ const x: Record<string, string> = {
   'wa.off': 'ComboTrader sur WhatsApp est en pause. Utilisez combotrader.com.ng ou écrivez au support.',
   'wa.unknown': 'Bienvenue sur ComboTrader ! Ce numéro ne correspond à aucun compte vérifié. Créez votre compte gratuit sur {url}, ou ajoutez et vérifiez ce numéro dans votre profil, puis réécrivez-nous.',
   'wa.stopped': 'Vous ne recevrez plus de messages WhatsApp. Envoyez MENU pour recommencer.',
-  'wa.menu': 'Bonjour {name} 🌾 Répondez par un chiffre :\n1 Solde du portefeuille\n2 Mes transactions\n3 Prochain paiement\n4 Dernière mise à jour de la piste\n5 Lots ouverts\n6 Mon Plan Récolte\n7 Parler à une personne\nOu posez simplement votre question.',
+  'wa.menu': 'Bonjour {name}, ici Adaeze, Chief of Staff IA de ComboTrader 🌾 Répondez par un chiffre :\n1 Solde du portefeuille\n2 Mes transactions\n3 Prochain paiement\n4 Dernière mise à jour de la piste\n5 Lots ouverts\n6 Mon Plan Récolte\n7 Parler à une personne\nOu posez simplement votre question.',
   'wa.menu_hint': 'Répondez MENU pour les options.', 'wa.balance': 'Portefeuille : {amount} disponible, {reserved} réservé.',
   'wa.no_trades': 'Aucune transaction en cours. Lots ouverts : {url}', 'wa.trades_head': 'Vos transactions en cours :', 'wa.pays_on': 'paiement le {date}',
   'wa.next_payout': 'Prochain paiement : {lot} — {amount} plus les gains le {date}. Kitovu paie à cette date quoi que fasse l’acheteur.',

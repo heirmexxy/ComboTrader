@@ -304,8 +304,8 @@ export async function supportAnswer(u: User | null, question: string, lang: Lang
   if (useAI('support') && agentOn('support')) {
     try {
       const { data, runId } = await completeJson<{ reply: string; escalate: boolean; reason?: string; general_answer?: string }>('support', {
-        fast: true, trigger,
-        system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('support')}\nYou are the ComboTrader support assistant (Tolu). Answer using the FAQ and the Champion's own account data below. ` +
+        fast: true, trigger, persona: typeof extra.persona === 'string' ? extra.persona : undefined,
+        system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('support')}\nYou answer ComboTrader's support questions. Answer using the FAQ and the Champion's own account data below. ` +
           `Set escalate=true (and say a team member will follow up within one working day) for: anything about money that is missing, late or wrong; withdrawals; complaints; account access; identity checks that failed; anything you cannot answer from the data. ` +
           `Keep replies under 120 words. Answer in ${langName(lang)}. ` +
           `Also write "general_answer": the same answer with no personal details (no names, amounts or dates from the account) so it can be reused for anyone asking this; use "" if the answer depends on this person's account. ` +
