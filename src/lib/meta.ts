@@ -49,10 +49,27 @@ export async function metaExchange(code: string) {
   return long.access_token as string;
 }
 
-export async function metaPages(userToken = metaAuth()?.user_token || '') {
+type MetaPage = { id: string; name: string; token: string; canPost: boolean; ig: { id: string; username: string } | null };
+export async function metaPages(userToken = metaAuth()?.user_token || ''): Promise<MetaPage[]> {
   if (!userToken) throw new Error('Connect Facebook first');
-  const j = await gget('me/accounts', { access_token: userToken, fields: 'id,name,access_token,tasks,instagram_business_account{id,username}', limit: '50' });
-  return (j.data || []).map((p: any) => ({ id: String(p.id), name: String(p.name), token: String(p.access_token || ''), canPost: (p.tasks || []).includes('CREATE_CONTENT') || (p.tasks || []).includes('MANAGE'), ig: p.instagram_business_account ? { id: String(p.instagram_business_account.id), username: String(p.instagram_business_account.username || '') } : null })) as { id: string; name: string; token: string; canPost: boolean; ig: { id: string; username: string } | null }[];
+  const fields = 'id,name,access_token,tasks,instagram_business_account{id,username}';
+  const j = await gget('me/accounts', { access_token: userToken, fields, limit: '50' });
+  let rows: any[] = j.data || [];
+  // Pages held in a business portfolio don't always show in me/accounts: look there too.
+  if (!rows.length) {
+    try {
+      const biz = await gget('me/businesses', { access_token: userToken, fields: 'id,name', limit: '25' });
+      for (const b of biz.data || []) {
+        for (const edge of ['owned_pages', 'client_pages']) {
+          try { const r = await gget(`${b.id}/${edge}`, { access_token: userToken, fields, limit: '50' }); rows.push(...(r.data || [])); } catch { /* no access to this edge */ }
+        }
+      }
+    } catch { /* business_management not granted */ }
+    // A Page found through the business may not carry a token in the list: ask for it directly.
+    for (const r of rows) if (!r.access_token) { try { const d = await gget(r.id, { access_token: userToken, fields: 'access_token,tasks' }); r.access_token = d.access_token; r.tasks = d.tasks || r.tasks || (d.access_token ? ['CREATE_CONTENT'] : []); } catch { /* no Page token */ } }
+    const seen = new Set<string>(); rows = rows.filter((r) => !seen.has(String(r.id)) && seen.add(String(r.id)));
+  }
+  return rows.map((p: any) => ({ id: String(p.id), name: String(p.name), token: String(p.access_token || ''), canPost: !!p.access_token && ((p.tasks || []).includes('CREATE_CONTENT') || (p.tasks || []).includes('MANAGE')), ig: p.instagram_business_account ? { id: String(p.instagram_business_account.id), username: String(p.instagram_business_account.username || '') } : null })) as { id: string; name: string; token: string; canPost: boolean; ig: { id: string; username: string } | null }[];
 }
 
 /** Saves the Page (and its Instagram account) and subscribes the Page to our webhook. */
@@ -67,4 +84,13 @@ export async function metaChoosePage(pageId: string) {
   } catch { /* comments and messages can be subscribed later */ }
   save({ ...a, page_id: p.id, page_name: p.name, page_token: p.token, ig_id: p.ig?.id, ig_username: p.ig?.username, subscribed, connected_at: now() });
   return { page: p.name, instagram: p.ig?.username || null, subscribed };
+}
+
+/** Who signed in and which permissions Facebook granted (shown when no Page comes back). */
+export async function metaWhoAmI(userToken = metaAuth()?.user_token || '') {
+  const me = await gget('me', { access_token: userToken, fields: 'id,name' }).catch(() => ({ name: '?' }));
+  const perms = await gget('me/permissions', { access_token: userToken }).catch(() => ({ data: [] }));
+  const granted = (perms.data || []).filter((p: any) => p.status === 'granted').map((p: any) => p.permission);
+  const declined = (perms.data || []).filter((p: any) => p.status !== 'granted').map((p: any) => p.permission);
+  return { name: String(me.name || '?'), granted, missing: META_SCOPES.filter((s) => !granted.includes(s)), declined };
 }

@@ -25,7 +25,7 @@ import { savePublicImage } from '../lib/uploads';
 import { audit } from '../lib/audit';
 import { parseNaira, fmtNGN } from '../lib/util';
 import { config } from '../lib/config';
-import { metaAuth, metaConfigured, metaAuthUrl, metaExchange, metaPages, metaChoosePage, metaDisconnect, metaRedirect } from '../lib/meta';
+import { metaAuth, metaConfigured, metaAuthUrl, metaExchange, metaPages, metaChoosePage, metaDisconnect, metaRedirect, metaWhoAmI } from '../lib/meta';
 import { liAuth, liConfigured, liAuthUrl, liExchange, liAdminPages, liChoosePage, liDisconnect, liDaysLeft, liRedirect, liToken } from '../lib/linkedin';
 import { hmac, safeEqual } from '../lib/util';
 import { HttpError, type Ctx } from '../lib/http';
@@ -741,10 +741,15 @@ get('/admin/meta/pages', 'admin:content', async (c) => {
   if (!metaAuth()?.user_token) return c.redirect('/admin/meta/connect');
   let pages: Awaited<ReturnType<typeof metaPages>> = [], err = '';
   try { pages = await metaPages(); } catch (e: any) { err = e.message; }
+  const who = pages.some((p) => p.canPost) ? null : await metaWhoAmI();
   page(c, 'Choose a Facebook Page', <Box title="Post as which Page?">
     {err && <p className="error">{err}</p>}
     {pages.length ? <ul className="list">{pages.map((p) => <li key={p.id}><span>{p.name} {p.ig ? <span className="small">· Instagram @{p.ig.username}</span> : <span className="small muted">· no Instagram linked</span>}{!p.canPost && <span className="tag tag-grey">no posting permission</span>}</span>{p.canPost && <Act action="/admin/meta/pages" fields={{ id: p.id }} label="Use this Page" tone="primary" />}</li>)}</ul>
       : !err && <p>This Facebook account doesn’t manage any Pages that shared access with ComboTrader. <a href="/admin/meta/connect">Reconnect</a> and, when Facebook asks, select the ComboTrader Page (and its Instagram account).</p>}
+    {who && <div className="small"><p><b>Signed in to Facebook as:</b> {who.name}</p>
+      <p><b>Permissions granted:</b> {who.granted.join(', ') || 'none'}</p>
+      {who.missing.length > 0 && <p><b>Not granted:</b> {who.missing.join(', ')}. Add these in the Meta app’s use cases (Customise → Permissions), then reconnect.</p>}
+      <p>If the ComboTrader Page is in your business portfolio, give this Facebook profile access to it: business.facebook.com → Settings → Accounts → Pages → ComboTrader → People → Add / Facebook access → Full control. Then reconnect and, on the Facebook screen, choose “Edit access” and tick ComboTrader.</p></div>}
     <p className="small muted">Redirect URL registered in the Meta app: <code>{metaRedirect()}</code></p>
   </Box>);
 });
