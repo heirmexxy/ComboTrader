@@ -1,3 +1,4 @@
+import { seedLibrary } from './lib/library';
 import { captureSource } from './lib/tracking';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -120,6 +121,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
 export function start() {
   openDb();
   bootstrap();
+  try { seedLibrary(); } catch (e) { console.error('library seed failed', e); }
   setOverrideLoader(() => q.all('SELECT key, lang, value FROM page_text'));
   const server = http.createServer((req, res) => { handle(req, res); });
   server.listen(config.port, config.bindHost, () => console.log(`ComboTrader listening on ${config.baseUrl} (port ${config.port})${config.paystackDemo ? ' — Paystack DEMO mode' : ''}`));

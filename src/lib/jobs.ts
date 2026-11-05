@@ -17,6 +17,7 @@ import { reportError } from './alerts';
 import { autoSendSmallWithdrawals } from './wallet';
 import * as paystack from './paystack';
 import { syncPaystack } from './paysync';
+import { runLibrary, runSequences, seedLibrary } from './library';
 import { walletBalance, trialBalance } from './ledger';
 import { fmtNGN, lagosNow } from './util';
 import { audit } from './audit';
@@ -69,6 +70,8 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async watchdog() { return watchdog(); },
   async social_publish() { const n = await publishDueSocial(); return `${n} posts published`; },
   async paystack_sync() { return syncPaystack(); },
+  async library() { seedLibrary(); return runLibrary(); },
+  async sequences() { return runSequences(); },
   async reconcile() { return reconcile(); },
   async weekly() { return weeklySummary(); },
 };
@@ -101,6 +104,9 @@ export function startScheduler() {
       if (dueDaily('nudges', 9)) await runJob('nudges');
       if (dueDaily('plans', 9)) await runJob('plans');
       if (dueDaily('agents', 7)) await runJob('agents');
+      if (dueDaily('library', 8)) await runJob('library');
+      const sq = lastRun('sequences');
+      if (!sq || Date.now() - new Date(sq).getTime() > 3600e3) await runJob('sequences');
       if (lagosNow().getUTCDay() === 1 && dueDaily('growth', 7)) await runJob('growth');
       if (dueDaily('social', 8)) await runJob('social');
       if (dueDaily('reconcile', 2)) await runJob('reconcile');

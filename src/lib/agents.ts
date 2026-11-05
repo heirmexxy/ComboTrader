@@ -18,6 +18,7 @@ import { walletBalance } from './ledger';
 import { addTrailEvent, getLot, STAGES, siteStats, impactFor, rateFor, lotPeriods } from './trading';
 import { treasurySnapshot } from './treasury';
 import { BRAND_VOICE } from './brand';
+import { playbookFor, PROSPECT_SEGMENTS, PROSPECT_REGIONS } from '../content/playbook';
 import { paystackFloat } from './paysync';
 import { faqsFor } from './content';
 import { config } from './config';
@@ -302,7 +303,7 @@ export async function supportAnswer(u: User | null, question: string, lang: Lang
     try {
       const { data, runId } = await completeJson<{ reply: string; escalate: boolean; reason?: string; general_answer?: string }>('support', {
         fast: true, trigger,
-        system: `${POLICY}\n${BRAND_VOICE}\nYou are the ComboTrader support assistant. Answer using the FAQ and the Champion's own account data below. ` +
+        system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('support')}\nYou are the ComboTrader support assistant. Answer using the FAQ and the Champion's own account data below. ` +
           `Set escalate=true (and say a team member will follow up within one working day) for: anything about money that is missing, late or wrong; withdrawals; complaints; account access; identity checks that failed; anything you cannot answer from the data. ` +
           `Keep replies under 120 words. Answer in ${langName(lang)}. ` +
           `Also write "general_answer": the same answer with no personal details (no names, amounts or dates from the account) so it can be reused for anyone asking this; use "" if the answer depends on this person's account. ` +
@@ -371,7 +372,7 @@ export async function runOnboarding(limit = 25) {
       const examples = [...new Set(todo.map((x) => x.key))].map((k) => { const l = bestLesson('onboarding', 'template', k); return l && l.wins + l.losses >= 3 ? { situation: k, worked_for: `${l.wins} of ${l.wins + l.losses}`, ...parseLesson(l) } : null; }).filter(Boolean);
       const r = await completeJson<{ messages: Draft[] }>('onboarding', {
         fast: true, trigger: 'daily', maxTokens: 5000,
-        system: `${POLICY}\n${BRAND_VOICE}\nYou are the ComboTrader onboarding assistant. For each Champion, write one short, kind message (title ≤ 8 words, body ≤ 60 words) in their language that names the one next step for their situation. No pressure, no urgency tricks, no promises about earnings. ` +
+        system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('email')}\nYou are the ComboTrader onboarding assistant. For each Champion, write one short, kind message (title ≤ 8 words, body ≤ 60 words) in their language that names the one next step for their situation. No pressure, no urgency tricks, no promises about earnings. ` +
           `Also give "template": the same message with the first name replaced by {name}, so it can be reused. Learn from the examples that worked. Return {"messages":[{"user_id":number,"title":string,"body":string,"template":{"title":string,"body":string}}]}.`,
         input: { champions: todo.map((x) => ({ user_id: x.u.id, first_name: x.u.first_name, language: langName(x.u.lang), situation: x.situation })), examples_that_worked: examples },
       });
@@ -507,7 +508,7 @@ export async function runGrowth() {
   let runId: number | null = null, rules = false;
   if (useAI('growth')) {
     try {
-      const r = await completeJson<typeof out>('growth', { trigger: 'weekly', maxTokens: 3500, system: `${POLICY}\n${BRAND_VOICE}\nYou are ComboTrader's content writer for the "Harvest Champions Chronicles" newsletter. Using ONLY the facts given, write: a newsletter (subject ≤ 60 chars; body in Markdown, 150–300 words: one story from the Trail, open lots with links, a price snapshot, a closing line pointing to the risk statement at ${config.baseUrl}/legal/risk) and three social posts (≤ 240 chars each, no hashtags spam, no earnings promises beyond the stated rate). ` +
+      const r = await completeJson<typeof out>('growth', { trigger: 'weekly', maxTokens: 3500, system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('growth')}\nYou are ComboTrader's content writer for the "Harvest Champions Chronicles" newsletter. Using ONLY the facts given, write: a newsletter (subject ≤ 60 chars; body in Markdown, 150–300 words: one story from the Trail, open lots with links, a price snapshot, a closing line pointing to the risk statement at ${config.baseUrl}/legal/risk) and three social posts (≤ 240 chars each, no hashtags spam, no earnings promises beyond the stated rate). ` +
         `Also give "post_templates": the three posts rewritten with placeholders {commodity}, {periods}, {rates}, {link} instead of the specific lot details, so they can be reused for any lot. Also give "subject_b": a second subject line with a different angle, to A/B test. Return {"subject":string,"subject_b":string,"body":string,"posts":[string,string,string],"post_templates":[string,string,string]}.`, input: { ...facts, subject_lines_that_won: lessonsFor('growth', 'post', { key: 'subject' }).filter((l) => l.wins > 0).slice(0, 5).map((l) => parseLesson(l)?.text) } });
       out = r.data; runId = r.runId;
     } catch (e) { if (!(e instanceof AiUnavailable)) audit(null, 'agent.growth_error', undefined, String((e as Error).message)); }
@@ -617,7 +618,7 @@ export async function runProspector() {
   let budget = limit;
 
   // 1) Invitations to people who asked to hear from us.
-  const due = q.all<any>(`SELECT * FROM leads WHERE consent=1 AND email IS NOT NULL AND status IN ('new','contacted') AND touches < 3 ORDER BY touches, id LIMIT 200`)
+  const due = q.all<any>(`SELECT * FROM leads WHERE consent=1 AND email IS NOT NULL AND status IN ('new','contacted') AND touches < 3 AND (lists IS NULL OR lists='') ORDER BY touches, id LIMIT 200`)
     .filter((l) => !l.last_touch_at || Date.now() - new Date(l.last_touch_at).getTime() >= INVITE_GAP_DAYS[l.touches] * 864e5)
     .filter((l) => !q.get("SELECT 1 FROM agent_actions WHERE kind='send_invite' AND status='proposed' AND payload LIKE ?", `%"lead_id":${l.id},%`))
     .slice(0, budget);
@@ -629,7 +630,7 @@ export async function runProspector() {
     if (useAI('prospector')) {
       try {
         const r = await completeJson<{ invites: Inv[] }>('prospector', { fast: true, trigger: 'daily', maxTokens: 6000,
-          system: `${POLICY}\n${BRAND_VOICE}\nYou write short invitation emails to people who showed interest in ComboTrader (joined the waitlist, the newsletter, wrote to us, or messaged on WhatsApp) but have not created an account. One email each, in their language: subject ≤ 9 words; body ≤ 90 words; warm, specific to how they found us, one clear next step (create an account); mention that trades carry risk and link the risk statement once. Invitation number 2 or 3 is a gentle follow-up, shorter, with something new (an open lot or how the Harvest Trail works). ` +
+          system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('prospector')}\nYou write short invitation emails to people who showed interest in ComboTrader (joined the waitlist, the newsletter, wrote to us, or messaged on WhatsApp) but have not created an account. One email each, in their language: subject ≤ 9 words; body ≤ 90 words; warm, specific to how they found us, one clear next step (create an account); mention that trades carry risk and link the risk statement once. Invitation number 2 or 3 is a gentle follow-up, shorter, with something new (an open lot or how the Harvest Trail works). ` +
             `Also give "template": the email with the first name replaced by {name} (or no name). Return {"invites":[{"lead_id":number,"title":string,"body":string,"template":{"title":string,"body":string}}]}.`,
           input: { facts, leads: due.map((l) => ({ lead_id: l.id, first_name: l.name || '', language: langName(l.lang as Lang), how_they_found_us: l.source, invitation_number: l.touches + 1 })) } });
         drafts = r.data.invites || []; runId = r.runId;
@@ -685,7 +686,7 @@ export async function runProspector() {
     if (useAI('prospector')) {
       try {
         const r = await completeJson<{ emails: Out[] }>('prospector', { trigger: 'daily', maxTokens: 6000,
-          system: `${POLICY}\n${BRAND_VOICE}\nYou write first-contact partnership emails from Kitovu's ComboTrader team to organisations whose members could back real farm trades together through Harvest Circles (a group fills part of a Trade Lot from small slots; each member gets their own certificate). Subject ≤ 9 words. Body ≤ 140 words: why this organisation (use "why"), what members get, that Kitovu has worked with farmers since 2018, one ask (a 20-minute call or a talk at their next meeting), and a sign-off from "The ComboTrader team, Kitovu Technology". Follow-ups (touch 2) are 3 sentences. No earnings promises beyond "${rateFor(4) / 100}% to ${rateFor(12) / 100}% per annum depending on period". ` +
+          system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('prospector')}\nYou write first-contact partnership emails from Kitovu's ComboTrader team to organisations whose members could back real farm trades together through Harvest Circles (a group fills part of a Trade Lot from small slots; each member gets their own certificate). Subject ≤ 9 words. Body ≤ 140 words: why this organisation (use "why"), what members get, that Kitovu has worked with farmers since 2018, one ask (a 20-minute call or a talk at their next meeting), and a sign-off from "The ComboTrader team, Kitovu Technology". Follow-ups (touch 2) are 3 sentences. No earnings promises beyond "${rateFor(4) / 100}% to ${rateFor(12) / 100}% per annum depending on period". ` +
             `Also give "template" with {org} for the organisation name and {name} for the contact. Return {"emails":[{"prospect_id":number,"title":string,"body":string,"template":{"title":string,"body":string}}]}.`,
           input: orgs.map((o) => ({ prospect_id: o.id, organisation: o.name, segment: o.segment, location: o.location, contact_name: o.contact_name, why: o.why, touch: o.touches + 1 })) });
         drafts = r.data.emails || []; runId = r.runId;
@@ -724,15 +725,15 @@ const ORG_FOLLOW = { title: 'Following up: Harvest Circles for {org}', body: `De
 /** AI + web search: finds organisations for the next segment and region in rotation and saves them to Prospects. */
 export async function researchProspects(segment?: string, region?: string) {
   if (!useAI('prospector')) throw new AiUnavailable('Finding organisations on the web needs AI mode and an ANTHROPIC_API_KEY. In rules mode, add or import organisations in Prospects.');
-  const segs = String(settings().prospect_segments).split(',').map((x) => x.trim()).filter(Boolean);
-  const regs = String(settings().prospect_regions).split(',').map((x) => x.trim()).filter(Boolean);
+  const sset = String(settings().prospect_segments).split(',').map((x) => x.trim()).filter(Boolean), rset = String(settings().prospect_regions).split(',').map((x) => x.trim()).filter(Boolean);
+  const segs = sset.length ? sset : [...PROSPECT_SEGMENTS], regs = rset.length ? rset : [...PROSPECT_REGIONS];
   const n = Number(q.val("SELECT COUNT(*) FROM agent_runs WHERE agent='prospector' AND trigger LIKE 'research%'") ?? 0);
   const seg = segment || segs[n % Math.max(1, segs.length)] || 'Staff cooperative societies';
   const reg = region || regs[Math.floor(n / Math.max(1, segs.length)) % Math.max(1, regs.length)] || 'Lagos';
   const known = q.all<any>('SELECT name FROM prospects WHERE segment=? LIMIT 200', seg).map((x) => x.name);
   const r = await completeJson<{ organisations: any[] }>('prospector', { trigger: `research:${seg}:${reg}`, maxTokens: 6000,
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }],
-    system: `${POLICY}\nYou research organisations whose members could join ComboTrader together through Harvest Circles. Use web search. Find up to 10 real, currently active organisations of the type "${seg}" in "${reg}". For each, give only facts you found on public pages: name, location, website, a published general contact email or phone (an organisation's own published contact only; never personal emails of individuals unless published by the organisation for this purpose), contact_name only if it is the published secretary/coordinator, and "why" (one sentence on why their members are a fit). Skip any organisation you cannot verify. Do not repeat these known ones: ${JSON.stringify(known.slice(0, 80))}. ` +
+    system: `${POLICY}\n${playbookFor('prospector')}\nYou research organisations whose members could join ComboTrader together through Harvest Circles. Use web search. Find up to 10 real, currently active organisations of the type "${seg}" in "${reg}". For each, give only facts you found on public pages: name, location, website, a published general contact email or phone (an organisation's own published contact only; never personal emails of individuals unless published by the organisation for this purpose), contact_name only if it is the published secretary/coordinator, and "why" (one sentence on why their members are a fit). Skip any organisation you cannot verify. Do not repeat these known ones: ${JSON.stringify(known.slice(0, 80))}. ` +
       `Return {"organisations":[{"name":string,"location":string,"website":string,"email":string,"phone":string,"contact_name":string,"why":string}]}.`,
     input: { segment: seg, region: reg } });
   const orgs = (r.data.organisations || []).filter((o) => o?.name).map((o) => ({ ...o, segment: seg }));

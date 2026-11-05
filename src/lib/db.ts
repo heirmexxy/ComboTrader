@@ -750,6 +750,14 @@ CREATE TABLE chat_messages (
 );
 CREATE INDEX chat_messages_chat ON chat_messages(chat_id, id);
 `,
+`
+-- Content library: contact lists and email sequences for opted-in contacts.
+ALTER TABLE leads ADD COLUMN lists TEXT;          -- sequence,newsletter,blog
+ALTER TABLE leads ADD COLUMN seq TEXT;            -- sequence in progress (nurture | diaspora | circle | network)
+ALTER TABLE leads ADD COLUMN seq_step INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE leads ADD COLUMN seq_next_at TEXT;
+CREATE INDEX leads_seq ON leads(seq, seq_next_at);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

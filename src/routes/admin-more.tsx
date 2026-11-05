@@ -25,6 +25,11 @@ import { savePublicImage } from '../lib/uploads';
 import { audit } from '../lib/audit';
 import { parseNaira, fmtNGN } from '../lib/util';
 import { config } from '../lib/config';
+import { libraryStats, parseContacts, importContacts, runLibrary, seedLibrary, renderNewsletter, type ListName } from '../lib/library';
+import { BLOG, NEWSLETTERS, SEQUENCES, RESPONSES } from '../content/library';
+import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCES } from '../content/playbook';
+import { marked } from 'marked';
+import { escapeHtml } from '../lib/notify';
 import { metaAuth, metaConfigured, metaAuthUrl, metaExchange, metaPages, metaChoosePage, metaDisconnect, metaRedirect, metaWhoAmI } from '../lib/meta';
 import { liAuth, liConfigured, liAuthUrl, liExchange, liAdminPages, liChoosePage, liDisconnect, liDaysLeft, liRedirect, liToken } from '../lib/linkedin';
 import { hmac, safeEqual } from '../lib/util';
@@ -770,3 +775,82 @@ post('/admin/meta/pages', 'admin:content', async (c) => {
   catch (e: any) { c.redirect('/admin/meta/pages', ['error', e.message]); }
 });
 post('/admin/meta/disconnect', 'admin:content', (c) => { metaDisconnect(); audit(c.user!.id, 'meta.disconnect'); c.redirect('/admin/marketing', ['ok', 'Facebook & Instagram disconnected.']); });
+
+// ============ Contacts & sequences, content library, playbook ============
+const LIST_LABEL: Record<string, string> = { sequence: 'Email sequence', newsletter: 'Newsletter', blog: 'New articles' };
+get('/admin/audience', 'admin:content', (c) => {
+  const s = libraryStats();
+  const recent = q.all<any>("SELECT * FROM leads WHERE lists IS NOT NULL AND lists!='' ORDER BY id DESC LIMIT 30");
+  page(c, 'Contacts & email sequences', <>
+    <p className="muted">Add people who <b>asked to hear from Kitovu or ComboTrader</b> (event sign-ups, partners, customers, a group’s members who agreed). They get the chosen email sequence one email at a time, the fortnightly newsletter and/or new articles. Everyone can stop with one click; people who stopped are never re-added. Champions already on the platform get their own lifecycle emails instead of a sequence.</p>
+    <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Sequence and article emails, last 24h', s.sentToday, `cap ${settings().sequence_daily_cap} a day (Settings)`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
+    <div className="grid-2 top">
+      <Box title="Add contacts">
+        <form method="post" action="/admin/audience/import" encType="multipart/form-data" className="stack"><Csrf />
+          <label className="field"><span>Paste contacts: one per line, “email” or “email, name”. A header row <code>email,name,phone,lang</code> also works.</span>
+            <textarea name="text" rows={8} placeholder={'ada@example.com, Ada Obi\nbola@example.com'} /></label>
+          <label className="field"><span>…or upload a CSV file</span><input type="file" name="file" accept=".csv,text/csv,text/plain" /></label>
+          <fieldset className="field"><legend>Add them to</legend>
+            <label><input type="checkbox" name="lists[]" value="sequence" defaultChecked /> An email sequence:</label>{' '}
+            <select name="sequence" aria-label="Sequence">{Object.entries(SEQUENCES).map(([k, v]) => <option key={k} value={k}>{v.name} ({v.steps.length} emails)</option>)}</select><br />
+            <label><input type="checkbox" name="lists[]" value="newsletter" defaultChecked /> The fortnightly newsletter</label><br />
+            <label><input type="checkbox" name="lists[]" value="blog" /> Emails when a new article is published</label>
+          </fieldset>
+          <F label="Where they came from (for your records)" name="source" placeholder="e.g. ICAN Lagos session, 12 Nov" />
+          <label className="field"><span><input type="checkbox" name="consent" value="1" required /> <b>These people asked to hear from Kitovu or ComboTrader</b> (required by the Nigeria Data Protection Act).</span></label>
+          <button className="btn btn-primary btn-sm">Add contacts</button>
+        </form>
+      </Box>
+      <Box title="Sequences">
+        <Table rows={s.seq} cols={[['Sequence', (r) => <a href={`/admin/library#seq-${r.key}`}>{r.name}</a>], ['Emails', (r) => r.steps], ['In progress', (r) => r.active]]} />
+        <p className="small muted">Emails go out at 9:00 Lagos time on their day, one step at a time, and stop as soon as the person signs up or clicks “stop”. Preview every email in the <a href="/admin/library">content library</a>.</p>
+      </Box>
+    </div>
+    <Box title="Recently added"><Table rows={recent} cols={[['Email', (r) => r.email], ['Name', (r) => r.name || ''], ['Lists', (r) => String(r.lists).split(',').map((x) => LIST_LABEL[x] || x).join(', ')], ['Sequence', (r) => r.seq ? `${SEQUENCES[r.seq]?.name || r.seq}: email ${r.seq_step + 1}` : r.seq_step ? 'finished' : '—'], ['Status', (r) => <S s={r.status} />], ['From', (r) => <span className="small">{r.note || r.source}</span>]]} empty="No contacts yet." /></Box>
+  </>);
+});
+post('/admin/audience/import', 'admin:content', (c) => {
+  const file = c.files?.file;
+  const text = `${c.str('text', 2_000_000)}\n${file?.data ? file.data.toString('utf8') : ''}`;
+  const rows = parseContacts(text);
+  if (!rows.length) return c.redirect('/admin/audience', ['error', 'No email addresses found.']);
+  const lists = (Array.isArray(c.body['lists']) ? c.body['lists'] : [c.body['lists']]).filter((x: unknown) => ['sequence', 'newsletter', 'blog'].includes(String(x))) as ListName[];
+  if (!lists.length) return c.redirect('/admin/audience', ['error', 'Choose at least one list.']);
+  try {
+    const r = importContacts(rows, { lists, sequence: c.str('sequence', 20), source: c.str('source', 200), consent: c.bool('consent'), by: c.user!.id });
+    c.redirect('/admin/audience', ['ok', `${r.added} added, ${r.updated} updated${r.champions ? `, ${r.champions} already Champions (no sequence)` : ''}${r.skipped ? `, ${r.skipped} skipped (duplicates or opted out)` : ''}${r.newsletter ? `, ${r.newsletter} on the newsletter` : ''}.`]);
+  } catch (e: any) { c.redirect('/admin/audience', ['error', e.message]); }
+});
+
+get('/admin/library', 'admin:content', (c) => {
+  const s = libraryStats();
+  const used = new Set(q.all<any>("SELECT slug FROM posts WHERE lang='en'").map((p) => p.slug));
+  page(c, 'Content library', <>
+    <p className="muted">Written content the agents use and send: <b>{s.blogTotal}</b> articles, <b>{s.newsletterTotal}</b> newsletters, {Object.keys(SEQUENCES).length} email sequences, Champion emails, partnership outreach and ready answers. The Growth agent proposes the next article every week and the Email agent the next newsletter every two weeks (with today’s lots, Trail and prices filled in); approve them in <a href="/admin/agents">AI agents</a>. With AI on, agents use the library and the <a href="/admin/playbook">playbook</a> as their reference; in rules mode they send it as written.</p>
+    <Kpis items={[['Articles published from the library', `${s.blogUsed} of ${s.blogTotal}`], ['Next newsletter', s.newsletterNext <= s.newsletterTotal ? `#${s.newsletterNext}` : 'all sent'], ['Weekly article', settings().library_blog ? 'on' : 'off'], ['Fortnightly newsletter', settings().library_newsletter ? 'on' : 'off']]} />
+    <div className="btn-row"><Act action="/admin/library/run" label="Prepare what’s due now" /></div>
+    <Box title="Email sequences">{Object.entries(SEQUENCES).map(([k, sq]) => <details key={k} id={`seq-${k}`}><summary><b>{sq.name}</b> · {sq.steps.length} emails · <span className="small muted">{sq.audience}</span></summary>
+      <ol className="list">{sq.steps.map((st) => <li key={st.key}><span>Day {st.day}: <b>{st.subject.replace('{name}', 'Ada')}</b> <span className="small muted">{st.preview}</span></span><a className="btn btn-ghost btn-sm" href={`/admin/library/email/${k}/${st.key}`} target="_blank">Preview</a></li>)}</ol></details>)}</Box>
+    <Box title="Newsletters"><Table rows={NEWSLETTERS} cols={[['#', (n) => n.n], ['Subject (A / B)', (n) => <><b>{n.subject}</b><br /><span className="small muted">{n.subject_b}</span></>], ['Theme', (n) => n.theme], ['', (n) => <a className="btn btn-ghost btn-sm" href={`/admin/library/newsletter/${n.n}`} target="_blank">Preview</a>]]} /></Box>
+    <Box title="Articles"><Table rows={BLOG} cols={[['Title', (b) => <><b>{b.title}</b><br /><span className="small muted">{b.excerpt}</span></>], ['Category', (b) => b.category.replace(/-/g, ' ')], ['Status', (b) => used.has(b.slug) ? <a href={`/chronicles/${b.slug}`} target="_blank">on the site</a> : <span className="muted">waiting</span>], ['', (b) => <a className="btn btn-ghost btn-sm" href={`/admin/library/post/${b.slug}`} target="_blank">Preview</a>]]} /></Box>
+    <Box title="Ready answers (Support agent)"><ul className="list">{RESPONSES.map((r) => <li key={r.q}><span><b>{r.q}</b><br /><span className="small">{r.a}</span></span></li>)}</ul></Box>
+  </>);
+});
+post('/admin/library/run', 'admin:content', (c) => { seedLibrary(); const r = runLibrary(); c.redirect('/admin/library', ['ok', r === 'nothing due' ? 'Nothing due yet (one article a week, one newsletter every two weeks).' : `${r}. Approve in AI agents.`]); });
+const previewShell = (title: string, md: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:680px;margin:32px auto;padding:0 16px;color:#1E1E1A}h1,h2{font-family:Georgia,serif;color:#1F4D2B}a{color:#1F4D2B}</style></head><body><h1>${escapeHtml(title)}</h1>${marked.parse(md, { async: false })}</body></html>`;
+get('/admin/library/post/:slug', 'admin:content', (c) => { const b = BLOG.find((x) => x.slug === c.params.slug); if (!b) throw new HttpError(404, 'Not found'); c.html(previewShell(b.title, `*${b.excerpt}*\n\n${b.body}`)); });
+get('/admin/library/newsletter/:n', 'admin:content', (c) => { const r = renderNewsletter(Number(c.params.n)); if (!r) throw new HttpError(404, 'Not found'); c.html(previewShell(r.subject, `**Subject B:** ${r.subject_b}\n\n${r.body}`)); });
+get('/admin/library/email/:seq/:step', 'admin:content', (c) => { const st = SEQUENCES[c.params.seq]?.steps.find((x) => x.key === c.params.step); if (!st) throw new HttpError(404, 'Not found'); const f = (s: string) => s.replace(/\{name\}/g, 'Ada'); c.html(previewShell(f(st.subject), `*${st.preview}*\n\n${f(st.body)}\n\n**[${st.cta.label}](${config.baseUrl}${st.cta.path})**`)); });
+
+get('/admin/playbook', 'admin:any', (c) => page(c, 'Marketing & sales playbook', <>
+  <p className="muted">The briefing pack in the form the agents read. Every writing agent (Social, Email, Prospector, Growth, Support, Chief of Staff) gets the parts it needs in its instructions, and posts using words from the avoid list are flagged for review. Full document: <a href={PLAYBOOK_DOC} target="_blank" rel="noopener">Marketing &amp; Sales Briefing Pack</a>. To change how agents behave, edit the pack and ask for the playbook to be updated.</p>
+  <Box title={`Core promise: “${PROMISE}”`}><Table rows={[...SEGMENTS]} cols={[['Segment', (s) => <b>{s.name}</b>], ['Who', (s) => <span className="small">{s.who}</span>], ['First fear', (s) => <span className="small">{s.fear}</span>], ['Lead with', (s) => <span className="small">{s.message}</span>], ['Phase', (s) => s.phase]]} /></Box>
+  <div className="grid-2 top">
+    <Box title="Where">{LOCATIONS.map((l) => <p key={l.phase} className="small"><b>Phase {l.phase}:</b> {l.places.join(', ')}</p>)}</Box>
+    <Box title="Content pillars"><Table rows={[...PILLARS]} cols={[['Pillar', (p) => p.name], ['Share', (p) => `${p.share}%`], ['Shows', (p) => <span className="small">{p.shows}</span>]]} /></Box>
+  </div>
+  <div className="grid-2 top">
+    <Box title="Guardrails"><ul className="small">{GUARDRAILS.rules.map((r) => <li key={r}>{r}</li>)}</ul><p className="small"><b>Never use:</b> {GUARDRAILS.avoid.join(', ')}</p><p className="small"><b>Prefer:</b> {GUARDRAILS.use.join(', ')}</p></Box>
+    <Box title="Prospector sources">{SOURCES.prospect.map((s) => <p key={s.type} className="small"><b>{s.type}:</b> {s.where}</p>)}<p className="small"><b>Listening:</b> {SOURCES.listen.join('; ')}</p></Box>
+  </div>
+</>));

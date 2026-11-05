@@ -20,6 +20,8 @@ import { siteStats, rateFor, lotPeriods, stageLabel } from './trading';
 import { walletBalance } from './ledger';
 import { marketOn, openListings, quote } from './market';
 import { BRAND, MARK_SVG, BRAND_VOICE, useBrandFonts } from './brand';
+import { playbookFor, offMessage } from '../content/playbook';
+import { CHAMPION_EMAILS } from '../content/library/emails';
 import { liReady, liPost } from './linkedin';
 import { GRAPH, fbPageId, fbPageToken, igUserId } from './meta';
 
@@ -231,7 +233,7 @@ export async function createPost(force = false): Promise<string> {
     try {
       const examples = lessonsFor('social', 'post', { key: plan.key }).filter((l) => l.wins + l.losses >= 2).sort((a, b) => lessonScore(b) - lessonScore(a)).slice(0, 3).map((l) => ({ ...parseLesson(l), clicks_result: `${l.wins} of ${l.wins + l.losses} worked` }));
       const r = await completeJson<{ text: string; x_text: string; template: string }>('social', { trigger: `post:${plan.kind}`, maxTokens: 1500,
-        system: `${POLICY}\n${BRAND_VOICE}\nYou write ComboTrader's social media posts for Nigerian and diaspora audiences on Facebook, Instagram, LinkedIn, X and Telegram. Using ONLY the facts given, write "text" (≤ 450 characters, warm and concrete, at most 2 emojis, at most 3 hashtags, end with a clear next step) and "x_text" (≤ 240 characters). Both must contain the placeholder {link} exactly once (we put the tracked link there). No earnings promises beyond the rates given; never say guaranteed or investment. ` +
+        system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('social')}\nYou write ComboTrader's social media posts for Nigerian and diaspora audiences on Facebook, Instagram, LinkedIn, X and Telegram. Using ONLY the facts given, write "text" (≤ 450 characters, warm and concrete, at most 2 emojis, at most 3 hashtags, end with a clear next step) and "x_text" (≤ 240 characters). Both must contain the placeholder {link} exactly once (we put the tracked link there). No earnings promises beyond the rates given; never say guaranteed or investment. ` +
           `Also give "template": the text with the specific facts replaced by these placeholders where they appear: ${Object.keys(plan.facts).map((k) => `{${k}}`).join(', ')}, {link}. Learn from the examples that worked. Return {"text":string,"x_text":string,"template":string}.`,
         input: { post_type: plan.kind, facts: plan.facts, examples_that_worked: examples } });
       if (String(r.data.text || '').includes('{link}')) { text = r.data.text; short = String(r.data.x_text || '').includes('{link}') ? r.data.x_text : shorten(text); template = String(r.data.template || '').includes('{link}') ? r.data.template : null; runId = r.runId; }
@@ -247,8 +249,9 @@ export async function createPost(force = false): Promise<string> {
   const image = await postCard(plan.card).catch(() => null);
   const id = q.insert('social_posts', { kind: plan.kind, ref: plan.ref, text, text_short: short, image_path: image, channels: wantedChannels().join(','), status: 'draft', lesson_id: lessonId, created_at: now(),
     results: JSON.stringify({ _url: plan.url, _key: plan.key, ...(template ? { _template: template } : {}) }) }).id;
-  propose({ agent: 'social', kind: 'publish_social', risk: 'low', title: `${plan.kind === 'lot' ? 'New lot post' : `Post: ${plan.kind}`} for ${wantedChannels().map((c) => CHANNEL_NAMES[c]).join(', ') || 'copy and post'}`,
-    summary: text.replace('{link}', '🔗'), payload: { post_id: id, text, when: nextSlot() }, runId });
+  const flagged = offMessage(text);
+  propose({ agent: 'social', kind: 'publish_social', risk: flagged.length ? 'medium' : 'low', title: `${plan.kind === 'lot' ? 'New lot post' : `Post: ${plan.kind}`} for ${wantedChannels().map((c) => CHANNEL_NAMES[c]).join(', ') || 'copy and post'}`,
+    summary: `${flagged.length ? `Check wording (playbook): ${flagged.join(', ')}. ` : ''}${text.replace('{link}', '🔗')}`, payload: { post_id: id, text, when: nextSlot() }, runId });
   return `post #${id} drafted (${plan.kind})`;
 }
 /** Next posting time today or tomorrow at the configured Lagos hour. */
@@ -381,12 +384,13 @@ export async function runSocial(force = false) {
 }
 
 // ================= Email marketing =================
-export const CAMPAIGN_KEYS = ['welcome_1', 'welcome_2', 'welcome_3', 'maturity', 'paid_out', 'winback', 'new_lot', 'market'] as const;
+export const CAMPAIGN_KEYS = ['welcome_1', 'welcome_2', 'welcome_3', 'maturity', 'paid_out', 'winback', 'new_lot', 'market', 'verify_reminder', 'fund_reminder', 'lot_closing'] as const;
 type Recipient = { user_id: number; ref: string; vars: Record<string, string> };
 const campaignOn = (c: string) => String(settings().email_campaigns).split(',').map((x) => x.trim()).includes(c.replace(/_\d$/, ''));
 const CAMPAIGN_LINK: Record<string, (r: Recipient) => string> = {
   welcome_1: () => '/how-it-works', welcome_2: () => '/app/lots', welcome_3: () => '/app/circles',
   maturity: (r) => `/app/trades/${r.ref}`, paid_out: () => '/app/lots', winback: () => '/app/lots', new_lot: (r) => `/lots/${r.ref}`, market: () => '/app/market',
+  verify_reminder: () => '/app/profile#kyc', fund_reminder: () => '/app/wallet', lot_closing: (r) => `/lots/${r.ref}`,
 };
 const d = (days: number) => new Date(Date.now() + days * 864e5).toISOString();
 /** Who each lifecycle email goes to today (each person gets each email once per trade, lot or quarter). */
@@ -421,6 +425,19 @@ export function campaignAudience(c: string): Recipient[] {
       return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND ${notSent(`'${period}'`)} LIMIT 500`).filter((u) => walletBalance(u.id) >= cheapest && !q.get("SELECT 1 FROM trade_listings WHERE seller_id=? AND status='listed'", u.id))
         .map((u) => ({ user_id: u.id, ref: period, vars: { ...name(u), n: String(offers.length), pct: String(best) } }));
     }
+    case 'verify_reminder':
+      return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND u.kyc_status IN ('none','rejected') AND u.created_at<=? AND u.created_at>=? AND ${notSent("''")} LIMIT 300`, d(-2), d(-9))
+        .map((u) => ({ user_id: u.id, ref: '', vars: name(u) }));
+    case 'fund_reminder':
+      return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND u.kyc_status='verified' AND u.created_at<=? AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id AND p.status='success') AND ${notSent("''")} LIMIT 300`, d(-3))
+        .map((u) => ({ user_id: u.id, ref: '', vars: name(u) }));
+    case 'lot_closing': {
+      const lot = q.get<any>("SELECT l.* FROM lots l WHERE l.status='open' AND l.closes_at BETWEEN ? AND ? AND (SELECT COALESCE(SUM(t.amount),0) FROM trades t WHERE t.lot_id=l.id AND t.status!='cancelled') < l.target_amount * 0.9 ORDER BY l.closes_at", d(1), d(3));
+      if (!lot) return [];
+      const date = new Date(lot.closes_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+      return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id AND p.status='success') AND NOT EXISTS (SELECT 1 FROM trades t WHERE t.user_id=u.id AND t.lot_id=?) AND ${notSent(`'${lot.code}'`)} LIMIT 500`, lot.id)
+        .map((u) => ({ user_id: u.id, ref: lot.code, vars: { ...name(u), lot: lot.title, date } }));
+    }
     case 'new_lot': {
       const lot = q.get<any>("SELECT * FROM lots WHERE status='open' AND closes_at>? AND COALESCE(opened_at, created_at)>=? ORDER BY COALESCE(opened_at, created_at) DESC", now(), d(-3));
       if (!lot) return [];
@@ -447,7 +464,9 @@ export async function runEmail() {
     for (const [lang, rs] of byLang) {
       const key = `email:${c}`;
       // Built-in wording is the first variant; in AI mode Claude adds a challenger until there are two to compare.
-      learn({ agent: 'email', kind: 'template', key, lang, content: { title: translate(lang as Lang, `mkt.${c}.subject`), body: translate(lang as Lang, `mkt.${c}.body`) }, source: 'rules' });
+      const lib = (CHAMPION_EMAILS as Record<string, { subject: string; body: string }>)[c];
+      const hasLocale = translate(lang as Lang, `mkt.${c}.subject`) !== `mkt.${c}.subject`;
+      learn({ agent: 'email', kind: 'template', key, lang, content: hasLocale ? { title: translate(lang as Lang, `mkt.${c}.subject`), body: translate(lang as Lang, `mkt.${c}.body`) } : { title: lib.subject, body: lib.body }, source: 'rules' });
       if (useAI('email') && lessonsFor('email', 'template', { key, lang }).length < 2) await challenger(c, lang as Lang).catch((e) => { if (!(e instanceof AiUnavailable)) audit(null, 'agent.email_error', c, String(e.message)); });
       const v = pickVariant('email', 'template', key, lang)!;
       const t = parseLesson<{ title: string; body: string }>(v)!;
@@ -464,7 +483,7 @@ async function challenger(c: string, lang: Lang) {
   const current = lessonsFor('email', 'template', { key: `email:${c}`, lang }).map((l) => parseLesson(l));
   const placeholders: string[] = [...(translate(lang, `mkt.${c}.body`).match(/\{\w+\}/g) || [])].concat(translate(lang, `mkt.${c}.subject`).match(/\{\w+\}/g) || []);
   const r = await completeJson<{ title: string; body: string }>('email', { fast: true, trigger: `challenger:${c}:${lang}`,
-    system: `${POLICY}\n${BRAND_VOICE}\nYou improve ComboTrader lifecycle emails. Write ONE alternative version of this email in ${lang} to test against the current one: a different subject angle and a clearer, warmer body (≤ 110 words). Keep exactly these placeholders: ${[...new Set(placeholders)].join(', ') || 'none'}. Do not add links (a button is added). Return {"title":string,"body":string}.`,
+    system: `${POLICY}\n${BRAND_VOICE}\n${playbookFor('email')}\nYou improve ComboTrader lifecycle emails. Write ONE alternative version of this email in ${lang} to test against the current one: a different subject angle and a clearer, warmer body (≤ 110 words). Keep exactly these placeholders: ${[...new Set(placeholders)].join(', ') || 'none'}. Do not add links (a button is added). Return {"title":string,"body":string}.`,
     input: { campaign: c, current } });
   const ok = [...new Set(placeholders)].every((p) => `${r.data.title} ${r.data.body}`.includes(p));
   if (ok && r.data.title && r.data.body) learn({ agent: 'email', kind: 'template', key: `email:${c}`, lang, content: { title: r.data.title, body: r.data.body }, source: 'ai' });

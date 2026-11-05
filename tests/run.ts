@@ -876,6 +876,47 @@ await t('meta: connect exchanges for a long-lived token, picks the Page with its
   } finally { globalThis.fetch = real; meta.metaDisconnect(); (config as any).metaAppId = ''; (config as any).metaAppSecret = ''; }
 });
 
+console.log('\nContent library');
+await t('library: 50 articles and 50 newsletters, all on-message; import needs consent; sequences send one step at a time and stop on sign-up', async () => {
+  const lib = await import('../src/content/library');
+  const pb = await import('../src/content/playbook');
+  const L = await import('../src/lib/library');
+  eq(lib.BLOG.length, 50); eq(lib.NEWSLETTERS.length, 50);
+  eq(new Set(lib.BLOG.map((b) => b.slug)).size, 50, 'unique slugs');
+  const texts = [...lib.BLOG.map((b) => `${b.title} ${b.body}`), ...lib.NEWSLETTERS.map((n) => `${n.subject} ${n.body}`),
+    ...Object.values(lib.SEQUENCES).flatMap((s) => s.steps.map((x) => `${x.subject} ${x.body}`)), ...Object.values(lib.CHAMPION_EMAILS).map((e) => `${e.subject} ${e.body}`)];
+  // Warnings about these words ("never call trades risk-free", "red flag: guaranteed returns") are fine; using them as claims is not.
+  const strip = (tx: string) => tx.replace(/investment scheme|investment-based|investment and advisory/gi, '').replace(/\b(not|never|no|nor|isn’t|aren’t|don’t|anyone promising|red flags?[^.]*)\b[^.\n]{0,60}(risk-free|guaranteed|guarantee|investment)/gi, '').replace(/[“"]guaranteed[”"]|guaranteed returns|guaranteed,? risk-free|“last chance”/gi, '');
+  const bad = texts.map((tx) => ({ tx, w: pb.offMessage(strip(tx)) })).filter((x) => x.w.length);
+  if (bad.length) throw new Error(bad.map((b) => `(${b.w.join(', ')}) ${b.tx.slice(0, 60)}`).join(' | '));
+  eq(L.seedLibrary() > 20, true);
+  // Import
+  const rows = L.parseContacts('email,name\nzainab@example.com,Zainab Bello\nnot-an-email\nzainab@example.com,dup\n' + ada.email + ',Ada');
+  eq(rows.length, 3);
+  throws(() => L.importContacts(rows, { lists: ['sequence', 'newsletter'], sequence: 'nurture', source: 'test', consent: false, by: 1 }), 'asked to hear');
+  const r = L.importContacts(rows, { lists: ['sequence', 'newsletter', 'blog'], sequence: 'nurture', source: 'test', consent: true, by: 1 });
+  eq(r.added, 2); eq(r.champions, 1); eq(r.skipped, 1);
+  eq(q.val("SELECT status FROM subscribers WHERE email='zainab@example.com'"), 'confirmed');
+  eq(q.val('SELECT seq FROM leads WHERE email=?', ada.email), null, 'Champions get lifecycle emails, not a sequence');
+  // Sequence: first step now, next one later
+  const before = Number(q.val("SELECT COUNT(*) FROM outbox WHERE recipient='zainab@example.com'"));
+  L.runSequences();
+  eq(Number(q.val("SELECT COUNT(*) FROM outbox WHERE recipient='zainab@example.com'")) - before, 1);
+  eq(q.val("SELECT seq_step FROM leads WHERE email='zainab@example.com'"), 1);
+  L.runSequences();
+  eq(Number(q.val("SELECT COUNT(*) FROM outbox WHERE recipient='zainab@example.com'")) - before, 1, 'second email waits for its day');
+  q.run("UPDATE leads SET seq_next_at=? WHERE email='zainab@example.com'", now());
+  mkUser('zainab@example.com');
+  L.runSequences();
+  eq(q.val("SELECT status FROM leads WHERE email='zainab@example.com'"), 'signed_up', 'stops when they sign up');
+  // Scheduler proposes the next article and newsletter
+  setSetting('agent_autonomy', 'review');
+  const lr = L.runLibrary();
+  eq(Number(q.val("SELECT COUNT(*) FROM agent_actions WHERE kind='publish_post' AND status='proposed'")) >= 1, true, lr);
+  eq(Number(q.val("SELECT COUNT(*) FROM agent_actions WHERE kind='send_newsletter' AND status='proposed'")) >= 1, true);
+  const nl = L.renderNewsletter(1)!; eq(nl.body.includes('## Open Trade Lots'), true); eq(nl.body.includes('{name}'), false);
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');

@@ -13,6 +13,12 @@ export const DEFAULTS = {
   pass_card_fees: false,
   linkedin_auth: '',
   meta_auth: '', // set by Admin → Marketing → Connect Facebook & Instagram (Page, Page token, Instagram account) // set by Admin → Marketing → Connect LinkedIn (token, page)
+  library_blog: true, // propose the next library article every week (Growth agent)
+  library_newsletter: true, // propose the next library newsletter every two weeks (Email agent)
+  library_newsletter_next: 1,
+  library_newsletter_at: '',
+  sequences_enabled: true, // send email sequences to opted-in contacts
+  sequence_daily_cap: 200, // most sequence/blog emails per 24 hours
   assistant_enabled: true, // the 'Ask ComboTrader' chat on the website (Support agent; humans take over in Tawk.to)
   paystack_low_balance: 10000000, // kobo: ₦100,000 — alert when the Paystack balance falls below this (or below withdrawals waiting)
   feed_enabled: true,
@@ -59,12 +65,12 @@ export const DEFAULTS = {
   social_channels: 'facebook,instagram,linkedin,x,telegram', // where posts go (connected channels publish; others become copy-ready)
   social_auto_reply: true, // answer comments/DMs that ask how to join, with the /join link
   social_click_goal: 10, // a post "worked" if it gets this many clicks (or one sign-up) in a week
-  email_campaigns: 'welcome,maturity,paid_out,winback,new_lot,market', // lifecycle emails the Email agent may send
+  email_campaigns: 'welcome,maturity,paid_out,winback,new_lot,market,verify_reminder,fund_reminder,lot_closing', // lifecycle emails the Email agent may send
   newsletter_ab: true, // test two subject lines on every newsletter
   agent_mode: 'ai' as 'ai' | 'rules', // ai: use Claude when ANTHROPIC_API_KEY is set; rules: learned rules and templates only
   agent_modes: '{}', // per-agent override, e.g. {"growth":"rules"}
-  prospect_segments: 'Staff cooperative societies,Church and mosque groups,Diaspora associations,Alumni associations,Investment clubs,Professional associations,Market and trade associations',
-  prospect_regions: 'Lagos,Abuja,Port Harcourt,Ibadan,Enugu,Kano,UK Nigerian diaspora,US Nigerian diaspora',
+  prospect_segments: 'Staff cooperative societies,Professional associations (state branches),University alumni associations,Church and mosque welfare or cooperative arms,Thrift and credit societies,Nigerian diaspora professional associations', // from the playbook
+  prospect_regions: 'Lagos,Abuja,Ibadan,Port Harcourt,Enugu,Benin City,Abeokuta,Ilorin,London,Houston,Toronto',
   prospect_daily_limit: 15, // most outreach drafts the prospector prepares per day
   agent_autonomy: 'review' as 'review' | 'auto_low', // auto_low: low-risk messages send without a human click
   agent_daily_limit: 300, // max model calls per day across all agents
