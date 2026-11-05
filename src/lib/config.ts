@@ -52,8 +52,8 @@ export const config = {
   // WhatsApp Cloud API (Meta)
   waToken: e.WHATSAPP_TOKEN || '',
   waPhoneId: e.WHATSAPP_PHONE_NUMBER_ID || '',
-  waVerifyToken: e.WHATSAPP_VERIFY_TOKEN || '',
-  waAppSecret: e.WHATSAPP_APP_SECRET || '',
+  waVerifyToken: e.WHATSAPP_VERIFY_TOKEN || e.META_VERIFY_TOKEN || '', // defaults to the Meta webhook token
+  waAppSecret: (e.WHATSAPP_APP_SECRET || e.META_APP_SECRET || '').trim(), // defaults to the Meta app secret (same app)
   waNumber: e.WHATSAPP_NUMBER || '', // public number shown to Champions, e.g. 2348012345678
 
   // Social channels (each one is optional; without it, posts for that channel are prepared for copy-and-post)
