@@ -799,6 +799,39 @@ await t('chat: assistant answers, hands over to a person, Tawk.to transcripts an
   (config as any).tawkWebhookSecret = '';
 });
 
+await t('linkedin: connect stores the token, finds the page, posts with the branded image; version tracks the calendar', async () => {
+  const li = await import('../src/lib/linkedin');
+  const { config } = await import('../src/lib/config');
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  (config as any).linkedinClientId = 'cid'; (config as any).linkedinClientSecret = 'csec';
+  const calls: string[] = []; let posted: any = null;
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init: any) => {
+    calls.push(`${init?.method || 'GET'} ${url.split('?')[0]}`);
+    const ok = (d: any, h: Record<string, string> = {}) => new Response(JSON.stringify(d), { status: 200, headers: h });
+    if (url.includes('/oauth/v2/accessToken')) return ok({ access_token: 'AT', expires_in: 5184000, refresh_token: 'RT', refresh_token_expires_in: 31536000 });
+    if (url.includes('organizationAcls')) return ok({ elements: [{ organization: 'urn:li:organization:42', role: 'ADMINISTRATOR', state: 'APPROVED' }] });
+    if (url.includes('/organizations/42')) return ok({ localizedName: 'ComboTrader' });
+    if (url.includes('initializeUpload')) return ok({ value: { uploadUrl: 'https://upload.example/x', image: 'urn:li:image:9' } });
+    if (url.startsWith('https://upload.example')) return new Response('', { status: 201 });
+    if (url.endsWith('/rest/posts')) { posted = JSON.parse(init.body); return new Response('', { status: 201, headers: { 'x-restli-id': 'urn:li:share:7' } }); }
+    return ok({});
+  }) as any;
+  try {
+    eq(li.liReady(), false);
+    const tok = await li.liExchange('code');
+    const pages = await li.liAdminPages(tok);
+    eq(pages[0].name, 'ComboTrader');
+    li.liChoosePage(pages[0].urn, pages[0].name);
+    eq(li.liReady(), true);
+    const img = path.join(os.tmpdir(), 'li-test.jpg'); fs.writeFileSync(img, Buffer.from([0xff, 0xd8, 0xff]));
+    eq(await li.liPost('New lot (SB-2611) #harvest', img), 'urn:li:share:7');
+    eq(posted.author, 'urn:li:organization:42'); eq(posted.content.media.id, 'urn:li:image:9');
+    eq(posted.commentary.includes('\\(SB-2611\\)') && posted.commentary.includes('\\#harvest'), true);
+    eq(/^\d{6}$/.test(li.liVersion()), true);
+  } finally { globalThis.fetch = real; li.liDisconnect(); (config as any).linkedinClientId = ''; (config as any).linkedinClientSecret = ''; }
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');

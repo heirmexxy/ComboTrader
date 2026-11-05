@@ -20,6 +20,7 @@ import { siteStats, rateFor, lotPeriods, stageLabel } from './trading';
 import { walletBalance } from './ledger';
 import { marketOn, openListings, quote } from './market';
 import { BRAND, MARK_SVG, BRAND_VOICE, useBrandFonts } from './brand';
+import { liReady, liPost } from './linkedin';
 
 // ================= Channels =================
 export const CHANNELS = ['facebook', 'instagram', 'linkedin', 'x', 'telegram'] as const;
@@ -28,7 +29,7 @@ export const CHANNEL_NAMES: Record<Channel, string> = { facebook: 'Facebook Page
 export const CHANNEL_SETUP: Record<Channel, string> = {
   facebook: 'FACEBOOK_PAGE_ID and FACEBOOK_PAGE_TOKEN (a long-lived Page token with pages_manage_posts, pages_read_engagement, pages_messaging, leads_retrieval)',
   instagram: 'INSTAGRAM_BUSINESS_ID (the Instagram professional account linked to the Facebook Page; uses the Page token, needs instagram_content_publish)',
-  linkedin: 'LINKEDIN_TOKEN and LINKEDIN_ORG_URN (needs the w_organization_social permission from LinkedIn’s Community Management API)',
+  linkedin: 'LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET, then click Connect LinkedIn (the app needs LinkedIn’s Community Management API)',
   x: 'X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET (an X developer app with write access; posting needs a paid X API tier)',
   telegram: 'TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL (make the bot an admin of the channel)',
 };
@@ -36,7 +37,7 @@ export function channelReady(ch: string) {
   switch (ch) {
     case 'facebook': return !!(config.fbPageId && config.fbPageToken);
     case 'instagram': return !!(config.igUserId && config.fbPageToken);
-    case 'linkedin': return !!(config.linkedinToken && config.linkedinOrg);
+    case 'linkedin': return liReady();
     case 'x': return !!(config.xApiKey && config.xApiSecret && config.xAccessToken && config.xAccessSecret);
     case 'telegram': return !!(config.telegramBotToken && config.telegramChannel);
     default: return false;
@@ -71,13 +72,7 @@ async function publishTo(ch: Channel, text: string, short: string, image: string
     const c = await graph(`${config.igUserId}/media`, { image_url: img, caption: text });
     return (await graph(`${config.igUserId}/media_publish`, { creation_id: c.id })).id;
   }
-  if (ch === 'linkedin') {
-    const res = await fetch('https://api.linkedin.com/rest/posts', { method: 'POST', signal: AbortSignal.timeout(30_000),
-      headers: { Authorization: `Bearer ${config.linkedinToken}`, 'LinkedIn-Version': config.linkedinVersion, 'X-Restli-Protocol-Version': '2.0.0', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ author: config.linkedinOrg, commentary: text.replace(/[(){}\[\]<>@|~_*#]/g, (m) => `\\${m}`), visibility: 'PUBLIC', distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] }, lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false }) });
-    if (!res.ok) throw new Error(`LinkedIn ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    return res.headers.get('x-restli-id') || 'ok';
-  }
+  if (ch === 'linkedin') return liPost(text, image ? path.resolve(config.uploadsDir, 'public', image) : null);
   if (ch === 'x') {
     const url = 'https://api.x.com/2/tweets';
     const res = await fetch(url, { method: 'POST', signal: AbortSignal.timeout(30_000), headers: { Authorization: xAuthHeader('POST', url), 'Content-Type': 'application/json' }, body: JSON.stringify({ text: short }) });

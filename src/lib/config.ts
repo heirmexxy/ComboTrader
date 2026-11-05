@@ -63,6 +63,7 @@ export const config = {
   metaAppSecret: e.META_APP_SECRET || e.WHATSAPP_APP_SECRET || '',
   metaVerifyToken: e.META_VERIFY_TOKEN || e.WHATSAPP_VERIFY_TOKEN || '',
   linkedinToken: e.LINKEDIN_TOKEN || '',
+  linkedinClientId: (e.LINKEDIN_CLIENT_ID || '').trim(), linkedinClientSecret: (e.LINKEDIN_CLIENT_SECRET || '').trim(),
   linkedinOrg: e.LINKEDIN_ORG_URN || '', // e.g. urn:li:organization:12345678
   linkedinVersion: e.LINKEDIN_VERSION || '202509',
   xApiKey: e.X_API_KEY || '', xApiSecret: e.X_API_SECRET || '', xAccessToken: e.X_ACCESS_TOKEN || '', xAccessSecret: e.X_ACCESS_SECRET || '',

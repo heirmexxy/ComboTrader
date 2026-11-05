@@ -25,6 +25,8 @@ import { savePublicImage } from '../lib/uploads';
 import { audit } from '../lib/audit';
 import { parseNaira, fmtNGN } from '../lib/util';
 import { config } from '../lib/config';
+import { liAuth, liConfigured, liAuthUrl, liExchange, liAdminPages, liChoosePage, liDisconnect, liDaysLeft, liRedirect, liToken } from '../lib/linkedin';
+import { hmac, safeEqual } from '../lib/util';
 import { HttpError, type Ctx } from '../lib/http';
 
 const page = (c: Ctx, title: string, body: React.ReactNode, actions?: React.ReactNode) => render(c, <AdminLayout title={title} actions={actions}>{body}</AdminLayout>);
@@ -267,7 +269,7 @@ get('/admin/marketing', 'admin:content', (c) => {
       <Box title="Where new Champions came from (30 days)">{bySource.length ? <Table rows={bySource} cols={[['Source', (r) => r.src], ['Sign-ups', (r) => r.n], ['Traded', (r) => r.traded]]} /> : <p className="muted">No sign-ups yet in this period.</p>}</Box>
       <Box title="Channels">
         <Table rows={[...CHANNELS]} cols={[['Channel', (ch) => <><b>{CHANNEL_NAMES[ch]}</b>{!wantedChannels().includes(ch) && <span className="tag tag-grey">not used</span>}</>],
-          ['Status', (ch) => channelReady(ch) ? <span className="tag tag-green">connected: posts publish automatically</span> : <span className="small">Copy &amp; post: ready-made text and image below. To connect, add {CHANNEL_SETUP[ch]} to the server settings file.</span>]]} />
+          ['Status', (ch) => ch === 'linkedin' && liConfigured() ? <LinkedInStatus /> : channelReady(ch) ? <span className="tag tag-green">connected: posts publish automatically</span> : <span className="small">Copy &amp; post: ready-made text and image below. To connect, add {CHANNEL_SETUP[ch]} to the server settings file.</span>]]} />
         <p className="small">Comments, DMs and lead forms: in your Meta app, subscribe the Page (fields <code>feed</code>, <code>messages</code>, <code>leadgen</code>) and Instagram (<code>comments</code>, <code>messages</code>) to <code>{meta}</code> with the verify token in META_VERIFY_TOKEN. Your ads and posts can also point to <a href="/join" target="_blank">{config.baseUrl}/join</a>, which captures leads with consent.</p>
       </Box>
     </div>
@@ -660,3 +662,49 @@ post('/admin/figures', 'admin:content', (c) => {
 });
 
 export const _ = { setSetting, ACTION_KINDS };
+
+// ---------- LinkedIn connection ----------
+function LinkedInStatus() {
+  const a = liAuth(), days = liDaysLeft();
+  if (a?.org && days !== null && days > 0) return <span className="small"><span className="tag tag-green">connected</span> posting as <b>{a.org_name}</b>; {a.refresh_token ? 'renews automatically' : `reconnect within ${days} days`}. <a href="/admin/linkedin/connect">Reconnect</a> · <a href="/admin/linkedin/pages">Change page</a></span>;
+  if (a && !a.org) return <span className="small">Signed in. <a href="/admin/linkedin/pages">Choose the page to post as</a></span>;
+  return <span className="small"><a className="btn btn-primary btn-sm" href="/admin/linkedin/connect">Connect LinkedIn</a> {days !== null && days <= 0 && <span className="tag tag-terra">expired</span>} Sign in as an admin of the ComboTrader LinkedIn page.</span>;
+}
+get('/admin/linkedin/connect', 'admin:content', (c) => {
+  if (!liConfigured()) return c.redirect('/admin/marketing', ['error', 'Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET to the server settings first.']);
+  const state = randomToken(16);
+  c.setCookie('li_state', `${state}.${hmac(state)}`, { maxAge: 600 });
+  c.redirect(liAuthUrl(state));
+});
+get('/admin/linkedin/callback', 'admin:content', async (c) => {
+  const [state, sig] = String(c.cookies.li_state || '').split('.');
+  c.setCookie('li_state', '', { maxAge: 0 });
+  if (c.query.error) return c.redirect('/admin/marketing', ['error', `LinkedIn: ${String(c.query.error_description || c.query.error).slice(0, 200)}`]);
+  if (!state || !sig || !safeEqual(hmac(state), sig) || state !== c.query.state) return c.redirect('/admin/marketing', ['error', 'LinkedIn sign-in expired. Please try again.']);
+  try {
+    const token = await liExchange(String(c.query.code || ''));
+    audit(c.user!.id, 'linkedin.connect', undefined, undefined, c.ip);
+    const pages = await liAdminPages(token);
+    if (pages.length === 1) { liChoosePage(pages[0].urn, pages[0].name); return c.redirect('/admin/marketing', ['ok', `LinkedIn connected: posting as ${pages[0].name}.`]); }
+    c.redirect('/admin/linkedin/pages');
+  } catch (e: any) { audit(c.user!.id, 'linkedin.error', undefined, String(e.message).slice(0, 300)); c.redirect('/admin/marketing', ['error', String(e.message).slice(0, 300)]); }
+});
+get('/admin/linkedin/pages', 'admin:content', async (c) => {
+  if (!liAuth()) return c.redirect('/admin/linkedin/connect');
+  let pages: { urn: string; name: string }[] = [], err = '';
+  try { pages = await liAdminPages(await liToken()); } catch (e: any) { err = e.message; }
+  page(c, 'Choose a LinkedIn page', <Box title="Post as which page?">
+    {err && <p className="error">{err}</p>}
+    {pages.length ? <ul className="list">{pages.map((p) => <li key={p.urn}><span>{p.name} <span className="small muted">{p.urn}</span></span><Act action="/admin/linkedin/pages" fields={{ urn: p.urn, name: p.name }} label="Post as this page" tone="primary" /></li>)}</ul>
+      : !err && <p>Your LinkedIn account isn’t an administrator or content admin of any page. Ask a page admin to add you (Page → Admin tools → Manage admins), then <a href="/admin/linkedin/connect">reconnect</a>.</p>}
+    <p className="small muted">Redirect URL registered in the LinkedIn app: <code>{liRedirect()}</code></p>
+  </Box>);
+});
+post('/admin/linkedin/pages', 'admin:content', (c) => {
+  const urn = c.str('urn', 100);
+  if (!/^urn:li:organization:\d+$/.test(urn)) return c.redirect('/admin/linkedin/pages', ['error', 'Choose a page.']);
+  liChoosePage(urn, c.str('name', 120) || urn);
+  audit(c.user!.id, 'linkedin.page', urn);
+  c.redirect('/admin/marketing', ['ok', `LinkedIn posts will go to ${c.str('name', 120) || urn}.`]);
+});
+post('/admin/linkedin/disconnect', 'admin:content', (c) => { liDisconnect(); audit(c.user!.id, 'linkedin.disconnect'); c.redirect('/admin/marketing', ['ok', 'LinkedIn disconnected.']); });

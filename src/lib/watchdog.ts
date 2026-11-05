@@ -9,6 +9,7 @@ import { config } from './config';
 import { settings, setSetting } from './settings';
 import { queueEmail, emailShell, escapeHtml } from './notify';
 import { paystackFloat } from './paysync';
+import { liAuth } from './linkedin';
 
 export interface Check { key: string; name: string; ok: boolean; detail: string }
 let certCache: { at: number; days: number | null; error?: string } | null = null;
@@ -67,6 +68,10 @@ export async function runChecks(): Promise<Check[]> {
   // Paystack balance (pays withdrawals)
   const pf = await paystackFloat();
   if (pf.balance !== null || pf.error) out.push({ key: 'paystack', name: 'Paystack balance', ok: !pf.low, detail: pf.summary });
+  // LinkedIn connection (tokens last about 60 days unless LinkedIn allows refreshing)
+  const li = liAuth();
+  if (li) { const days = Math.floor((new Date(li.expires_at).getTime() - Date.now()) / 864e5); const canRefresh = !!li.refresh_token && (!li.refresh_expires_at || new Date(li.refresh_expires_at).getTime() > Date.now() + 864e5);
+    out.push({ key: 'linkedin', name: 'LinkedIn connection', ok: canRefresh || days > 10, detail: days > 0 ? `posting as ${li.org_name || 'the page'}; ${canRefresh ? 'renews automatically' : `reconnect within ${days} days (Admin → Marketing → Connect LinkedIn)`}` : 'expired: reconnect in Admin → Marketing' }); }
   // Security certificate
   const cert = await certDaysLeft();
   if (cert.days !== null || cert.error) out.push({ key: 'cert', name: 'Security certificate (https)', ok: cert.days !== null && cert.days >= 14, detail: cert.days !== null ? `expires in ${cert.days} days` : `could not check: ${cert.error}` });
