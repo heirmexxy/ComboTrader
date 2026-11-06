@@ -23,6 +23,9 @@ export const DEFAULTS = {
   email_warmup_first_day: 50, // marketing emails on the first day of sending
   email_gap_seconds: 150, // time between marketing emails (150 = 2 every 5 minutes), from 9:00 Lagos time, Monday to Friday
   marketing_paused_until: '', // set automatically if too many marketing emails fail
+  ai_credit_usd: 0, // Claude credit balance (USD) as shown in the Claude Console when last recorded
+  ai_credit_at: '', // when it was recorded
+  ai_credit_low_days: 7, // warn when credit will run out within this many days
   email_slowdown_until: '', // set by the Chief of Staff when delivery drops: marketing goes at half pace
   email_slow_groups: '{}', // providers (gmail, yahoo…) that are delaying our mail, with when the slow-down ends
   social_paused_until: '', // Chief of Staff: pause promoting new lots (e.g. when Treasury is short)

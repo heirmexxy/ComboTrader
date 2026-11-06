@@ -1149,6 +1149,25 @@ await t('Paystack top-up is only asked for when money is due (withdrawals waitin
   eq(P.topUpNeeded(30_000_000, 25_000_000, 10_000_000), 0);
 });
 
+await t('Claude credit: left = recorded balance − spend since (from the Cost API); Adaeze warns before it runs out', async () => {
+  const A = await import('../src/lib/aicost'); const { config: cfg } = await import('../src/lib/config');
+  const C = await import('../src/lib/chief');
+  const day = (n: number) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+  const realFetch = globalThis.fetch; const oldKey = cfg.anthropicAdminKey;
+  (cfg as any).anthropicAdminKey = 'sk-ant-admin-test';
+  // $3/day for the last 8 days (amounts are cents as strings).
+  globalThis.fetch = (async () => new Response(JSON.stringify({ data: Array.from({ length: 9 }, (_, i) => ({ starting_at: `${day(8 - i)}T00:00:00Z`, results: [{ amount: '300.00', currency: 'USD' }] })), has_more: false }), { status: 200 })) as any;
+  try {
+    setSetting('ai_credit_usd', 20); setSetting('ai_credit_at', new Date(Date.now() - 2 * 864e5).toISOString());
+    const c = await A.creditStatus();
+    eq([c.source, c.yesterday, c.last7, c.perDay], ['cost_api', 3, 21, 3]);
+    eq(c.spentSince, 9, 'two days ago, yesterday and today'); eq(c.left, 11); eq(c.runwayDays, 3);
+    eq(A.creditLine(c).startsWith('$11.00 credit left'), true, A.creditLine(c));
+    const plan = C.rulePlan(await C.gatherFacts());
+    eq(plan.recs.some((r) => r.key === 'ai_credit_low'), true, 'warned: 3 days left');
+  } finally { globalThis.fetch = realFetch; (cfg as any).anthropicAdminKey = oldKey; setSetting('ai_credit_usd', 0); setSetting('ai_credit_at', ''); }
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');

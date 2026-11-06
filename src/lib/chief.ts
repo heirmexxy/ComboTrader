@@ -22,6 +22,7 @@ import { offMessage, playbookFor, TARGETS_90, PROSPECT_SEGMENTS, PROSPECT_REGION
 import { marked } from 'marked';
 import { PERSONAS } from './personas';
 import { emailHealth } from './emailhealth';
+import { creditStatus, creditLine, usd } from './aicost';
 
 /** What the Chief of Staff may ask each agent to do. */
 export const TASK_KINDS = {
@@ -85,6 +86,7 @@ export async function gatherFacts() {
     social, learn_topics: learnTopics,
     progress, targets_90: TARGETS_90,
     email: (() => { const h = emailHealth(7); return { sent: h.total.sent, tracked: h.total.tracked, delivery_pct: h.rates.delivery, open_pct: h.rates.open, bounce_pct: h.rates.bounce, delay_pct: h.rates.delay, slow_providers: Object.entries(JSON.parse(String(settings().email_slow_groups || '{}'))).filter(([, u]) => String(u) > now()).map(([g]) => g) }; })(),
+    ai: await creditStatus(),
     ai_calls_today: callsToday(), ai_limit: settings().agent_daily_limit,
   };
 }
@@ -139,6 +141,9 @@ export function rulePlan(f: Facts) {
     const n = num("SELECT COUNT(*) FROM agent_tasks WHERE kind='prospector.research'");
     tasks.push({ kind: 'prospector.research', detail: { segment: PROSPECT_SEGMENTS[n % PROSPECT_SEGMENTS.length], region: PROSPECT_REGIONS[Math.floor(n / PROSPECT_SEGMENTS.length) % PROSPECT_REGIONS.length] }, reason: 'Fewer than 10 new organisations to approach' });
   }
+  // Claude credit: agents stop working when it runs out.
+  if (f.ai.creditErrors24h) recs.push({ key: 'ai_credit_out', roles: ['super'], priority: 1, text: `The agents’ AI calls are failing because the Claude credit has run out (${f.ai.creditErrors24h} failed calls in 24 hours). Top up in the Claude Console (Settings → Billing), then record the new balance in Admin → AI agents.`, link: '/admin/agents' });
+  else if (f.ai.left !== null && (f.ai.left <= 0 || (f.ai.runwayDays !== null && f.ai.runwayDays <= Number(settings().ai_credit_low_days || 7)))) recs.push({ key: 'ai_credit_low', roles: ['super'], priority: 2, text: `Claude credit is low: about ${usd(f.ai.left)} left, roughly ${f.ai.runwayDays ?? 0} days at ${usd(f.ai.perDay)} a day. Top up in the Claude Console and record the new balance in Admin → AI agents.`, link: '/admin/agents' });
   // Email health (needs the provider's webhook; at least 30 tracked emails in 7 days).
   const em = f.email;
   if (em.tracked >= 30 && em.delivery_pct !== null && em.delivery_pct < 95) {
@@ -354,6 +359,7 @@ function briefMarkdown(f: Facts, headline: string, recs: Rec[], tasks: { t: Task
     `## Approval queue\n${tri.safe.length} low-risk, on-message item${tri.safe.length === 1 ? '' : 's'} ready to approve together; ${tri.review.length} need${tri.review.length === 1 ? 's' : ''} your judgement. [Review](/admin/chief#triage)`,
     `## Open lots\n${f.lots.length ? f.lots.map((l) => `- ${l.title} (${l.code}): ${l.pct}% funded, ${l.days_left} days left, ${l.remaining} to go`).join('\n') : 'None open.'}`,
     f.email.tracked ? `## Email health (7 days)\n- ${f.email.sent} marketing emails · delivered ${f.email.delivery_pct ?? '–'}% · opened ${f.email.open_pct ?? '–'}% · bounced ${f.email.bounce_pct ?? '–'}% · delayed ${f.email.delay_pct ?? '–'}%${f.email.slow_providers.length ? `\n- Sending slowly to: ${f.email.slow_providers.join(', ')}` : ''}` : '',
+    `## Claude credit\n${creditLine(f.ai)}`,
     `## This week\n- Sign-ups: ${f.week.signups} · New leads: ${f.week.leads} · Funded: ${f.week.funded_naira}\n- Verified but not yet funded: ${f.week.verified_not_funded}`,
     `## Progress against the 90-day plan (day ${p.days_since_start})\n| Measure | Now | Expected by day ${d} | Day-90 target |\n| --- | --- | --- | --- |\n${(Object.keys(TARGETS_90) as (keyof typeof TARGETS_90)[]).map((k) => `| ${k.replace('_', ' ')} | ${p[k]} | ${Math.round((TARGETS_90[k] * d) / 90)} | ${TARGETS_90[k]} |`).join('\n')}`,
     whatWorks().length ? `## What’s working\n${whatWorks().map((w) => `- ${w}`).join('\n')}` : '',

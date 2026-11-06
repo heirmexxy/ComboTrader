@@ -47,6 +47,7 @@ export const config = {
 
   // AI agents (Claude API)
   anthropicKey: e.ANTHROPIC_API_KEY || '',
+  anthropicAdminKey: e.ANTHROPIC_ADMIN_KEY || '', // read-only use: the Cost API, for Claude spend in the briefs
   aiModel: e.AI_MODEL || 'claude-sonnet-5-5',
   aiModelFast: e.AI_MODEL_FAST || 'claude-haiku-5-5',
 

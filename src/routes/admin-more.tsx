@@ -31,6 +31,7 @@ import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCE
 import { marked } from 'marked';
 import { agentLabel } from '../lib/personas';
 import { coverImage } from '../lib/covers';
+import { creditStatus, creditLine } from '../lib/aicost';
 import { chatWithChief, chatHistory, agentsFor } from '../lib/chiefchat';
 import { endInstruction } from '../lib/instructions';
 import { xlsxRows, isXlsx, isOldXls } from '../lib/xlsx';
@@ -132,7 +133,8 @@ function payloadView(a: any) {
 /** Which payload field an admin may edit before approving. */
 const EDITABLE: Record<string, string> = { send_message: 'body', reply_ticket: 'reply', trail_update: 'note', draft_newsletter: 'body', send_invite: 'body', send_outreach: 'body', publish_social: 'text', send_campaign: 'body' };
 
-get('/admin/agents', 'admin:any', (c) => {
+get('/admin/agents', 'admin:any', async (c) => {
+  const credit = await creditStatus();
   const status = String(c.query.status || 'proposed');
   const agent = String(c.query.agent || '');
   const rows = q.all<any>(`SELECT a.*, u.first_name, u.last_name FROM agent_actions a LEFT JOIN users u ON u.id=a.target_user_id WHERE (?='all' OR a.status=?) AND (?='' OR a.agent=?) ORDER BY CASE a.risk WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, a.id DESC LIMIT 60`, status, status, agent, agent);
@@ -148,6 +150,11 @@ get('/admin/agents', 'admin:any', (c) => {
         ? aiLive() ? <>AI is on: agents use <b>{config.aiModel}</b> / <b>{config.aiModelFast}</b> ({callsToday()} of {s.agent_daily_limit} calls in the last 24 hours) and every approved result teaches the rules.</> : <><b>AI is selected but there is no ANTHROPIC_API_KEY on the server</b>, so agents are using rules until the key is added.</>
         : <>Rules are on: agents use the FAQs, built-in templates and <a href="/admin/agents/learning">what they have learned</a> from AI and from your approvals. No model calls, no cost. Web research for new organisations pauses.</>}</p>
     </section>
+    <Box title="Claude credit">
+      <p>{creditLine(credit)}</p>
+      <p className="small muted">Anthropic doesn’t share the balance itself, so record it here each time you top up (it’s on the Claude Console under Settings → Billing). Spending since then comes from Anthropic’s cost report{config.anthropicAdminKey ? '' : <>, which needs an <b>Admin API key</b> (Console → Settings → Admin keys) saved on the server as <code>ANTHROPIC_ADMIN_KEY</code></>}. The figures cover everything on your Anthropic account, not only ComboTrader. Adaeze includes them in her morning brief and warns you {s.ai_credit_low_days} days before it runs out.</p>
+      {c.can('super') ? <Form action="/admin/agents/credit" submit="Save balance"><F label="Credit balance now (US$)" name="usd" type="number" step="0.01" value={credit.creditSet ?? ''} /></Form> : null}
+    </Box>
     <div className="btn-row">
       {['proposed', 'approved', 'auto', 'rejected', 'failed', 'all'].map((st) => <a key={st} className={`btn btn-sm ${st === status ? 'btn-primary' : 'btn-ghost'}`} href={`/admin/agents?status=${st}${agent ? `&agent=${agent}` : ''}`}>{st} {st === 'proposed' ? `(${q.val("SELECT COUNT(*) FROM agent_actions WHERE status='proposed'")})` : ''}</a>)}
     </div>
@@ -999,6 +1006,11 @@ post('/admin/chief/instructions/:id/end', 'admin:any', (c) => {
   c.redirect('/admin/chief/chat', ['ok', 'Instruction ended.']);
 });
 post('/admin/chief/decide/:id', 'admin:any', (c) => { const a = c.str('action', 12) === 'done' ? 'done' : 'dismissed'; c.redirect('/admin/chief#decisions', ['ok', chiefDecide(Number(c.params.id), c.user!.id, rolesOf(c.user!.admin_roles), a, c.str('note', 500))]); });
+post('/admin/agents/credit', 'admin:super', (c) => {
+  const v = Math.max(0, Number(c.str('usd', 20)) || 0);
+  setSetting('ai_credit_usd', v); setSetting('ai_credit_at', now()); audit(c.user!.id, 'ai.credit_recorded', undefined, { usd: v });
+  c.redirect('/admin/agents', ['ok', `Recorded $${v.toFixed(2)} of Claude credit.`]);
+});
 post('/admin/chief/run', 'admin:any', async (c) => { const r = await runChief('manual'); c.redirect('/admin/chief', ['ok', r === 'off' ? 'The Chief of Staff is switched off in Settings → Agents.' : `Done: ${r}.`]); });
 post('/admin/chief/assign', 'admin:super', (c) => { setSetting('chief_assign', c.str('on', 1) === '1'); audit(c.user!.id, 'chief.assign', undefined, c.str('on', 1)); c.redirect('/admin/chief', ['ok', 'Saved.']); });
 post('/admin/chief/approve-safe', 'admin:any', (c) => { const n = chiefApproveSafe(c.user!.id); c.redirect('/admin/chief#triage', ['ok', `${n} approved.`]); });
