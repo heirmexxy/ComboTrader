@@ -789,6 +789,11 @@ ALTER TABLE outbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'tx';
 ALTER TABLE outbox ADD COLUMN send_after TEXT;
 CREATE INDEX outbox_due ON outbox(status, send_after);
 `,
+`
+-- Addresses that failed or bounced once: only a SHA-256 hash is kept, so they are never added or emailed again.
+CREATE TABLE email_suppress (hash TEXT PRIMARY KEY, reason TEXT, created_at TEXT NOT NULL);
+UPDATE outbox SET status='failed' WHERE kind='marketing' AND status='queued' AND attempts>0;
+`,
 ];
 
 export function openDb(file = config.dbFile) {

@@ -54,7 +54,7 @@ export function PostPage({ post, html, related, fallback }: { post: Post; html: 
   const url = `${config.baseUrl}/chronicles/${post.slug}`;
   const enc = encodeURIComponent;
   return (
-    <PublicLayout title={post.title} description={post.excerpt || undefined}>
+    <PublicLayout title={post.title} description={post.excerpt || undefined} image={post.cover_path ? `${config.baseUrl}/uploads/${post.cover_path}` : undefined}>
       <article>
         <header className="page-head"><div className="container narrow">
           <p className="eyebrow"><a href={`/chronicles?cat=${post.category}`}>{c.t(`blog.cat.${post.category}`)}</a></p>

@@ -7,7 +7,8 @@ import { config } from './config';
 import { settings, setSetting } from './settings';
 import { learn, keyOf } from './learning';
 import { propose, registerExecutors, agentOn } from './agents';
-import { queueEmail, emailShell, escapeHtml, marketingDailyCap, marketingQueued } from './notify';
+import { ensurePostCover, ensureNewsletterCover, newsletterCoverUrl } from './covers';
+import { queueEmail, emailShell, escapeHtml, marketingDailyCap, marketingQueued, emailSuppressed } from './notify';
 import { trackedLink, trackHtmlLinks } from './tracking';
 import { lotPeriods, rateFor } from './trading';
 import { latestPrices } from './prices';
@@ -46,7 +47,7 @@ export function renderNewsletter(n: number) {
   const issue = NEWSLETTERS.find((x) => x.n === n);
   if (!issue) return null;
   const s = liveSections();
-  const body = [fillName(issue.body, { name: 'there' }), '## Open Trade Lots', s.lotsMd, '## From the Harvest Trail', s.trailMd,
+  const body = [`![ComboTrader newsletter, issue ${n}](${newsletterCoverUrl(n)})`, fillName(issue.body, { name: 'there' }), '## Open Trade Lots', s.lotsMd, '## From the Harvest Trail', s.trailMd,
     s.postMd && '## Worth reading', s.postMd, s.priceMd && '## Market prices', s.priceMd,
     `---\nComboTrader is a platform of Kitovu Technology Company Limited. Trades are not bank deposits and are not NDIC-insured. [Read the risks](${config.baseUrl}/legal/risk).\n\nWarm regards,\nThe ComboTrader team`].filter(Boolean).join('\n\n');
   return { subject: issue.subject, subject_b: issue.subject_b, body };
@@ -68,6 +69,7 @@ export function runLibrary() {
     const next = nextLibraryPost();
     if (due && !pending && next) {
       const id = q.insert('posts', { slug: next.slug, lang: 'en', title: next.title, excerpt: next.excerpt, body: next.body, category: next.category, author: 'ComboTrader team', status: 'draft', created_at: now(), updated_at: now() }).id;
+      void ensurePostCover(id).catch(() => undefined);
       propose({ agent: 'growth', kind: 'publish_post', risk: 'low', title: `Publish article: ${next.title}`, summary: next.excerpt, payload: { post_id: id } });
       out.push(`article drafted: ${next.slug}`);
     }
@@ -81,6 +83,7 @@ export function runLibrary() {
     if (due && !pending && r) {
       const id = q.insert('newsletters', { subject: r.subject, subject_b: r.subject_b, body: r.body, segment: 'all', status: 'draft', created_by: null, created_at: now() }).id;
       setSetting('library_newsletter_next', n + 1); setSetting('library_newsletter_at', now());
+      void ensureNewsletterCover(n, r.subject).catch(() => undefined);
       propose({ agent: 'email', kind: 'send_newsletter', risk: 'low', title: `Send newsletter #${n}: ${r.subject}`, summary: `${r.subject} / B: ${r.subject_b}. Live sections filled from today’s lots, Trail and prices.`, payload: { newsletter_id: id } });
       out.push(`newsletter #${n} drafted`);
     }
@@ -121,7 +124,9 @@ export function parseContacts(text: string): ImportRow[] {
   const out: ImportRow[] = [];
   for (const l of hasHeader ? lines.slice(1) : lines) {
     const cells = l.split(/[,;\t]/).map((x) => x.trim().replace(/^"|"$/g, ''));
-    const email = String(cells[idx('email')] || cells.find((c) => EMAIL_RE.test(c)) || '').toLowerCase();
+    const at = String(cells[idx('email')] || '').toLowerCase();
+    const email = EMAIL_RE.test(at) ? at : String(cells.find((c) => EMAIL_RE.test(c.toLowerCase())) || '').toLowerCase();
+    if (!hasHeader && email !== at) { const other = cells.find((c) => c && c.toLowerCase() !== email && !EMAIL_RE.test(c.toLowerCase()) && !/^[+\d\s()-]{7,}$/.test(c)); if (other) { out.push({ email, name: other, phone: cells.find((c) => /^[+\d\s()-]{7,}$/.test(c)) || '', lang: '' }); continue; } }
     if (!EMAIL_RE.test(email)) continue;
     out.push({ email, name: idx('name') >= 0 ? cells[idx('name')] || '' : '', phone: idx('phone') >= 0 ? cells[idx('phone')] || '' : '', lang: idx('lang') >= 0 ? cells[idx('lang')] || '' : '' });
   }
@@ -139,6 +144,7 @@ export function importContacts(rows: ImportRow[], o: { lists: ListName[]; sequen
     if (seen.has(r.email)) { res.skipped++; return; } seen.add(r.email);
     const lang = ['en', 'fr', 'sw', 'pt', 'ar'].includes(String(r.lang)) ? String(r.lang) : 'en';
     const user = q.get<any>('SELECT id FROM users WHERE lower(email)=?', r.email);
+    if (emailSuppressed(r.email)) { res.skipped++; return; } // failed or bounced before: never re-added
     const ex = q.get<any>('SELECT * FROM leads WHERE email=?', r.email);
     if (ex && ['unsubscribed', 'bounced'].includes(ex.status)) { res.skipped++; return; } // never re-add someone who opted out
     // Stagger first emails so a big import doesn't go out in one burst.
@@ -204,7 +210,7 @@ function notifyBlogList(post: any) {
   const link = trackedLink(`/chronicles/${post.slug}`, { channel: 'email', campaign: `blog-${post.slug}` }).url;
   for (const l of people) {
     const subject = `New on ComboTrader: ${post.title}`;
-    queueEmail(l.email, subject, emailShell(escapeHtml(post.title), `<div data-seq="blog">${post.excerpt ? `<p>${escapeHtml(post.excerpt)}</p>` : ''}</div><p style="font-size:12px;color:#777;margin-top:24px"><a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: 'Read the article', url: link }), { marketing: true });
+    queueEmail(l.email, subject, emailShell(escapeHtml(post.title), `<div data-seq="blog">${post.cover_path ? `<p><a href="${link}"><img src="${config.baseUrl}/uploads/${post.cover_path}" alt="" width="560" style="width:100%;max-width:560px;height:auto;border-radius:8px"></a></p>` : ''}${post.excerpt ? `<p>${escapeHtml(post.excerpt)}</p>` : ''}</div><p style="font-size:12px;color:#777;margin-top:24px"><a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: 'Read the article', url: link }), { marketing: true });
   }
   return people.length;
 }

@@ -28,6 +28,7 @@ export const config = {
 
   emailProvider: (e.EMAIL_PROVIDER || '').toLowerCase(), // 'resend' | 'brevo' | ''
   emailApiKey: e.EMAIL_API_KEY || '',
+  emailWebhookToken: e.EMAIL_WEBHOOK_TOKEN || '', // secret part of the bounce webhook URL (Resend or Brevo)
   emailFrom: e.EMAIL_FROM || 'ComboTrader <hello@combotrader.com.ng>',
   termiiKey: e.TERMII_API_KEY || '',
   termiiSender: e.TERMII_SENDER_ID || 'ComboTrader',

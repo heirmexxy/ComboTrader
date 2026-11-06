@@ -15,7 +15,8 @@ import { settings } from '../lib/settings';
 import { verifyTotp } from '../lib/totp';
 import { rateLimit, destroySession } from '../lib/auth';
 import { parseNaira, randomToken, sha256, fmtNGN } from '../lib/util';
-import { queueEmail, queueSms, emailShell, escapeHtml } from '../lib/notify';
+import { queueEmail, queueSms, emailShell, escapeHtml, dropAddress } from '../lib/notify';
+import { timingSafeEqual } from 'node:crypto';
 import { audit } from '../lib/audit';
 import { config } from '../lib/config';
 import { HttpError, type Ctx } from '../lib/http';
@@ -162,6 +163,23 @@ post('/webhooks/tawk', 'public', async (c) => {
   try { body = JSON.parse(c.rawBody.toString()); } catch { return c.send(400, 'bad json'); }
   c.send(200, 'ok');
   handleTawk(body).then((r) => audit(null, 'tawk.webhook', undefined, r)).catch((e) => audit(null, 'tawk.webhook_error', undefined, String(e?.message || e)));
+});
+
+// Bounces and spam complaints from the email provider (Resend or Brevo): the address is removed after one failure.
+post('/webhooks/email/:token', 'public', (c) => {
+  const want = Buffer.from(config.emailWebhookToken), got = Buffer.from(String(c.params.token));
+  if (!config.emailWebhookToken || want.length !== got.length || !timingSafeEqual(want, got)) return c.send(404, 'not found');
+  let body: any;
+  try { body = JSON.parse(c.rawBody.toString()); } catch { return c.send(400, 'bad json'); }
+  let n = 0;
+  for (const ev of Array.isArray(body) ? body : [body]) {
+    const resend = typeof ev?.type === 'string' && /^email\.(bounced|complained|failed)$/.test(ev.type);
+    const brevo = typeof ev?.event === 'string' && /^(hard_bounce|soft_bounce|blocked|invalid_email|spam|complaint|error)$/.test(ev.event);
+    const to: string[] = resend ? [].concat(ev.data?.to || []) : brevo ? [ev.email] : [];
+    for (const e of to) if (typeof e === 'string' && e.includes('@')) { dropAddress(e, resend ? ev.type : `brevo ${ev.event}`); n++; }
+  }
+  if (n) audit(null, 'email.bounce_webhook', undefined, { removed: n });
+  c.send(200, 'ok');
 });
 
 post('/webhooks/meta', 'public', async (c) => {

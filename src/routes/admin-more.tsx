@@ -30,6 +30,7 @@ import { BLOG, NEWSLETTERS, SEQUENCES, RESPONSES } from '../content/library';
 import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCES } from '../content/playbook';
 import { marked } from 'marked';
 import { agentLabel } from '../lib/personas';
+import { coverImage } from '../lib/covers';
 import { marketingDailyCap, marketingQueued } from '../lib/notify';
 import { decide as chiefDecide, rolesOf, runChief, triage as chiefTriage, approveSafe as chiefApproveSafe, assignTask, lotPct as chiefLotPct, TASK_KINDS, type TaskKind } from '../lib/chief';
 import { escapeHtml } from '../lib/notify';
@@ -835,14 +836,22 @@ get('/admin/library', 'admin:content', (c) => {
     <Box title="Email sequences">{Object.entries(SEQUENCES).map(([k, sq]) => <details key={k} id={`seq-${k}`}><summary><b>{sq.name}</b> · {sq.steps.length} emails · <span className="small muted">{sq.audience}</span></summary>
       <ol className="list">{sq.steps.map((st) => <li key={st.key}><span>Day {st.day}: <b>{st.subject.replace('{name}', 'Ada')}</b> <span className="small muted">{st.preview}</span></span><a className="btn btn-ghost btn-sm" href={`/admin/library/email/${k}/${st.key}`} target="_blank">Preview</a></li>)}</ol></details>)}</Box>
     <Box title="Newsletters"><Table rows={NEWSLETTERS} cols={[['#', (n) => n.n], ['Subject (A / B)', (n) => <><b>{n.subject}</b><br /><span className="small muted">{n.subject_b}</span></>], ['Theme', (n) => n.theme], ['', (n) => <a className="btn btn-ghost btn-sm" href={`/admin/library/newsletter/${n.n}`} target="_blank">Preview</a>]]} /></Box>
-    <Box title="Articles"><Table rows={BLOG} cols={[['Title', (b) => <><b>{b.title}</b><br /><span className="small muted">{b.excerpt}</span></>], ['Category', (b) => b.category.replace(/-/g, ' ')], ['Status', (b) => used.has(b.slug) ? <a href={`/chronicles/${b.slug}`} target="_blank">on the site</a> : <span className="muted">waiting</span>], ['', (b) => <a className="btn btn-ghost btn-sm" href={`/admin/library/post/${b.slug}`} target="_blank">Preview</a>]]} /></Box>
+    <Box title="Articles"><Table rows={BLOG} cols={[['Cover', (b) => <img src={`/admin/library/cover/post/${b.slug}.jpg`} alt="" width={128} height={72} loading="lazy" style={{ borderRadius: 4, display: 'block' }} />], ['Title', (b) => <><b>{b.title}</b><br /><span className="small muted">{b.excerpt}</span></>], ['Category', (b) => b.category.replace(/-/g, ' ')], ['Status', (b) => used.has(b.slug) ? <a href={`/chronicles/${b.slug}`} target="_blank">on the site</a> : <span className="muted">waiting</span>], ['', (b) => <a className="btn btn-ghost btn-sm" href={`/admin/library/post/${b.slug}`} target="_blank">Preview</a>]]} /></Box>
     <Box title="Ready answers (Support agent)"><ul className="list">{RESPONSES.map((r) => <li key={r.q}><span><b>{r.q}</b><br /><span className="small">{r.a}</span></span></li>)}</ul></Box>
   </>);
 });
 post('/admin/library/run', 'admin:content', (c) => { seedLibrary(); const r = runLibrary(); c.redirect('/admin/library', ['ok', r === 'nothing due' ? 'Nothing due yet (one article a week, one newsletter every two weeks).' : `${r}. Approve in AI agents.`]); });
 const previewShell = (title: string, md: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:680px;margin:32px auto;padding:0 16px;color:#1E1E1A}h1,h2{font-family:Georgia,serif;color:#1F4D2B}a{color:#1F4D2B}</style></head><body><h1>${escapeHtml(title)}</h1>${marked.parse(md, { async: false })}</body></html>`;
-get('/admin/library/post/:slug', 'admin:content', (c) => { const b = BLOG.find((x) => x.slug === c.params.slug); if (!b) throw new HttpError(404, 'Not found'); c.html(previewShell(b.title, `*${b.excerpt}*\n\n${b.body}`)); });
-get('/admin/library/newsletter/:n', 'admin:content', (c) => { const r = renderNewsletter(Number(c.params.n)); if (!r) throw new HttpError(404, 'Not found'); c.html(previewShell(r.subject, `**Subject B:** ${r.subject_b}\n\n${r.body}`)); });
+get('/admin/library/post/:slug', 'admin:content', (c) => { const b = BLOG.find((x) => x.slug === c.params.slug); if (!b) throw new HttpError(404, 'Not found'); c.html(previewShell(b.title, `![Cover](/admin/library/cover/post/${b.slug}.jpg)\n\n*${b.excerpt}*\n\n${b.body}`)); });
+// Cover previews, drawn on request (the saved copies are made when an article or newsletter is prepared).
+get('/admin/library/cover/:kind/:id', 'admin:content', async (c) => {
+  const id = String(c.params.id).replace(/\.jpg$/, '');
+  let img: Buffer;
+  if (c.params.kind === 'post') { const b = BLOG.find((x) => x.slug === id); if (!b) throw new HttpError(404, 'Not found'); img = await coverImage({ title: b.title, kind: b.category }); }
+  else { const x = NEWSLETTERS.find((n) => n.n === Number(id)); if (!x) throw new HttpError(404, 'Not found'); img = await coverImage({ title: x.subject, kind: 'newsletter', issue: x.n }); }
+  c.send(200, img, 'image/jpeg', { 'Cache-Control': 'private, max-age=3600' });
+});
+get('/admin/library/newsletter/:n', 'admin:content', (c) => { const r = renderNewsletter(Number(c.params.n)); if (!r) throw new HttpError(404, 'Not found'); c.html(previewShell(r.subject, `**Subject B:** ${r.subject_b}\n\n${r.body.replace(/^!\[[^\]]*\]\([^)]*\)/, `![Cover](/admin/library/cover/newsletter/${Number(c.params.n)}.jpg)`)}`)); });
 get('/admin/library/email/:seq/:step', 'admin:content', (c) => { const st = SEQUENCES[c.params.seq]?.steps.find((x) => x.key === c.params.step); if (!st) throw new HttpError(404, 'Not found'); const f = (s: string) => s.replace(/\{name\}/g, 'Ada'); c.html(previewShell(f(st.subject), `*${st.preview}*\n\n${f(st.body)}\n\n**[${st.cta.label}](${config.baseUrl}${st.cta.path})**`)); });
 
 get('/admin/playbook', 'admin:any', (c) => page(c, 'Marketing & sales playbook', <>

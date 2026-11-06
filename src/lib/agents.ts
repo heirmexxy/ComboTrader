@@ -11,7 +11,7 @@ import { completeJson, aiLive, useAI, AiUnavailable, POLICY, logRun } from './ai
 import { learn, bestLesson, lessonsFor, parseLesson, used, trackOutcome, scoreLesson, similarity, keyOf, fill, lessonScore, type Lesson } from './learning';
 import { lotTitle, lotDescription, nextLotCode } from './lotgen';
 import { settings } from './settings';
-import { notify, queueEmail, emailShell, escapeHtml } from './notify';
+import { notify, queueEmail, emailShell, escapeHtml, emailSuppressed } from './notify';
 import { audit } from './audit';
 import { userById } from './auth';
 import { walletBalance } from './ledger';
@@ -161,7 +161,7 @@ const EXECUTORS: Record<string, (p: any, by: number | null) => string> = {
       if (!x?.name) continue;
       const r = q.run('INSERT OR IGNORE INTO prospects (name, segment, location, website, contact_name, email, phone, why, source, token, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
         String(x.name).slice(0, 150), String(x.segment || p.segment || 'Other').slice(0, 80), String(x.location || p.region || '').slice(0, 120) || null, String(x.website || '').slice(0, 200) || null,
-        String(x.contact_name || '').slice(0, 100) || null, /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(x.email || '')) ? String(x.email).toLowerCase() : null, String(x.phone || '').slice(0, 40) || null,
+        String(x.contact_name || '').slice(0, 100) || null, /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(x.email || '')) && !emailSuppressed(String(x.email)) ? String(x.email).toLowerCase() : null, String(x.phone || '').slice(0, 40) || null,
         String(x.why || '').slice(0, 500) || null, 'ai_research', randomToken(16), now());
       n += Number(r.changes);
     }

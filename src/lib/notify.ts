@@ -1,6 +1,7 @@
 // Messages: in-app inbox, email, SMS/WhatsApp and push.
 // Email/SMS go through an outbox table; a worker sends them. Without provider keys,
 // messages stay visible in Admin → Messages (demo mode) so nothing is lost.
+import { createHash } from 'node:crypto';
 import { q, now } from './db';
 import { config } from './config';
 import { settings, setSetting } from './settings';
@@ -12,6 +13,29 @@ import { translate } from './i18n';
  * not sent at once: each gets its own slot, spread evenly over the sending window, so the domain never sends a burst. */
 export function queueEmail(to: string, subject: string, html: string, o: { marketing?: boolean } = {}) {
   q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now(), kind: o.marketing ? 'marketing' : 'tx', send_after: o.marketing ? nextMarketingSlot() : null });
+}
+
+// ---------- Failed addresses ----------
+/** The provider refused this address (not an outage, a bad key or a rate limit, which say nothing about the address). */
+export function addressRefused(err: string) {
+  const code = Number(/Email (\d{3})/.exec(err)?.[1] || 0);
+  if ([401, 403, 429].includes(code) || code >= 500 || !code) return false;
+  return true;
+}
+const hashEmail = (e: string) => createHash('sha256').update(String(e).trim().toLowerCase()).digest('hex');
+/** True if this address failed or bounced before; it is never added again. */
+export const emailSuppressed = (e: string) => !!q.get('SELECT 1 FROM email_suppress WHERE hash=?', hashEmail(e));
+/** Removes a failed or bounced address from every marketing list. Only a one-way hash is kept, so it is never re-added.
+ * Champions keep their account (and account emails); they just stop getting marketing. */
+export function dropAddress(email: string, reason: string) {
+  const e = String(email).trim().toLowerCase();
+  if (!e) return;
+  q.run('INSERT OR IGNORE INTO email_suppress (hash, reason, created_at) VALUES (?,?,?)', hashEmail(e), reason.slice(0, 100), now());
+  q.run('DELETE FROM leads WHERE lower(email)=?', e);
+  q.run('DELETE FROM subscribers WHERE lower(email)=?', e);
+  q.run('UPDATE prospects SET email=NULL WHERE lower(email)=?', e);
+  q.run('UPDATE users SET marketing_opt_in=0 WHERE lower(email)=?', e);
+  q.run("UPDATE outbox SET status='cancelled', error=? WHERE kind='marketing' AND status='queued' AND lower(recipient)=?", `address removed: ${reason}`.slice(0, 200), e);
 }
 
 // ---------- Pacing marketing email (protects the sending domain's reputation) ----------
@@ -46,7 +70,7 @@ export const marketingQueued = () => Number(q.val("SELECT COUNT(*) FROM outbox W
 function guardMarketing() {
   const since = new Date(Date.now() - 864e5).toISOString();
   const tried = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND attempts>0 AND send_after>=?", since) ?? 0);
-  const failed = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND error IS NOT NULL AND status!='sent' AND send_after>=?", since) ?? 0);
+  const failed = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status='failed' AND send_after>=?", since) ?? 0);
   const paused = String(settings().marketing_paused_until || '');
   if (tried < 20 || failed / tried <= 0.05 || (paused && Date.parse(paused) > Date.now())) return;
   const until = new Date(Date.now() + 48 * 3600e3).toISOString();
@@ -114,9 +138,12 @@ export async function flushOutbox(limit = 50) {
       if (sent) q.run("UPDATE outbox SET status='sent', sent_at=?, attempts=attempts+1 WHERE id=?", now(), m.id);
       else q.run("UPDATE outbox SET status='held', error='No provider configured (demo mode)' WHERE id=?", m.id);
     } catch (e: any) {
-      q.run('UPDATE outbox SET attempts=attempts+1, error=? WHERE id=?', String(e?.message || e).slice(0, 500), m.id);
-      // An address that keeps failing is marked bounced and never emailed again by the agents.
-      if (m.kind === 'marketing' && m.attempts + 1 >= 5) q.run("UPDATE leads SET status='bounced', seq=NULL, seq_next_at=NULL WHERE lower(email)=lower(?)", m.recipient);
+      const err = String(e?.message || e).slice(0, 500);
+      if (m.kind === 'marketing') {
+        // Marketing email is tried once. If the address itself was refused, it is removed everywhere.
+        q.run("UPDATE outbox SET status='failed', attempts=attempts+1, error=? WHERE id=?", err, m.id);
+        if (addressRefused(err)) dropAddress(m.recipient, 'refused when sending');
+      } else q.run('UPDATE outbox SET attempts=attempts+1, error=? WHERE id=?', err, m.id);
     }
   }
   guardMarketing();

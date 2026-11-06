@@ -990,6 +990,32 @@ await t('marketing email is spread over the sending window, warms up from 20 a d
   setSetting('email_warmup_start', new Date(Date.now() - 10 * 864e5).toISOString());
   eq(N.marketingDailyCap(), 200, 'warmed up after about a week');
   q.run("DELETE FROM outbox WHERE kind='marketing'");
+  // One failure removes the address everywhere; only a hash stays so it is never re-imported.
+  eq(N.addressRefused('Email 422: invalid to address'), true); eq(N.addressRefused('Email 401: bad key'), false); eq(N.addressRefused('Email 503: down'), false); eq(N.addressRefused('fetch failed'), false);
+  const L = await import('../src/lib/library');
+  L.importContacts(L.parseContacts('Bad Address, gone@t.ng'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='gone@t.ng'")), 1);
+  N.queueEmail('gone@t.ng', 'Hi', '<p>x</p>', { marketing: true });
+  N.dropAddress('Gone@t.ng', 'test');
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='gone@t.ng'")), 0, 'removed from contacts');
+  eq(q.val("SELECT status FROM outbox WHERE recipient='gone@t.ng'"), 'cancelled');
+  eq(N.emailSuppressed('gone@t.ng'), true); eq(Number(q.val("SELECT COUNT(*) FROM email_suppress WHERE hash LIKE '%gone%'")), 0, 'only a hash is kept');
+  L.importContacts(L.parseContacts('Bad Address, gone@t.ng'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='gone@t.ng'")), 0, 'never re-added');
+});
+
+console.log('\nCovers');
+await t('every article and newsletter gets a branded cover; an uploaded photo is kept', async () => {
+  const C = await import('../src/lib/covers');
+  const img = await C.coverImage({ title: 'How a Trade Lot works, step by step', kind: 'guides' });
+  eq(img.subarray(0, 2).toString('hex'), 'ffd8', 'a JPEG');
+  const id = q.insert('posts', { slug: 'cover-test', lang: 'en', title: 'Cover test', body: 'x', category: 'market-watch', author: 'ComboTrader team', status: 'draft', created_at: now(), updated_at: now() }).id;
+  eq(await C.ensurePostCover(id), 'covers/post-cover-test-en.jpg');
+  const kept = q.insert('posts', { slug: 'photo-test', lang: 'en', title: 'Photo', body: 'x', category: 'guides', author: 'x', status: 'draft', cover_path: 'posts/mine.jpg', created_at: now(), updated_at: now() }).id;
+  eq(await C.ensurePostCover(kept), 'posts/mine.jpg');
+  const L = await import('../src/lib/library');
+  eq(L.renderNewsletter(1)!.body.startsWith('![ComboTrader newsletter, issue 1]('), true);
+  q.run("DELETE FROM posts WHERE slug IN ('cover-test','photo-test')");
 });
 
 console.log('\nTesting tools');

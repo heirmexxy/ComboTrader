@@ -23,6 +23,7 @@ import './routes/app';
 import './routes/more';
 import './routes/admin-more'; // before admin: /admin/champions/import must match before /admin/champions/:id
 import './routes/admin';
+import { backfillCovers } from './lib/covers';
 
 const MIME: Record<string, string> = {
   '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -122,6 +123,7 @@ export function start() {
   openDb();
   bootstrap();
   try { seedLibrary(); } catch (e) { console.error('library seed failed', e); }
+  void backfillCovers(120).catch((e) => console.error('covers failed', e));
   setOverrideLoader(() => q.all('SELECT key, lang, value FROM page_text'));
   const server = http.createServer((req, res) => { handle(req, res); });
   server.listen(config.port, config.bindHost, () => console.log(`ComboTrader listening on ${config.baseUrl} (port ${config.port})${config.paystackDemo ? ' — Paystack DEMO mode' : ''}`));

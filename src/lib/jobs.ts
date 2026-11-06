@@ -19,6 +19,7 @@ import * as paystack from './paystack';
 import { syncPaystack } from './paysync';
 import { runLibrary, runSequences, seedLibrary } from './library';
 import { runChief } from './chief';
+import { backfillCovers } from './covers';
 import { walletBalance, trialBalance } from './ledger';
 import { fmtNGN, lagosNow } from './util';
 import { audit } from './audit';
@@ -71,7 +72,7 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async watchdog() { return watchdog(); },
   async social_publish() { const n = await publishDueSocial(); return `${n} posts published`; },
   async paystack_sync() { return syncPaystack(); },
-  async library() { seedLibrary(); return runLibrary(); },
+  async library() { seedLibrary(); const r = runLibrary(); const n = await backfillCovers(60).catch(() => 0); return `${r}${n ? `; ${n} covers made` : ''}`; },
   async sequences() { return runSequences(); },
   async chief() { return runChief('daily'); },
   async reconcile() { return reconcile(); },
