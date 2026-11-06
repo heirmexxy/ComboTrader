@@ -23,6 +23,7 @@ export const DEFAULTS = {
   email_warmup_steps: '300,600,1000,2000', // marketing emails per sending day during warm-up (weekdays), then the last number
   email_gap_seconds: 150, // time between marketing emails (at most; a bigger day is spread evenly from 9:00 to 19:00 Lagos time, Monday to Friday)
   marketing_paused_until: '', // set automatically if too many marketing emails fail
+  worker_heartbeat: '', // set every 30 seconds by the background worker
   ai_provider: 'anthropic', // which AI the agents use: anthropic (Claude) | openai (or the OpenAI-compatible service in OPENAI_BASE_URL)
   ai_fallback: true, // if the chosen provider fails (no credit, outage), try the other one
   ai_credit_usd: 0, // Claude credit balance (USD) as shown in the Claude Console when last recorded
@@ -93,10 +94,13 @@ export const DEFAULTS = {
 };
 export type SettingKey = keyof typeof DEFAULTS;
 
-let cache: Record<string, any> | null = null;
+let cache: Record<string, any> | null = null, cachedAt = 0;
 
+/** Settings are re-read every 2 seconds, so a change made in the website reaches the background worker (a separate
+ * process) almost at once. */
 export function settings(): typeof DEFAULTS {
-  if (!cache) {
+  if (!cache || Date.now() - cachedAt > 2000) {
+    cachedAt = Date.now();
     cache = { ...DEFAULTS };
     for (const r of q.all<{ key: string; value: string }>('SELECT key, value FROM settings')) {
       try { cache[r.key] = JSON.parse(r.value); } catch { cache[r.key] = r.value; }

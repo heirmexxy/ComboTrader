@@ -5,7 +5,7 @@ const common = { bundle: true, logLevel: 'warning', jsx: 'automatic', target: 'e
 
 await build({
   ...common,
-  entryPoints: { server: 'src/server.ts', cli: 'src/cli.ts', tests: 'tests/run.ts' },
+  entryPoints: { server: 'src/server.ts', worker: 'src/worker.ts', cli: 'src/cli.ts', tests: 'tests/run.ts' },
   outdir: 'dist',
   outExtension: { '.js': '.mjs' },
   platform: 'node',

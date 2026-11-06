@@ -25,6 +25,15 @@ export function health() {
   let db = false;
   try { db = q.val('SELECT 1') === 1; } catch {}
   const last = q.val<string>("SELECT last_run FROM job_runs WHERE name='outbox'");
-  const schedulerOk = !config.runScheduler || (!!last && Date.now() - new Date(last).getTime() < 10 * 60e3);
+  const jobsOk = !!last && Date.now() - new Date(last).getTime() < 10 * 60e3;
+  // With a separate worker, the website is healthy whenever it can answer; the worker's state is reported alongside.
+  if (config.role === 'web') return { ok: db, db, worker: workerState(), time: now() };
+  const schedulerOk = !config.runScheduler || jobsOk;
   return { ok: db && schedulerOk, db, scheduler: schedulerOk ? 'ok' : 'stale', time: now() };
+}
+/** ok, stalled (no heartbeat for 10 minutes) or not_running (never started). */
+export function workerState(): 'ok' | 'stalled' | 'not_running' {
+  const hb = String(q.val("SELECT value FROM settings WHERE key='worker_heartbeat'") || '').replace(/"/g, '');
+  if (!hb) return 'not_running';
+  return Date.now() - Date.parse(hb) < 10 * 60e3 ? 'ok' : 'stalled';
 }

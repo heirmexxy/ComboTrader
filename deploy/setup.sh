@@ -233,6 +233,8 @@ systemctl daemon-reload && systemctl enable combotrader >/dev/null 2>&1 && syste
 for i in $(seq 1 15); do sleep 1; curl -fsS "http://$BIND:$PORT/healthz" >/dev/null 2>&1 && break; done
 curl -fsS "http://$BIND:$PORT/healthz" >/dev/null || die "ComboTrader did not start. See: journalctl -u combotrader -n 50"
 echo "Running on $BIND:$PORT"
+# Website and background jobs as two services, so a stuck job can never take the site down.
+bash "$APP_DIR/deploy/split-worker.sh" || echo "Background worker not set up: run deploy/split-worker.sh as root"
 
 say "7/8 Web server"
 PROXY_NOTE=""

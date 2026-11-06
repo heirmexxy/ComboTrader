@@ -23,10 +23,12 @@ git reset --hard --quiet "$NEW"
 npm install --no-audit --no-fund --silent
 npm run build --silent
 sudo /usr/bin/systemctl restart combotrader
-if healthy; then echo "Deployed $NEW"; exit 0; fi
+restart_worker() { [ -f /etc/systemd/system/combotrader-worker.service ] && sudo /usr/bin/systemctl restart combotrader-worker || true; }
+if healthy; then restart_worker; echo "Deployed $NEW"; exit 0; fi
 echo "New version failed its health check — rolling back to $PREV"
 git reset --hard --quiet "$PREV"
 npm install --no-audit --no-fund --silent && npm run build --silent
 sudo /usr/bin/systemctl restart combotrader
+restart_worker
 healthy && echo "Rolled back to $PREV" || echo "Rollback did not come up either: journalctl -u combotrader -n 100"
 exit 1

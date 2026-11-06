@@ -82,6 +82,8 @@ export const config = {
   cronSecret: e.CRON_SECRET || '',
   adminRequire2fa: e.ADMIN_REQUIRE_2FA ? e.ADMIN_REQUIRE_2FA === 'true' : production,
   runScheduler: e.RUN_SCHEDULER !== 'false',
+  // web = website only (jobs run in combotrader-worker); all = website and jobs in one process (single-service installs)
+  role: (e.CT_ROLE === 'web' ? 'web' : 'all') as 'web' | 'all',
 
   social: {
     x: e.SOCIAL_X || 'https://x.com/KitovuT',

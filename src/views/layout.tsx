@@ -14,6 +14,7 @@ import { q } from '../lib/db';
 import crypto from 'node:crypto';
 import { FaXTwitter, FaFacebook, FaLinkedin, FaInstagram } from 'react-icons/fa6';
 import { LuArrowLeftRight, LuMenu, LuGlobe, LuBell, LuHouse, LuWheat, LuReceipt, LuWallet, LuGift, LuUser, LuLock, LuLifeBuoy, LuUsersRound, LuLogOut, LuSettings, LuDownload, LuPause, LuPiggyBank, LuHeartHandshake, LuArrowLeft } from 'react-icons/lu';
+import { workerState } from '../lib/alerts';
 
 export const ASSET_V = String(Date.now()).slice(-8);
 
@@ -352,6 +353,7 @@ export function AdminLayout({ title, children, actions }: { title: string; child
             </nav>
           </details>
           <main id="main" className="admin-main">
+            {config.role === 'web' && workerState() !== 'ok' ? <div className="flash flash-error" role="alert">The background worker is {workerState() === 'stalled' ? 'not responding' : 'not running'}: emails, payment checks and the agents are paused. The website itself is fine. On the server: <code>systemctl restart combotrader-worker</code>.</div> : null}
             <div className="admin-title"><h1>{title}</h1>{actions && <div className="admin-actions">{actions}</div>}</div>
             <Flash />
             {children}

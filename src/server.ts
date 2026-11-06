@@ -25,6 +25,9 @@ import './routes/admin-more'; // before admin: /admin/champions/import must matc
 import './routes/admin';
 import { backfillCovers } from './lib/covers';
 import { replanMarketingQueue } from './lib/notify';
+import { startStallGuard } from './lib/stallguard';
+import { workerState } from './lib/alerts';
+import { sendEmail, emailShell } from './lib/notify';
 
 const MIME: Record<string, string> = {
   '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -134,16 +137,35 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
 export function start() {
   openDb();
   bootstrap();
-  try { seedLibrary(); } catch (e) { console.error('library seed failed', e); }
-  try { replanMarketingQueue(); } catch (e) { console.error('email re-plan failed', e); }
-  // Covers are drawn slowly in the background, a minute after start, so a restart is never slow.
-  setTimeout(() => void backfillCovers(30).catch((e) => console.error('covers failed', e)), 60_000);
+  const web = config.role === 'web';
+  if (!web) {
+    // Single-process install: the website also runs the jobs.
+    try { seedLibrary(); } catch (e) { console.error('library seed failed', e); }
+    try { replanMarketingQueue(); } catch (e) { console.error('email re-plan failed', e); }
+    setTimeout(() => void backfillCovers(30).catch((e) => console.error('covers failed', e)), 60_000);
+  }
   setOverrideLoader(() => q.all('SELECT key, lang, value FROM page_text'));
   const server = http.createServer((req, res) => { handle(req, res); });
-  server.listen(config.port, config.bindHost, () => console.log(`ComboTrader listening on ${config.baseUrl} (port ${config.port})${config.paystackDemo ? ' — Paystack DEMO mode' : ''}`));
+  server.listen(config.port, config.bindHost, () => console.log(`ComboTrader ${web ? 'website' : 'website and jobs'} listening on ${config.baseUrl} (port ${config.port})${config.paystackDemo ? ' — Paystack DEMO mode' : ''}`));
   watchStalls();
-  if (config.runScheduler) startScheduler();
+  if (!web && config.runScheduler) startScheduler();
+  // Restart automatically if the site is ever stuck: 90 seconds for the website alone, 10 minutes when it also runs jobs.
+  startStallGuard(web ? 90_000 : 10 * 60_000, web ? 'website' : 'website and jobs');
+  if (web) watchWorker();
   return server;
+}
+
+/** Website side: if the background worker stops, warn super admins by email (sent directly, since the worker sends
+ * the outbox) at most every 3 hours. */
+function watchWorker() {
+  let lastAlert = 0;
+  setInterval(() => {
+    const st = workerState();
+    if (st === 'ok' || Date.now() - lastAlert < 3 * 3600e3) return;
+    lastAlert = Date.now();
+    for (const a of q.all<any>("SELECT email FROM users WHERE role='admin' AND status='active' AND admin_roles LIKE '%super%'"))
+      sendEmail(a.email, 'ComboTrader: background worker is not running', emailShell('Background worker stopped', `<p>The website is up, but the background worker (emails, payment checks, agents, Adaeze) has ${st === 'stalled' ? 'stopped responding for over 10 minutes' : 'not started'}. On the server: <code>systemctl status combotrader-worker</code> and <code>journalctl -u combotrader-worker -n 50</code>.</p>`)).catch(() => undefined);
+  }, 5 * 60e3).unref();
 }
 
 if (!process.env.NO_AUTOSTART) start();
