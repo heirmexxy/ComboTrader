@@ -1214,6 +1214,36 @@ await t('stall guard: its watcher code is valid JavaScript (a syntax error there
   new vm.Script(GUARD_CODE); eq(GUARD_CODE.includes('SIGKILL'), true);
 });
 
+await t('Telegram bot: invite links keep the referral, anyone can ask, Champions link with an emailed code, person hand-over; ad texts are tracked', async () => {
+  const T = await import('../src/lib/telegram'); const A = await import('../src/lib/auth');
+  setSetting('telegram_bot_username', 'ComboTraderBot'); setSetting('agent_mode', 'rules');
+  eq(T.botLink('r_ABC'), 'https://t.me/ComboTraderBot?start=r_ABC');
+  const msg = (id: number, text: string, chat = 777) => ({ message_id: id, chat: { id: chat, type: 'private' }, from: { first_name: 'Ngozi', language_code: 'en' }, text });
+  const w = await T.handleTelegram(msg(1, '/start r_ABC'));
+  eq(w.includes('ref=ABC') && w.includes('utm_source=telegram'), true, 'invite keeps the referral');
+  eq(q.val("SELECT start_code FROM tg_chats WHERE chat_id='777'"), 'r_ABC');
+  eq(await T.handleTelegram(msg(1, '/start r_ABC')), '', 'Telegram retries are answered once');
+  eq((await T.handleTelegram(msg(2, '/lots'))).length > 10, true);
+  eq((await T.handleTelegram(msg(3, '/balance'))).includes('/link'), true, 'account details need linking');
+  const champ = mkUser('tgchamp@t.ng');
+  const sent = await T.handleTelegram(msg(4, '/link tgchamp@t.ng'));
+  eq(sent.includes('6-digit'), true);
+  eq((await T.handleTelegram(msg(5, '/link nobody@nowhere.ng'))).includes('6-digit'), true, 'same reply whether or not the email exists');
+  q.run("UPDATE tg_chats SET link_user_id=? WHERE chat_id='777'", champ.id);
+  const { sendEmailCode } = await import('../src/lib/emailcode');
+  const code = sendEmailCode(champ, 'telegram');
+  eq((await T.handleTelegram(msg(6, '000000'))).length > 0, true);
+  eq((await T.handleTelegram(msg(7, code))).includes('linked'), true);
+  eq(q.val('SELECT telegram_chat_id FROM users WHERE id=?', champ.id), '777');
+  eq((await T.handleTelegram(msg(8, '/balance'))).length > 5, true);
+  await T.handleTelegram(msg(9, '/person'));
+  eq(!!q.get("SELECT 1 FROM chats WHERE source='telegram' AND external_id='777' AND status='needs_person'"), true);
+  eq(await T.handleTelegram({ message_id: 10, chat: { id: -100, type: 'group' }, text: 'hi' }), '', 'groups are ignored');
+  const n = await T.draftTelegramAds(null);
+  eq(n >= 3, true); eq(T.telegramAds().every((a) => a.text.length <= 160 && a.code === `ad_${a.id}`), true);
+  void A;
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');

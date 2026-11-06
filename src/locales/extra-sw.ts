@@ -1,5 +1,14 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
+  "code.body.telegram": "Habari {name}, mtu ameomba kuunganisha Telegram na akaunti yako ya ComboTrader. Kama ni wewe, tuma msimbo huu kwa bot ya ComboTrader kwenye Telegram. Kama sivyo, puuza barua pepe hii.",
+  "tg.welcome": "Habari, mimi ni Adaeze, Chief of Staff wa AI wa ComboTrader 🌾\nComboTrader, ya Kitovu Technology, inakuwezesha kufadhili biashara halisi za mazao ya shamba: pesa yako inanunua mazao ambayo mnunuzi anayejulikana ameshakubali kununua, na unafuatilia kila lot kutoka shambani hadi kwa mnunuzi.\n\nNiulize chochote, au tuma:\n/lots Lot zilizo wazi\n/person Ongea na mtu\nTayari ni Champion? Tuma /link na barua pepe ya akaunti yako kuona pochi na biashara zako hapa.",
+  "tg.join": "Jiunge bure: {url}",
+  "tg.link_ask": "Kuona pochi na biashara zako hapa, tuma /link ikifuatiwa na barua pepe ya akaunti yako ya ComboTrader, mfano /link ada@example.com",
+  "tg.link_sent": "Kama {email} ina akaunti ya ComboTrader, tumetuma msimbo wa tarakimu 6. Utume hapa kuunganisha mazungumzo haya.",
+  "tg.linked": "Asante {name}, mazungumzo haya ya Telegram sasa yameunganishwa na akaunti yako ya ComboTrader. 🌾",
+  "tg.already_linked": "Mazungumzo haya tayari yameunganishwa na akaunti ya {name}. Tuma /menu kwa chaguo.",
+  "tg.guest_hint": "Tuma /lots kwa lot zilizo wazi, /person kwa mtu. Mgeni? Jisajili bure https://www.combotrader.com.ng/signup",
+  "ref.telegram": "Alika kwenye Telegram",
   'code.body.whatsapp': 'Habari {name}, mtu ameomba kuunganisha WhatsApp na akaunti yako ya ComboTrader. Kama ni wewe, tuma msimbo huu kwa ComboTrader kwenye WhatsApp. Kama si wewe, puuza barua pepe hii.',
   'wa.menu_guest': 'Habari, mimi ni Adaeze, Chief of Staff wa AI wa ComboTrader 🌾\nComboTrader, ya Kitovu Technology, inakuwezesha kufadhili biashara halisi za mazao ya shamba: pesa yako inanunua mazao ambayo mnunuzi anayejulikana ameshakubali kununua, na unafuatilia kila lot kutoka shambani hadi kwa mnunuzi.\n\nNiulize chochote kuhusu jinsi biashara zinavyofanya kazi, malipo au jinsi ya kuanza, au jibu:\n5 Lot zilizo wazi\n7 Ongea na mtu\nTayari ni Champion? Jibu 1 kuunganisha namba hii na akaunti yako na kuona pochi na biashara zako hapa.',
   'wa.guest_hint': 'Jibu 5 kwa lot zilizo wazi, 7 kwa mtu. Mgeni? Jisajili bure: https://www.combotrader.com.ng/signup',

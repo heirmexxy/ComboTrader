@@ -11,11 +11,12 @@ import { config } from '../../lib/config';
 import { settings } from '../../lib/settings';
 import { estimateFee } from '../../lib/wallet';
 import { LuWallet, LuSprout, LuCalendar, LuReceipt, LuArrowRight, LuDownload, LuShare2, LuCopy, LuShieldCheck, LuCheck } from 'react-icons/lu';
-import { FaWhatsapp, FaXTwitter, FaFacebook, FaLinkedin } from 'react-icons/fa6';
+import { FaWhatsapp, FaXTwitter, FaFacebook, FaLinkedin, FaTelegram } from 'react-icons/fa6';
 import { AccountRights, RolloverControl } from './more';
 import { qrDataUri } from '../../lib/qr';
 import { SellBox, BoughtNote, type SellInfo } from './market';
 import { maskEmail } from '../../lib/emailcode';
+import { botLink } from '../../lib/telegram';
 
 function Card({ title, children, className = '' }: { title?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`card ${className}`}>{title && <h2 className="card-title">{title}</h2>}{children}</section>;
@@ -180,6 +181,7 @@ export function TradeDetail({ t, trail, tons, farmers, market }: { t: TradeRow &
             <img className="harvest-card" src={`/card/${t.share_token}.png?lang=${c.lang}`} alt={c.t('trades.card')} width={1080} height={1080} />
             <div className="share-row">
               <a href={`https://wa.me/?text=${enc(text)}`} target="_blank" rel="noopener" aria-label="WhatsApp"><FaWhatsapp /></a>
+              <a href={`https://t.me/share/url?url=${enc(refLink)}&text=${enc(text)}`} target="_blank" rel="noopener" aria-label="Telegram"><FaTelegram /></a>
               <a href={`https://x.com/intent/post?text=${enc(text)}`} target="_blank" rel="noopener" aria-label="X"><FaXTwitter /></a>
               <a href={`https://www.facebook.com/sharer/sharer.php?u=${enc(refLink)}`} target="_blank" rel="noopener" aria-label="Facebook"><FaFacebook /></a>
               <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${enc(refLink)}`} target="_blank" rel="noopener" aria-label="LinkedIn"><FaLinkedin /></a>
@@ -333,10 +335,12 @@ export function AppReferrals({ friends, earned, reward }: { friends: { first_nam
         <p className="muted">{c.t('ref.code')}: <b dir="ltr">{c.user!.referral_code}</b></p>
         <div className="share-row"><span>{c.t('ref.share')}:</span>
           <a href={`https://wa.me/?text=${enc(text)}`} target="_blank" rel="noopener" aria-label="WhatsApp"><FaWhatsapp /></a>
+          <a href={`https://t.me/share/url?url=${enc(link)}&text=${enc(c.t('ref.share_text'))}`} target="_blank" rel="noopener" aria-label="Telegram"><FaTelegram /></a>
           <a href={`https://x.com/intent/post?text=${enc(text)}`} target="_blank" rel="noopener" aria-label="X"><FaXTwitter /></a>
           <a href={`https://www.facebook.com/sharer/sharer.php?u=${enc(link)}`} target="_blank" rel="noopener" aria-label="Facebook"><FaFacebook /></a>
           <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${enc(link)}`} target="_blank" rel="noopener" aria-label="LinkedIn"><FaLinkedin /></a>
         </div>
+        {botLink() ? <p className="small"><FaTelegram aria-hidden /> {c.t('ref.telegram')}: <a href={botLink(`r_${c.user!.referral_code}`)} target="_blank" rel="noopener" dir="ltr">{botLink(`r_${c.user!.referral_code}`).replace('https://', '')}</a></p> : null}
       </Card>
       <div className="kpis mt"><Kpi label={c.t('ref.earned')}><Money kobo={earned} /></Kpi><Kpi label={c.t('ref.friends')}>{friends.length}</Kpi></div>
       <Card title={c.t('ref.friends')}>

@@ -22,7 +22,7 @@ export function startStallGuard(limitMs: number, label: string) {
   // The guard must never be able to take the app down itself: any problem with it is logged and ignored.
   try {
     const w = new Worker(code, { eval: true, workerData: { sab, limit: limitMs, label } });
-    w.on('error', (e) => console.error('[stall-guard] not running:', e.message));
+    w.on('error', (e: any) => console.error('[stall-guard] not running:', e?.message));
     w.unref();
     return w;
   } catch (e: any) { console.error('[stall-guard] not running:', e?.message || e); return null; }

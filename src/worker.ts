@@ -8,6 +8,7 @@ import { replanMarketingQueue } from './lib/notify';
 import { backfillCovers } from './lib/covers';
 import { setSetting } from './lib/settings';
 import { startStallGuard } from './lib/stallguard';
+import { setupTelegramBot } from './lib/telegram';
 
 openDb();
 bootstrap();
@@ -18,5 +19,7 @@ setTimeout(() => void backfillCovers(30).catch((e) => console.error('covers fail
 const beat = () => { try { setSetting('worker_heartbeat' as any, now()); } catch { /* the database is busy: next time */ } };
 beat(); setInterval(beat, 30_000);
 startScheduler();
+// Telegram bot: point Telegram at our webhook and learn the bot's username.
+setTimeout(() => void setupTelegramBot().then((r) => console.log(`Telegram bot: ${r}`)).catch((e) => console.error('Telegram bot setup failed:', e.message)), 10_000);
 startStallGuard(10 * 60_000, 'background worker');
 console.log('ComboTrader background worker running');

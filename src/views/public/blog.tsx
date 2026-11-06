@@ -4,7 +4,7 @@ import { Csrf, Empty } from '../components';
 import { PageHead } from './pages';
 import { fmtDate } from '../../lib/i18n';
 import { config } from '../../lib/config';
-import { FaXTwitter, FaFacebook, FaLinkedin, FaWhatsapp } from 'react-icons/fa6';
+import { FaXTwitter, FaFacebook, FaLinkedin, FaWhatsapp, FaTelegram } from 'react-icons/fa6';
 
 export interface Post { id: number; slug: string; lang: string; title: string; excerpt: string | null; body: string; category: string; author: string; cover_path: string | null; publish_at: string | null; created_at: string }
 export const CATEGORIES = ['market-watch', 'champion-stories', 'from-the-farm', 'guides'];
@@ -68,6 +68,7 @@ export function PostPage({ post, html, related, fallback }: { post: Post; html: 
           <div className="share-row">
             <span>{c.t('blog.share')}:</span>
             <a href={`https://wa.me/?text=${enc(post.title + ' ' + url)}`} target="_blank" rel="noopener" aria-label="WhatsApp"><FaWhatsapp /></a>
+            <a href={`https://t.me/share/url?url=${enc(url)}&text=${enc(post.title)}`} target="_blank" rel="noopener" aria-label="Telegram"><FaTelegram /></a>
             <a href={`https://x.com/intent/post?text=${enc(post.title)}&url=${enc(url)}`} target="_blank" rel="noopener" aria-label="X"><FaXTwitter /></a>
             <a href={`https://www.facebook.com/sharer/sharer.php?u=${enc(url)}`} target="_blank" rel="noopener" aria-label="Facebook"><FaFacebook /></a>
             <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${enc(url)}`} target="_blank" rel="noopener" aria-label="LinkedIn"><FaLinkedin /></a>

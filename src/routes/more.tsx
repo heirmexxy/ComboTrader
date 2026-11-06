@@ -18,6 +18,7 @@ import { parseNaira, randomToken, sha256, fmtNGN } from '../lib/util';
 import { queueEmail, queueSms, emailShell, escapeHtml } from '../lib/notify';
 import { timingSafeEqual } from 'node:crypto';
 import { recordProviderEvents } from '../lib/emailhealth';
+import { processTelegramUpdate, tgSecret, tgLive } from '../lib/telegram';
 import { audit } from '../lib/audit';
 import { config } from '../lib/config';
 import { HttpError, type Ctx } from '../lib/http';
@@ -176,6 +177,16 @@ post('/webhooks/email/:token', 'public', (c) => {
   const r = recordProviderEvents(body);
   if (r.dropped) audit(null, 'email.bounce_webhook', undefined, { removed: r.dropped });
   c.send(200, 'ok');
+});
+
+// Telegram bot: Telegram sends our secret in a header with every update.
+post('/webhooks/telegram', 'public', async (c) => {
+  const want = Buffer.from(tgSecret()), got = Buffer.from(String(c.req.headers['x-telegram-bot-api-secret-token'] || ''));
+  if (!tgLive() || want.length !== got.length || !timingSafeEqual(want, got)) return c.send(404, 'not found');
+  let body: any;
+  try { body = JSON.parse(c.rawBody.toString()); } catch { return c.send(400, 'bad json'); }
+  c.send(200, 'ok');
+  processTelegramUpdate(body).catch((e) => audit(null, 'telegram.webhook_error', undefined, String(e?.message || e)));
 });
 
 post('/webhooks/meta', 'public', async (c) => {

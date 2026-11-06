@@ -20,6 +20,7 @@ import { siteStats, rateFor, lotPeriods, stageLabel } from './trading';
 import { walletBalance } from './ledger';
 import { marketOn, openListings, quote } from './market';
 import { BRAND, MARK_SVG, BRAND_VOICE, useBrandFonts } from './brand';
+import { botLink } from './telegram';
 import { playbookFor, offMessage } from '../content/playbook';
 import { CHAMPION_EMAILS } from '../content/library/emails';
 import { liReady, liPost } from './linkedin';
@@ -83,6 +84,9 @@ async function publishTo(ch: Channel, text: string, short: string, image: string
     return j?.data?.id || 'ok';
   }
   if (ch === 'telegram') {
+    // Every channel post invites readers to the bot, where Adaeze answers questions and Champions link their account.
+    const bot = botLink('channel');
+    if (bot && !text.includes(bot)) text = `${text}\n\n💬 Questions? Ask our assistant: ${bot}`;
     const method = img ? 'sendPhoto' : 'sendMessage';
     const res = await fetch(`https://api.telegram.org/bot${config.telegramBotToken}/${method}`, { method: 'POST', signal: AbortSignal.timeout(30_000), headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(img ? { chat_id: config.telegramChannel, photo: img, caption: text.slice(0, 1024) } : { chat_id: config.telegramChannel, text }) });

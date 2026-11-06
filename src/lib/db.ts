@@ -864,6 +864,14 @@ UPDATE settings SET value = '"' || strftime('%Y-%m-%dT%H:%M:%fZ','now') || '"' W
 UPDATE settings SET value = '2000' WHERE key='sequence_daily_cap' AND CAST(value AS INTEGER) < 2000;
 UPDATE settings SET value = '""' WHERE key='email_slowdown_until';
 `,
+`
+-- Telegram bot conversations (the front door on Telegram) and linked Champion accounts.
+CREATE TABLE tg_chats (chat_id TEXT PRIMARY KEY, user_id INTEGER, link_user_id INTEGER, name TEXT, username TEXT, lang TEXT, start_code TEXT, opted_out INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_at TEXT);
+CREATE TABLE tg_messages (id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, tg_id TEXT, direction TEXT NOT NULL, body TEXT, created_at TEXT NOT NULL);
+CREATE INDEX tg_messages_chat ON tg_messages(chat_id, tg_id);
+ALTER TABLE users ADD COLUMN telegram_chat_id TEXT;
+CREATE TABLE tg_ads (id INTEGER PRIMARY KEY, code TEXT, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', created_by INTEGER, created_at TEXT NOT NULL);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

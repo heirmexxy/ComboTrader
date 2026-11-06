@@ -1,5 +1,14 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  "code.body.telegram": "Hi {name}, someone asked to link Telegram to your ComboTrader account. If it was you, send this code to the ComboTrader bot on Telegram. If not, ignore this email.",
+  "tg.welcome": "Hi, I’m Adaeze, AI Chief of Staff at ComboTrader 🌾\nComboTrader, by Kitovu Technology, lets you fund real farm produce deals: your money buys crops that a named buyer has already agreed to purchase, and you can follow every lot from farm to buyer.\n\nAsk me anything about how trades work, payouts or getting started, or send:\n/lots Open Trade Lots\n/person Talk to a person\nAlready a Champion? Send /link and your account email to see your wallet and trades here.",
+  "tg.join": "Join free: {url}",
+  "tg.link_ask": "To see your wallet and trades here, send /link followed by the email on your ComboTrader account, e.g. /link ada@example.com",
+  "tg.link_sent": "If {email} has a ComboTrader account, we’ve emailed it a 6-digit code. Send the code here to link this chat.",
+  "tg.linked": "Thanks {name}, this Telegram chat is now linked to your ComboTrader account. 🌾",
+  "tg.already_linked": "This chat is already linked to {name}’s account. Send /menu for options.",
+  "tg.guest_hint": "Send /lots for open lots, /person for a person. New here? Sign up free at https://www.combotrader.com.ng/signup",
+  "ref.telegram": "Invite on Telegram",
   'code.body.whatsapp': 'Hi {name}, someone asked to link WhatsApp to your ComboTrader account. If it was you, send this code to ComboTrader on WhatsApp. If not, ignore this email.',
   'wa.menu_guest': 'Hi, I’m Adaeze, AI Chief of Staff at ComboTrader 🌾\nComboTrader, by Kitovu Technology, lets you fund real farm produce deals: your money buys crops that a named buyer has already agreed to purchase, and you can follow every lot from farm to buyer.\n\nAsk me anything about how trades work, payouts or getting started, or reply:\n5 Open Trade Lots\n7 Talk to a person\nAlready a Champion? Reply 1 to link this number to your account and see your wallet and trades here.',
   'wa.guest_hint': 'Reply 5 for open lots, 7 for a person. New here? Sign up free at https://www.combotrader.com.ng/signup',

@@ -1,5 +1,14 @@
 // Nouvelles fonctions — français (à faire relire par un locuteur natif).
 const x: Record<string, string> = {
+  "code.body.telegram": "Bonjour {name}, quelqu’un a demandé à relier Telegram à votre compte ComboTrader. Si c’est vous, envoyez ce code au bot ComboTrader sur Telegram. Sinon, ignorez cet e-mail.",
+  "tg.welcome": "Bonjour, je suis Adaeze, Chief of Staff IA de ComboTrader 🌾\nComboTrader, de Kitovu Technology, vous permet de financer de vraies opérations de produits agricoles : votre argent achète des récoltes qu’un acheteur identifié s’est déjà engagé à acheter, et vous suivez chaque lot de la ferme à l’acheteur.\n\nPosez-moi vos questions, ou envoyez :\n/lots Lots ouverts\n/person Parler à une personne\nDéjà Champion ? Envoyez /link et l’e-mail de votre compte pour voir ici votre portefeuille et vos opérations.",
+  "tg.join": "Inscription gratuite : {url}",
+  "tg.link_ask": "Pour voir ici votre portefeuille et vos opérations, envoyez /link suivi de l’e-mail de votre compte ComboTrader, par ex. /link ada@example.com",
+  "tg.link_sent": "Si {email} a un compte ComboTrader, nous lui avons envoyé un code à 6 chiffres. Envoyez ce code ici pour relier ce chat.",
+  "tg.linked": "Merci {name}, ce chat Telegram est maintenant relié à votre compte ComboTrader. 🌾",
+  "tg.already_linked": "Ce chat est déjà relié au compte de {name}. Envoyez /menu pour les options.",
+  "tg.guest_hint": "Envoyez /lots pour les lots ouverts, /person pour une personne. Nouveau ? Inscription gratuite sur https://www.combotrader.com.ng/signup",
+  "ref.telegram": "Inviter sur Telegram",
   'code.body.whatsapp': 'Bonjour {name}, quelqu’un a demandé à relier WhatsApp à votre compte ComboTrader. Si c’est vous, envoyez ce code à ComboTrader sur WhatsApp. Sinon, ignorez cet e-mail.',
   'wa.menu_guest': 'Bonjour, je suis Adaeze, Chief of Staff IA de ComboTrader 🌾\nComboTrader, de Kitovu Technology, vous permet de financer de vraies opérations de produits agricoles : votre argent achète des récoltes qu’un acheteur identifié s’est déjà engagé à acheter, et vous suivez chaque lot de la ferme à l’acheteur.\n\nPosez-moi vos questions sur le fonctionnement des opérations, les paiements ou comment commencer, ou répondez :\n5 Lots ouverts\n7 Parler à une personne\nDéjà Champion ? Répondez 1 pour relier ce numéro à votre compte et voir ici votre portefeuille et vos opérations.',
   'wa.guest_hint': 'Répondez 5 pour les lots ouverts, 7 pour une personne. Nouveau ? Inscrivez-vous gratuitement : https://www.combotrader.com.ng/signup',

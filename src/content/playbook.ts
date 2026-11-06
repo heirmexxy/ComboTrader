@@ -23,7 +23,7 @@ export const LOCATIONS = [
 ] as const;
 /** Where the Prospector looks, in order. */
 export const PROSPECT_REGIONS = ['Lagos', 'Abuja', 'Ibadan', 'Port Harcourt', 'Enugu', 'Benin City', 'Abeokuta', 'Ilorin', 'London', 'Houston', 'Toronto'];
-export const PROSPECT_SEGMENTS = ['Staff cooperative societies', 'Professional associations (state branches)', 'University alumni associations', 'Church and mosque welfare or cooperative arms', 'Thrift and credit societies', 'Nigerian diaspora professional associations'];
+export const PROSPECT_SEGMENTS = ['Staff cooperative societies', 'Professional associations (state branches)', 'University alumni associations', 'Church and mosque welfare or cooperative arms', 'Thrift and credit societies', 'Nigerian diaspora professional associations', 'Telegram channels and groups'];
 
 export const SOURCES = {
   publish: [
@@ -31,7 +31,8 @@ export const SOURCES = {
     { channel: 'Facebook Page', handle: 'ComboTrader', agent: 'social', cadence: '4 posts a week' },
     { channel: 'Instagram', handle: '@combotraderofficial', agent: 'social', cadence: '4 posts a week plus Trail stories' },
     { channel: 'LinkedIn page', handle: 'ComboTrader', agent: 'social', cadence: '3 posts a week' },
-    { channel: 'Telegram channel', handle: '@combotraderofficial', agent: 'social', cadence: 'every new lot and payout' },
+    { channel: 'Telegram channel', handle: '@combotraderofficial', agent: 'social', cadence: 'every new lot and payout; each post links to the bot' },
+    { channel: 'Telegram bot', handle: 'the ComboTrader bot', agent: 'support', cadence: 'answers anyone who opens it (Adaeze); Champions link their account' },
     { channel: 'WhatsApp', handle: '+234 912 220 8765', agent: 'support', cadence: 'replies only; broadcasts only to opted-in Champions' },
     { channel: 'Email', handle: 'hello@combotrader.com.ng', agent: 'email', cadence: 'lifecycle emails and a fortnightly newsletter' },
   ],

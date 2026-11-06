@@ -1,5 +1,14 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  "code.body.telegram": "Olá {name}, alguém pediu para ligar o Telegram à sua conta ComboTrader. Se foi você, envie este código ao bot da ComboTrader no Telegram. Se não, ignore este e-mail.",
+  "tg.welcome": "Olá, sou Adaeze, Chief of Staff de IA da ComboTrader 🌾\nA ComboTrader, da Kitovu Technology, permite-lhe financiar negócios reais de produtos agrícolas: o seu dinheiro compra colheitas que um comprador identificado já se comprometeu a comprar, e pode acompanhar cada lote da quinta ao comprador.\n\nPergunte-me o que quiser, ou envie:\n/lots Lotes abertos\n/person Falar com uma pessoa\nJá é Champion? Envie /link e o e-mail da sua conta para ver aqui a carteira e as operações.",
+  "tg.join": "Registe-se grátis: {url}",
+  "tg.link_ask": "Para ver aqui a carteira e as operações, envie /link seguido do e-mail da sua conta ComboTrader, por ex. /link ada@example.com",
+  "tg.link_sent": "Se {email} tiver uma conta ComboTrader, enviámos-lhe um código de 6 dígitos. Envie o código aqui para ligar este chat.",
+  "tg.linked": "Obrigado {name}, este chat do Telegram está agora ligado à sua conta ComboTrader. 🌾",
+  "tg.already_linked": "Este chat já está ligado à conta de {name}. Envie /menu para opções.",
+  "tg.guest_hint": "Envie /lots para lotes abertos, /person para uma pessoa. Novo aqui? Registe-se grátis em https://www.combotrader.com.ng/signup",
+  "ref.telegram": "Convidar no Telegram",
   'code.body.whatsapp': 'Olá {name}, alguém pediu para ligar o WhatsApp à sua conta ComboTrader. Se foi você, envie este código à ComboTrader no WhatsApp. Se não, ignore este e-mail.',
   'wa.menu_guest': 'Olá, sou Adaeze, Chief of Staff de IA da ComboTrader 🌾\nA ComboTrader, da Kitovu Technology, permite-lhe financiar negócios reais de produtos agrícolas: o seu dinheiro compra colheitas que um comprador identificado já se comprometeu a comprar, e pode acompanhar cada lote da quinta ao comprador.\n\nPergunte-me o que quiser sobre como funcionam as operações, os pagamentos ou como começar, ou responda:\n5 Lotes abertos\n7 Falar com uma pessoa\nJá é Champion? Responda 1 para ligar este número à sua conta e ver aqui a carteira e as operações.',
   'wa.guest_hint': 'Responda 5 para lotes abertos, 7 para uma pessoa. É novo? Registe-se grátis: https://www.combotrader.com.ng/signup',

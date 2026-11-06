@@ -12,7 +12,7 @@ import { circlesVisibleTo, circlesMode } from '../lib/circles';
 import { walletBalance } from '../lib/ledger';
 import { q } from '../lib/db';
 import crypto from 'node:crypto';
-import { FaXTwitter, FaFacebook, FaLinkedin, FaInstagram } from 'react-icons/fa6';
+import { FaXTwitter, FaFacebook, FaLinkedin, FaInstagram, FaTelegram } from 'react-icons/fa6';
 import { LuArrowLeftRight, LuMenu, LuGlobe, LuBell, LuHouse, LuWheat, LuReceipt, LuWallet, LuGift, LuUser, LuLock, LuLifeBuoy, LuUsersRound, LuLogOut, LuSettings, LuDownload, LuPause, LuPiggyBank, LuHeartHandshake, LuArrowLeft } from 'react-icons/lu';
 import { workerState } from '../lib/alerts';
 
@@ -148,6 +148,7 @@ export function Social() {
       <li><a href={s.facebook} rel="noopener" target="_blank" aria-label="Facebook"><FaFacebook /></a></li>
       <li><a href={s.linkedin} rel="noopener" target="_blank" aria-label="LinkedIn"><FaLinkedin /></a></li>
       <li><a href={s.instagram} rel="noopener" target="_blank" aria-label="Instagram"><FaInstagram /></a></li>
+      <li><a href={s.telegram} rel="noopener" target="_blank" aria-label="Telegram"><FaTelegram /></a></li>
     </ul>
   );
 }
@@ -323,7 +324,7 @@ export const ADMIN_NAV: [string, string, string][] = [
   ['/admin/champions', 'Champions', 'support'], ['/admin/verification', 'Verification', 'support'], ['/admin/circles', 'Harvest Circles', 'operations'], ['/admin/marketplace', 'Marketplace', 'operations'],
   ['/admin/prices', 'Prices', 'operations'], ['/admin/feed', 'Activity feed', 'content'], ['/admin/posts', 'Chronicles (blog)', 'content'],
   ['/admin/figures', 'Homepage numbers', 'content'], ['/admin/faqs', 'FAQs & page text', 'content'], ['/admin/newsletter', 'Newsletter', 'content'], ['/admin/referrals', 'Referrals', 'finance'],
-  ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/chats', 'Website chats', 'support'], ['/admin/chief', 'Chief of Staff', 'any'], ['/admin/chief/chat', 'Chat with Adaeze', 'any'], ['/admin/agents', 'AI agents', 'any'], ['/admin/marketing', 'Marketing', 'content'], ['/admin/audience', 'Contacts & sequences', 'content'], ['/admin/library', 'Content library', 'content'], ['/admin/playbook', 'Playbook', 'any'], ['/admin/prospects', 'Prospects', 'content'], ['/admin/whatsapp', 'WhatsApp', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],
+  ['/admin/messages', 'Messages & tickets', 'support'], ['/admin/chats', 'Website chats', 'support'], ['/admin/chief', 'Chief of Staff', 'any'], ['/admin/chief/chat', 'Chat with Adaeze', 'any'], ['/admin/agents', 'AI agents', 'any'], ['/admin/marketing', 'Marketing', 'content'], ['/admin/audience', 'Contacts & sequences', 'content'], ['/admin/library', 'Content library', 'content'], ['/admin/playbook', 'Playbook', 'any'], ['/admin/prospects', 'Prospects', 'content'], ['/admin/telegram', 'Telegram', 'content'], ['/admin/whatsapp', 'WhatsApp', 'support'], ['/admin/reports', 'Reports', 'finance'], ['/admin/team', 'Team & roles', 'super'],
   ['/admin/audit', 'Audit log', 'super'], ['/admin/testing', 'Testing', 'super'], ['/admin/settings', 'Settings', 'super'],
 ];
 

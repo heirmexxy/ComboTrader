@@ -90,6 +90,7 @@ export const config = {
     facebook: e.SOCIAL_FACEBOOK || 'https://www.facebook.com/KitovuT',
     linkedin: e.SOCIAL_LINKEDIN || 'https://www.linkedin.com/company/kitovu',
     instagram: e.SOCIAL_INSTAGRAM || 'https://www.instagram.com/combotrader',
+    telegram: e.SOCIAL_TELEGRAM || (e.TELEGRAM_CHANNEL && !/^-?\d+$/.test(e.TELEGRAM_CHANNEL.replace(/^@/, '')) ? `https://t.me/${e.TELEGRAM_CHANNEL.replace(/^@/, '')}` : 'https://t.me/combotraderofficial'),
   },
 };
 

@@ -23,6 +23,7 @@ export const DEFAULTS = {
   email_warmup_steps: '300,600,1000,2000', // marketing emails per sending day during warm-up (weekdays), then the last number
   email_gap_seconds: 150, // time between marketing emails (at most; a bigger day is spread evenly from 9:00 to 19:00 Lagos time, Monday to Friday)
   marketing_paused_until: '', // set automatically if too many marketing emails fail
+  telegram_bot_username: '', // filled in automatically from the bot token
   worker_heartbeat: '', // set every 30 seconds by the background worker
   ai_provider: 'anthropic', // which AI the agents use: anthropic (Claude) | openai (or the OpenAI-compatible service in OPENAI_BASE_URL)
   ai_fallback: true, // if the chosen provider fails (no credit, outage), try the other one

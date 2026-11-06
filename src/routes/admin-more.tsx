@@ -44,6 +44,7 @@ import { metaAuth, metaConfigured, metaAuthUrl, metaExchange, metaPages, metaCho
 import { liAuth, liConfigured, liAuthUrl, liExchange, liAdminPages, liChoosePage, liDisconnect, liDaysLeft, liRedirect, liToken } from '../lib/linkedin';
 import { hmac, safeEqual } from '../lib/util';
 import { HttpError, type Ctx } from '../lib/http';
+import { telegramStats, telegramAds, botLink, channelUrl, tgLive, setupTelegramBot, draftTelegramAds } from '../lib/telegram';
 
 const page = (c: Ctx, title: string, body: React.ReactNode, actions?: React.ReactNode) => render(c, <AdminLayout title={title} actions={actions}>{body}</AdminLayout>);
 const pct = (r: number | null) => (r === null ? '—' : `${(r * 100).toFixed(0)}%`);
@@ -983,6 +984,38 @@ get('/admin/chief', 'admin:any', (c) => {
   </>);
 });
 get('/admin/chief/brief/:id', 'admin:any', (c) => { const b = q.get<any>('SELECT * FROM chief_briefs WHERE id=?', Number(c.params.id)); if (!b) throw new HttpError(404, 'Not found'); c.html(previewShell(`Brief ${String(b.created_at).slice(0, 10)}`, escapeHtml(b.body).replace(/&gt;/g, '>'))); });
+// ---------- Telegram ----------
+get('/admin/telegram', 'admin:content', (c) => {
+  const st = telegramStats(), ads = telegramAds(), bot = botLink(), ch = channelUrl();
+  page(c, 'Telegram', <>
+    <p className="muted">How ComboTrader grows on Telegram, within Telegram’s rules: a bot can only reply to people who message it first, so nobody is contacted uninvited and we never post in other people’s groups.</p>
+    <div className="grid-2 top">
+      <Box title="1. The bot: the front door">
+        <p>{tgLive() ? (bot ? <>Connected: <a href={bot} target="_blank" rel="noopener">{bot.replace('https://', '')}</a>.</> : 'Token set; connecting…') : <b>No TELEGRAM_BOT_TOKEN on the server.</b>} Anyone who opens it can ask Adaeze questions, see open lots and ask for a person (chats appear in <a href="/admin/chats">Website chats</a>). Champions send <code>/link their@email</code> to see their wallet, trades and payout dates.</p>
+        <p className="small muted">Every channel post ends with a link to the bot. {st.people} people have opened it ({st.week} this week); {st.linked} Champions have linked their account.</p>
+        {c.can('super') ? <Act action="/admin/telegram/connect" label="Connect / refresh the bot" /> : null}
+      </Box>
+      <Box title="2. Telegram communities (Ibrahim)">
+        <p>Ibrahim, the Prospector, now also looks for Nigerian Telegram channels and groups about farming, cooperatives, savings and diaspora investing, and drafts partnership emails to their admins (a mention, a co-hosted Q&amp;A, a post by the admin). Each email waits for your approval in <a href="/admin/prospects">Prospects</a>.</p>
+      </Box>
+      <Box title="3. Champions share">
+        <p>Champions can share their invite and Harvest Cards on Telegram, and invite friends through the bot with their own link (<code>t.me/…?start=r_CODE</code>): the bot greets them and keeps the referral. Your channel {ch ? <a href={ch} target="_blank" rel="noopener">{ch.replace('https://', '')}</a> : ''} is in the website footer.</p>
+      </Box>
+      <Box title="Where people come from">
+        {st.sources.length ? <Table rows={st.sources} cols={[['Came from', (r) => r.code === 'direct' ? 'Opened the bot directly' : r.code === 'channel' ? 'Channel posts' : String(r.code).startsWith('r_') ? `Champion invite (${String(r.code).slice(2)})` : String(r.code).startsWith('ad_') ? `Ad #${String(r.code).slice(3)}` : r.code], ['People', (r) => r.n]]} /> : <p className="muted">Nobody yet.</p>}
+      </Box>
+    </div>
+    <Box title="4. Telegram Ads">
+      <p className="small muted">Telegram Ads are bought and placed by a person at <a href="https://ads.telegram.org" target="_blank" rel="noopener">ads.telegram.org</a> (Telegram has no API for them). Temi drafts the texts here (160 characters at most, checked against the playbook); each has its own bot link so you can see how many people and sign-ups each ad brings. <b>Paid ads need ARCON approval before they run.</b></p>
+      <div className="btn-row"><Act action="/admin/telegram/ads" label="Draft ad texts" /></div>
+      {ads.length ? <Table rows={ads} cols={[['Ad text', (a) => <span className="small">{a.text}</span>], ['Link to use', (a) => bot ? <code className="small">{botLink(a.code)}</code> : <span className="muted">connect the bot</span>], ['People', (a) => a.starts], ['Sign-ups', (a) => a.signups], ['', (a) => <Act action={`/admin/telegram/ads/${a.id}/delete`} label="Remove" />]]} /> : <p className="muted">No ad texts yet.</p>}
+    </Box>
+  </>);
+});
+post('/admin/telegram/connect', 'admin:super', async (c) => { try { c.redirect('/admin/telegram', ['ok', `Telegram bot: ${await setupTelegramBot()}.`]); } catch (e: any) { c.redirect('/admin/telegram', ['error', e.message]); } });
+post('/admin/telegram/ads', 'admin:content', async (c) => { const n = await draftTelegramAds(c.user!.id); c.redirect('/admin/telegram', ['ok', `${n} ad text${n === 1 ? '' : 's'} drafted.`]); });
+post('/admin/telegram/ads/:id/delete', 'admin:content', (c) => { q.run("UPDATE tg_ads SET status='deleted' WHERE id=?", Number(c.params.id)); c.redirect('/admin/telegram', ['ok', 'Removed.']); });
+
 // ---------- Chat with Adaeze ----------
 get('/admin/chief/chat', 'admin:any', (c) => {
   const msgs = chatHistory(c.user!.id, 60);

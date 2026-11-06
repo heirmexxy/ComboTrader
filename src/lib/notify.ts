@@ -114,7 +114,9 @@ export function marketingPlanner(o: { ignoreQueued?: boolean } = {}) {
     }
     perDay.set(lagosDay(t), (perDay.get(lagosDay(t)) || 0) + 1);
     last = t; lastByGroup.set(group, t);
-    return new Date(t + Math.floor(Math.random() * 15e3)).toISOString();
+    // A few seconds of jitter so emails don't leave on exact intervals (never past the end of the window).
+    const end = (() => { const d = new Date(t + LAGOS); d.setUTCHours(WINDOW.end, 0, 0, 0); return d.getTime() - LAGOS; })();
+    return new Date(t + Math.floor(Math.random() * Math.max(0, Math.min(15e3, end - t - 1000)))).toISOString();
   };
 }
 /** The next send time for one marketing email. */

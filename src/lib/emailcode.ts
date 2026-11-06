@@ -8,7 +8,7 @@ import type { User } from './http';
 
 /** k•••••a@gmail.com */
 export const maskEmail = (e: string) => e.replace(/^(.)(.*)(.@.*)$/, (_m, a, b, d) => a + '•'.repeat(Math.min(6, b.length)) + d);
-export type CodePurpose = 'login' | 'withdraw' | 'bank' | 'whatsapp';
+export type CodePurpose = 'login' | 'withdraw' | 'bank' | 'whatsapp' | 'telegram';
 /** Shown on screen only on a development machine without an email provider. */
 export const showCodeOnScreen = () => config.demoMode && !(config.emailProvider && config.emailApiKey);
 

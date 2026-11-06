@@ -26,6 +26,7 @@ import './routes/admin';
 import { backfillCovers } from './lib/covers';
 import { replanMarketingQueue } from './lib/notify';
 import { startStallGuard } from './lib/stallguard';
+import { setupTelegramBot } from './lib/telegram';
 import { workerState } from './lib/alerts';
 import { sendEmail, emailShell } from './lib/notify';
 
@@ -143,6 +144,7 @@ export function start() {
     try { seedLibrary(); } catch (e) { console.error('library seed failed', e); }
     try { replanMarketingQueue(); } catch (e) { console.error('email re-plan failed', e); }
     setTimeout(() => void backfillCovers(30).catch((e) => console.error('covers failed', e)), 60_000);
+    setTimeout(() => void setupTelegramBot().catch((e) => console.error('Telegram bot setup failed:', e.message)), 10_000);
   }
   setOverrideLoader(() => q.all('SELECT key, lang, value FROM page_text'));
   const server = http.createServer((req, res) => { handle(req, res); });
