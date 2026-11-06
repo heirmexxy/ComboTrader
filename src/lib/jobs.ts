@@ -1,7 +1,7 @@
 // Scheduled work. Runs in-process every minute (RUN_SCHEDULER=true), or from a system cron:
 //   npm run job -- <name>        e.g. npm run job -- prices
 import { q, now, tx } from './db';
-import { flushOutbox, notify, queueEmail, emailShell, escapeHtml } from './notify';
+import { flushOutbox, notify, queueEmail, emailShell, escapeHtml, marketingPlanner, mailGroup, replanMarketingQueue } from './notify';
 import { crawlPrices } from './prices';
 import { expireCircles } from './circles';
 import { closeExpiredLots, markMatured, siteStats, autoPayDue, processRollovers, rateFor, lotDefaultPeriod } from './trading';
@@ -74,7 +74,7 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async social_publish() { const n = await publishDueSocial(); return `${n} posts published`; },
   async paystack_sync() { return syncPaystack(); },
   async library() { seedLibrary(); const r = runLibrary(); const n = await backfillCovers(40).catch(() => 0); return `${r}${n ? `; ${n} covers made` : ''}`; },
-  async sequences() { const scan = await scanContacts().catch((e) => `pre-scan failed: ${e.message}`); return `${scan}; ${runSequences()}`; },
+  async sequences() { const scan = await scanContacts().catch((e) => `pre-scan failed: ${e.message}`); const r = runSequences(); const p = replanMarketingQueue(); return `${scan}; ${r}; ${p.planned} waiting emails re-planned`; },
   async chief() { return runChief('daily'); },
   async reconcile() { return reconcile(); },
   async weekly() { return weeklySummary(); },
@@ -190,11 +190,12 @@ export function sendNewsletter(id: number) {
   const ab = !!(n.subject_b && settings().newsletter_ab && subs.length >= 2);
   const html = { a: trackHtmlLinks(raw, { channel: 'newsletter', campaign: `nl-${n.id}-a` }), b: ab ? trackHtmlLinks(raw, { channel: 'newsletter', campaign: `nl-${n.id}-b` }) : '' };
   // One transaction for the whole list: thousands of rows are queued in a moment.
+  const plan = marketingPlanner();
   tx(() => subs.forEach((s, i) => {
     const v = ab && i % 2 === 1 ? 'b' : 'a';
     const subject = v === 'b' ? n.subject_b : n.subject;
     const unsub = `${config.baseUrl}/newsletter/unsubscribe/${s.token}`;
-    queueEmail(s.email, subject, emailShell(escapeHtml(subject), `${html[v]}<p style="font-size:12px;color:#777;margin-top:24px"><a href="${unsub}">Unsubscribe</a></p>`), { marketing: true, campaign: `nl-${n.id}-${v}` });
+    queueEmail(s.email, subject, emailShell(escapeHtml(subject), `${html[v]}<p style="font-size:12px;color:#777;margin-top:24px"><a href="${unsub}">Unsubscribe</a></p>`), { marketing: true, campaign: `nl-${n.id}-${v}`, sendAfter: plan(mailGroup(s.email)) });
   }));
   q.run("UPDATE newsletters SET status='sent', sent_count=?, send_at=COALESCE(send_at, ?), subject_b=? WHERE id=?", subs.length, now(), ab ? n.subject_b : null, id);
   return subs.length;

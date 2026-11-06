@@ -9,6 +9,7 @@ import { agentOn, executeAction } from './agents';
 import { audit } from './audit';
 import { gatherFacts, assignTask, TASK_KINDS, rolesOf, type TaskKind, type AdminRole } from './chief';
 import { addInstruction, endInstruction } from './instructions';
+import { replanMarketingQueue } from './notify';
 import { PERSONAS, agentLabel, type PersonaKey } from './personas';
 import { offMessage, playbookFor } from '../content/playbook';
 
@@ -70,7 +71,7 @@ async function act(admin: User, plan: Plan) {
   }
   if (plan.full_pace) {
     if (!isSuper) done.push('Not changed: only a super admin can change the email pace.');
-    else { setSetting('email_slowdown_until', ''); done.push('Email back to the normal pace (the warm-up and the 9:00–19:00 weekday window still apply).'); }
+    else { setSetting('email_slowdown_until', ''); const r = replanMarketingQueue(); done.push(`Email back to the normal pace (the warm-up and the 9:00–19:00 weekday window still apply). ${r.planned} waiting emails re-planned${r.last ? `; the last goes out ${String(r.last).slice(0, 10)}` : ''}.`); }
   }
   for (const id of plan.end_instructions.slice(0, 5)) {
     const row = q.get<any>('SELECT * FROM agent_instructions WHERE id=? AND active=1', Number(id));

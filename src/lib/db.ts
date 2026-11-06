@@ -855,6 +855,9 @@ CREATE INDEX IF NOT EXISTS outbox_kind_group_send ON outbox(kind, rgroup, send_a
 CREATE INDEX IF NOT EXISTS outbox_campaign ON outbox(campaign, status);
 CREATE INDEX IF NOT EXISTS outbox_status_kind ON outbox(status, kind);
 `,
+`
+UPDATE outbox SET send_after=NULL WHERE status='cancelled';
+`,
 ];
 
 export function openDb(file = config.dbFile) {

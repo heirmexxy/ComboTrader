@@ -144,7 +144,7 @@ export function dedupeContacts() {
     const keep = list.find((s) => s.status === 'unsubscribed') || list.find((s) => s.status === 'confirmed') || list[0];
     for (const s of list) if (s.id !== keep.id) { q.run('DELETE FROM subscribers WHERE id=?', s.id); subs++; }
   }
-  const dupMail = q.run(`UPDATE outbox SET status='cancelled', error='duplicate' WHERE kind='marketing' AND status='queued' AND id NOT IN (
+  const dupMail = q.run(`UPDATE outbox SET status='cancelled', send_after=NULL, error='duplicate' WHERE kind='marketing' AND status='queued' AND id NOT IN (
     SELECT MIN(id) FROM outbox WHERE kind='marketing' AND status IN ('queued','sent') GROUP BY lower(recipient), subject)`).changes;
   if (merged || subs || dupMail) audit(null, 'contacts.dedupe', undefined, { merged, subs, dupMail });
   return { merged, subs, dupMail: Number(dupMail) };

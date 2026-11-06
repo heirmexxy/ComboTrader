@@ -3,7 +3,7 @@
 // messages stay visible in Admin → Messages (demo mode) so nothing is lost.
 import { createHash } from 'node:crypto';
 import { audit } from './audit';
-import { q, now } from './db';
+import { q, now, tx } from './db';
 import { config } from './config';
 import { settings, setSetting } from './settings';
 import { sendPush } from './webpush';
@@ -12,9 +12,9 @@ import { translate } from './i18n';
 
 /** Queues an email. Marketing emails (sequences, newsletters, campaigns, outreach, blog and lot announcements) are
  * not sent at once: each gets its own slot, spread evenly over the sending window, so the domain never sends a burst. */
-export function queueEmail(to: string, subject: string, html: string, o: { marketing?: boolean; campaign?: string; lessonId?: number | null } = {}) {
+export function queueEmail(to: string, subject: string, html: string, o: { marketing?: boolean; campaign?: string; lessonId?: number | null; sendAfter?: string } = {}) {
   const group = o.marketing ? mailGroup(to) : null;
-  q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now(), kind: o.marketing ? 'marketing' : 'tx', send_after: o.marketing ? nextMarketingSlot(group!) : null, campaign: o.campaign || null, rgroup: group, lesson_id: o.lessonId ?? null });
+  q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now(), kind: o.marketing ? 'marketing' : 'tx', send_after: o.marketing ? (o.sendAfter || nextMarketingSlot(group!)) : null, campaign: o.campaign || null, rgroup: group, lesson_id: o.lessonId ?? null });
 }
 /** Which kind of mailbox an address is, for delivery reports and per-provider pacing. */
 export function mailGroup(email: string) {
@@ -48,7 +48,7 @@ export function dropAddress(email: string, reason: string) {
   q.run('DELETE FROM subscribers WHERE lower(email)=?', e);
   q.run('UPDATE prospects SET email=NULL WHERE lower(email)=?', e);
   q.run('UPDATE users SET marketing_opt_in=0 WHERE lower(email)=?', e);
-  q.run("UPDATE outbox SET status='cancelled', error=? WHERE kind='marketing' AND status='queued' AND lower(recipient)=?", `address removed: ${reason}`.slice(0, 200), e);
+  q.run("UPDATE outbox SET status='cancelled', send_after=NULL, error=? WHERE kind='marketing' AND status='queued' AND lower(recipient)=?", `address removed: ${reason}`.slice(0, 200), e);
 }
 
 // ---------- Pacing marketing email (protects the sending domain's reputation) ----------
@@ -73,31 +73,51 @@ function fitWindow(t: number) {
   while (d.getUTCDay() === 0 || d.getUTCDay() === 6) { d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(WINDOW.start, 0, 0, 0); }
   return d.getTime() - LAGOS;
 }
-/** The next send time for a marketing email: a steady trickle from 9:00 Lagos time, Monday to Friday (2 every 5
- * minutes by default), at most the day's warm-up cap per day; whatever doesn't fit moves to the next weekday morning. */
-export function nextMarketingSlot(group = 'company') {
+const lagosDay = (t: number) => new Date(t + LAGOS).toISOString().slice(0, 10);
+/** A slot planner for marketing email: a steady trickle from 9:00 Lagos time, Monday to Friday (2 every 5 minutes by
+ * default), at most the day's warm-up cap per day; whatever doesn't fit moves to the next weekday morning. It reads the
+ * outbox once and then works in memory, so planning 10,000 emails takes milliseconds. */
+export function marketingPlanner(o: { ignoreQueued?: boolean } = {}) {
   const gap = Math.max(30, Number(settings().email_gap_seconds || 150)) * 1000;
   const cap = marketingDailyCap();
-  // All lookups use the (kind, send_after) index, so queueing stays instant however big the outbox gets.
-  const last = q.val("SELECT send_after FROM outbox WHERE kind='marketing' AND send_after IS NOT NULL AND status!='cancelled' ORDER BY kind DESC, send_after DESC LIMIT 1") as string | null;
-  let t = Math.max(Date.now(), last ? Date.parse(last) + gap : 0);
-  // A provider that is delaying our mail gets it four times more slowly until it recovers.
-  if (String(slowGroups()[group] || '') > now()) {
-    const lastG = q.val("SELECT send_after FROM outbox WHERE kind='marketing' AND rgroup=? AND send_after IS NOT NULL AND status!='cancelled' ORDER BY send_after DESC LIMIT 1", group) as string | null;
-    if (lastG) t = Math.max(t, Date.parse(lastG) + 4 * gap);
+  const slow = slowGroups();
+  const paused = Date.parse(String(settings().marketing_paused_until || '')) || 0;
+  const todayStart = new Date(Date.now() - 864e5).toISOString();
+  // What is already planned from today on (sent emails today count towards today's cap).
+  const rows = q.all<any>(`SELECT send_after, rgroup FROM outbox WHERE kind='marketing' AND send_after>=? AND status NOT IN ('cancelled'${o.ignoreQueued ? ",'queued'" : ''})`, todayStart);
+  const perDay = new Map<string, number>(), lastByGroup = new Map<string, number>();
+  let last = 0;
+  for (const r of rows) {
+    const t = Date.parse(r.send_after); if (!t) continue;
+    perDay.set(lagosDay(t), (perDay.get(lagosDay(t)) || 0) + 1);
+    if (t > last) last = t;
+    if (t > (lastByGroup.get(r.rgroup) || 0)) lastByGroup.set(r.rgroup, t);
   }
-  const paused = String(settings().marketing_paused_until || '');
-  if (paused && Date.parse(paused) > t) t = Date.parse(paused);
-  t = fitWindow(t);
-  // Daily cap (Lagos calendar day): if today's slots are used up, start at 9:00 the next weekday.
-  for (let i = 0; i < 60; i++) {
-    const d = new Date(t + LAGOS); d.setUTCHours(0, 0, 0, 0);
-    const dayStart = d.getTime() - LAGOS, dayEnd = dayStart + 864e5;
-    const used = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND send_after>=? AND send_after<? AND status!='cancelled'", new Date(dayStart).toISOString(), new Date(dayEnd).toISOString()) ?? 0);
-    if (used < cap) break;
-    t = fitWindow(dayEnd + WINDOW.start * 3600e3 - 1);
-  }
-  return new Date(t + Math.floor(Math.random() * 15e3)).toISOString();
+  return (group = 'company') => {
+    let t = Math.max(Date.now(), last ? last + gap : 0);
+    // A provider that is delaying our mail gets it four times more slowly until it recovers.
+    if (String(slow[group] || '') > now() && lastByGroup.get(group)) t = Math.max(t, lastByGroup.get(group)! + 4 * gap);
+    if (paused > t) t = paused;
+    t = fitWindow(t);
+    for (let i = 0; i < 400 && (perDay.get(lagosDay(t)) || 0) >= cap; i++) {
+      const d = new Date(t + LAGOS); d.setUTCHours(0, 0, 0, 0);
+      t = fitWindow(d.getTime() - LAGOS + 864e5 + WINDOW.start * 3600e3 - 1);
+    }
+    perDay.set(lagosDay(t), (perDay.get(lagosDay(t)) || 0) + 1);
+    last = t; lastByGroup.set(group, t);
+    return new Date(t + Math.floor(Math.random() * 15e3)).toISOString();
+  };
+}
+/** The next send time for one marketing email. */
+export function nextMarketingSlot(group = 'company') { return marketingPlanner()(group); }
+/** Re-plans every waiting marketing email from scratch (after a pace change, a big newsletter or removed duplicates):
+ * webmail addresses first, then company addresses, oldest first. */
+export function replanMarketingQueue() {
+  const plan = marketingPlanner({ ignoreQueued: true });
+  const rows = q.all<any>("SELECT id, rgroup FROM outbox WHERE kind='marketing' AND status='queued' ORDER BY (rgroup='company'), id");
+  tx(() => { for (const r of rows) q.run('UPDATE outbox SET send_after=? WHERE id=?', plan(r.rgroup || 'company'), r.id); });
+  const lastSlot = rows.length ? q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing' AND status='queued'") as string : null;
+  return { planned: rows.length, last: lastSlot };
 }
 /** Marketing emails waiting for their slot (agents stop queueing more once a day's worth is waiting). */
 export const marketingQueued = () => Number(q.val("SELECT COUNT(*) FROM outbox WHERE status='queued' AND kind='marketing'") ?? 0);
