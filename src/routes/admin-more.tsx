@@ -1041,7 +1041,7 @@ get('/admin/telegram', 'admin:content', (c) => {
       </Box>
     </div>
     <Box title="4. Telegram Ads">
-      <p className="small muted">Telegram Ads are bought and placed by a person at <a href="https://ads.telegram.org" target="_blank" rel="noopener">ads.telegram.org</a> (Telegram has no API for them). Temi drafts the texts here (160 characters at most, checked against the playbook); each has its own bot link so you can see how many people and sign-ups each ad brings. <b>Paid ads need ARCON approval before they run.</b></p>
+      <p className="small muted">Telegram Ads are bought and placed by a person at <a href="https://ads.telegram.org" target="_blank" rel="noopener">ads.telegram.org</a> (Telegram has no API for them). Temi drafts the texts here (160 characters at most, checked against the playbook); each has its own bot link so you can see how many people and sign-ups each ad brings.</p>
       <div className="btn-row"><Act action="/admin/telegram/ads" label="Draft ad texts" /></div>
       {ads.length ? <Table rows={ads} cols={[['Ad text', (a) => <span className="small">{a.text}</span>], ['Link to use', (a) => bot ? <code className="small">{botLink(a.code)}</code> : <span className="muted">connect the bot</span>], ['People', (a) => a.starts], ['Sign-ups', (a) => a.signups], ['', (a) => <Act action={`/admin/telegram/ads/${a.id}/delete`} label="Remove" />]]} /> : <p className="muted">No ad texts yet.</p>}
     </Box>

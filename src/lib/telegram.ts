@@ -150,7 +150,7 @@ export function telegramStats() {
 }
 
 
-// ---------- Telegram Ads (placed by a person at ads.telegram.org; paid ads need ARCON approval first) ----------
+// ---------- Telegram Ads (placed by a person at ads.telegram.org) ----------
 /** Ad texts are at most 160 characters. Each ad gets its own bot link (ad_<id>), so people and sign-ups per ad are counted. */
 export async function draftTelegramAds(by: number | null) {
   const { useAI, completeJson, POLICY } = await import('./ai');

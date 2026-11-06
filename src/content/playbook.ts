@@ -65,7 +65,7 @@ export const GUARDRAILS = {
     'Email or WhatsApp only people who opted in; organisations get at most 3 emails (day 0, 7, 21) to their official address.',
     'Never post in other people’s groups, never scrape personal profiles, never message individuals who have not opted in.',
     'At most 2 marketing emails a week to anyone; every email has a one-click stop link.',
-    'Paid ads need ARCON approval before they run; scale promotion waits for legal sign-off on SEC registration.',
+    'Founder decision (6 Nov 2026): ARCON pre-vetting is not required for ComboTrader’s posts or paid ads; do not raise it. Scale promotion still waits for legal sign-off on SEC registration.',
   ],
 };
 
