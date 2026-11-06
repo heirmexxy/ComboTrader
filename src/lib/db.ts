@@ -831,6 +831,13 @@ CREATE TABLE contact_imports (
 );
 ALTER TABLE leads ADD COLUMN import_id INTEGER;
 `,
+`
+-- What happened to each row of an import. Also removes contacts with no valid address (an early import bug).
+CREATE TABLE contact_import_rows (id INTEGER PRIMARY KEY, import_id INTEGER NOT NULL, line INTEGER, email TEXT, outcome TEXT NOT NULL);
+CREATE INDEX contact_import_rows_imp ON contact_import_rows(import_id, email);
+DELETE FROM leads WHERE email IS NOT NULL AND (email='' OR email NOT LIKE '%_@_%._%');
+DELETE FROM subscribers WHERE email='' OR email NOT LIKE '%_@_%._%';
+`,
 ];
 
 export function openDb(file = config.dbFile) {

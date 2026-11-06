@@ -49,10 +49,13 @@ export async function scanContacts(limit = 400) {
       if (!v || v === 'unknown') { v = d ? await checkDomain(d) : 'dead'; q.run('INSERT INTO email_domains (domain, verdict, checked_at) VALUES (?,?,?) ON CONFLICT(domain) DO UPDATE SET verdict=excluded.verdict, checked_at=excluded.checked_at', d, v, now()); }
       seen.set(d, v);
     }
-    if (v === 'ok') { q.run("UPDATE leads SET email_check='ok', email_checked_at=? WHERE id=?", now(), r.id); res.ok++; if (r.import_id) q.run('UPDATE contact_imports SET cleared=cleared+1 WHERE id=?', r.import_id); }
+    if (v === 'ok') { q.run("UPDATE leads SET email_check='ok', email_checked_at=? WHERE id=?", now(), r.id); res.ok++; if (r.import_id) { q.run('UPDATE contact_imports SET cleared=cleared+1 WHERE id=?', r.import_id); q.run("UPDATE contact_import_rows SET outcome='cleared: the domain takes email' WHERE import_id=? AND email=? AND outcome LIKE 'imported: company%'", r.import_id, r.email); } }
     else if (v === 'dead' || Number(r.email_tries || 0) >= 2) {
       dropAddress(r.email, v === 'dead' ? 'domain no longer takes email' : 'domain could not be checked 3 times'); res.removed++;
-      if (r.import_id) q.run(`UPDATE contact_imports SET ${v === 'dead' ? 'removed_domain=removed_domain+1' : 'removed_no_answer=removed_no_answer+1'} WHERE id=?`, r.import_id);
+      if (r.import_id) {
+        q.run(`UPDATE contact_imports SET ${v === 'dead' ? 'removed_domain=removed_domain+1' : 'removed_no_answer=removed_no_answer+1'} WHERE id=?`, r.import_id);
+        q.run("UPDATE contact_import_rows SET outcome=? WHERE import_id=? AND email=? AND outcome LIKE 'imported: company%'", v === 'dead' ? `removed: ${d} no longer exists or takes no email` : `removed: ${d} did not answer 3 checks`, r.import_id, r.email);
+      }
     }
     else { q.run('UPDATE leads SET email_tries=COALESCE(email_tries,0)+1 WHERE id=?', r.id); res.retry++; } // DNS did not answer: try again next hour (contact stays on hold)
   }

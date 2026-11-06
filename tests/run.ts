@@ -1054,6 +1054,18 @@ await t('import report: counts before the check (public added, company to check,
   eq(String(q.val("SELECT subject FROM outbox WHERE subject LIKE 'Contact import%' ORDER BY id DESC")), `Contact import #${r.importId} checked: 3 ready, 1 removed`);
 });
 
+await t('CSV import: header variants, quotes, blank emails; rows without an email are reported, never counted as duplicates', async () => {
+  const L = await import('../src/lib/library');
+  const csv = '\uFEFFFirst Name,Last Name,Email Address,Organisation Email,Phone\r\n' + Array.from({ length: 30 }, (_, i) => `P${i},Q,${i < 3 ? `p${i}@gmail.com` : ''},info@sameorg.ng,0803000${i}`).join('\r\n') + '\r\n"Obi, Ada",X,"Ada Obi <ada.x@gmail.com>",,\r\n';
+  const p = L.parseContactsDetailed(csv);
+  eq(p.dataRows, 31); eq(p.rows.length, 4); eq(p.invalid.length, 27, 'blank email cells are reported, not merged');
+  eq(p.rows[3].email, 'ada.x@gmail.com'); eq(p.rows[3].name, 'Obi, Ada X');
+  const r = L.importContacts(p.rows, { lists: ['blog'], consent: true, source: 'csv', by: 1, fileRows: p.dataRows, invalid: p.invalid });
+  eq(r.dupFile, 0); eq(r.added, 4);
+  eq(Number(q.val("SELECT COUNT(*) FROM contact_import_rows WHERE import_id=? AND outcome LIKE 'no valid email%'", r.importId)), 27);
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='' ")), 0);
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');

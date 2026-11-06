@@ -116,26 +116,64 @@ export interface ImportRow { email: string; name?: string; phone?: string; lang?
 const EMAIL_RE = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
 
 /** Reads pasted lines or CSV: "email" or "email, name" or a header row with email,name,phone,lang. */
-export function parseContacts(text: string): ImportRow[] {
-  const lines = String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (!lines.length) return [];
-  const head = lines[0].toLowerCase().split(/[,;\t]/).map((x) => x.trim().replace(/"/g, ''));
-  const hasHeader = head.includes('email');
-  const idx = (k: string) => (hasHeader ? head.indexOf(k) : ({ email: 0, name: 1, phone: 2, lang: 3 } as any)[k]);
-  const out: ImportRow[] = [];
-  for (const l of hasHeader ? lines.slice(1) : lines) {
-    const cells = l.split(/[,;\t]/).map((x) => x.trim().replace(/^"|"$/g, ''));
-    const at = String(cells[idx('email')] || '').toLowerCase();
-    const email = EMAIL_RE.test(at) ? at : String(cells.find((c) => EMAIL_RE.test(c.toLowerCase())) || '').toLowerCase();
-    if (!hasHeader && email !== at) { const other = cells.find((c) => c && c.toLowerCase() !== email && !EMAIL_RE.test(c.toLowerCase()) && !/^[+\d\s()-]{7,}$/.test(c)); if (other) { out.push({ email, name: other, phone: cells.find((c) => /^[+\d\s()-]{7,}$/.test(c)) || '', lang: '' }); continue; } }
-    if (!EMAIL_RE.test(email)) continue;
-    out.push({ email, name: idx('name') >= 0 ? cells[idx('name')] || '' : '', phone: idx('phone') >= 0 ? cells[idx('phone')] || '' : '', lang: idx('lang') >= 0 ? cells[idx('lang')] || '' : '' });
+const EMAIL_FIND = /[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+const EMAIL_ONE = new RegExp(EMAIL_FIND.source, 'i');
+const PHONE_RE = /^\+?[\d\s()-]{7,}$/;
+/** Splits CSV text into rows of cells: handles quotes (with commas or line breaks inside), "" escapes, a byte-order
+ * mark, and comma, semicolon or tab as the separator (whichever the first line uses most). */
+export function csvRows(text: string): string[][] {
+  const t = String(text || '').replace(/^﻿/, '');
+  const first = t.split(/\r?\n/, 1)[0] || '';
+  const sep = [',', ';', '\t'].map((c) => [c, first.split(c).length] as const).sort((x, y) => y[1] - x[1])[0][0];
+  const rows: string[][] = []; let row: string[] = [], cell = '', quoted = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (quoted) { if (ch === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else quoted = false; } else cell += ch; continue; }
+    if (ch === '"' && cell.trim() === '') { quoted = true; cell = ''; }
+    else if (ch === sep) { row.push(cell.trim()); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && t[i + 1] === '\n') i++; row.push(cell.trim()); if (row.some((c) => c)) rows.push(row); row = []; cell = ''; }
+    else cell += ch;
   }
-  return out;
+  row.push(cell.trim()); if (row.some((c) => c)) rows.push(row);
+  return rows;
 }
+export interface ParsedContacts { rows: (ImportRow & { line: number })[]; invalid: { line: number; text: string }[]; dataRows: number; header: string[] | null }
+/** Reads a pasted list or CSV. Finds the email column from the header (Email, E-mail, Email Address…) or, without a
+ * header, from where the addresses are. Rows with no valid email are reported, never added. A cell like
+ * "Ada Obi <ada@coop.ng>" gives ada@coop.ng; a cell with two addresses gives two contacts. */
+export function parseContactsDetailed(text: string): ParsedContacts {
+  const all = csvRows(text);
+  const res: ParsedContacts = { rows: [], invalid: [], dataRows: 0, header: null };
+  if (!all.length) return res;
+  const h = all[0].map((c) => c.toLowerCase().replace(/[^a-z ]/g, '').trim());
+  const isHeader = !all[0].some((c) => c.includes('@')) && h.some((c) => /e ?mail/.test(c));
+  const col = (re: RegExp, avoid?: RegExp) => { const i = h.findIndex((c) => re.test(c) && !(avoid && avoid.test(c))); return i >= 0 ? i : h.findIndex((c) => re.test(c)); };
+  const ix = isHeader ? {
+    email: col(/^e ?mail( address)?$|e ?mail/, /org|company|business|office|secondary|alt/),
+    name: col(/^(full )?name$|^contact( name)?$/), first: col(/first ?name|given/), last: col(/last ?name|surname|family/),
+    phone: col(/phone|mobile|tel|whatsapp/), lang: col(/^lang(uage)?$/),
+  } : null;
+  if (isHeader) res.header = all[0];
+  const body = isHeader ? all.slice(1) : all;
+  body.forEach((cells, k) => {
+    const line = k + (isHeader ? 2 : 1);
+    res.dataRows++;
+    const pick = (i: number | undefined) => (i !== undefined && i >= 0 ? cells[i] || '' : '');
+    // With a header, only its email column counts (another column may hold a shared office address); without one, any cell.
+    const src = ix && ix.email >= 0 ? pick(ix.email) : (cells.find((c) => EMAIL_ONE.test(c)) || '');
+    const emails = [...new Set((src.match(EMAIL_FIND) || []).map((e) => e.toLowerCase().replace(/^[.'-]+|[.'-]+$/g, '')))].filter((e) => EMAIL_RE.test(e));
+    if (!emails.length) { res.invalid.push({ line, text: cells.join(', ').slice(0, 120) }); return; }
+    let name = ix ? (pick(ix.name) || [pick(ix.first), pick(ix.last)].filter(Boolean).join(' ')) : '';
+    if (!name) { const nm = /^\s*"?([^"<@]+?)"?\s*</.exec(src); name = nm ? nm[1].trim() : (ix ? '' : cells.find((c) => c && !c.includes('@') && !PHONE_RE.test(c)) || ''); }
+    const phone = ix ? pick(ix.phone) : cells.find((c) => PHONE_RE.test(c)) || '';
+    for (const email of emails) res.rows.push({ email, name: name.slice(0, 120), phone: phone.slice(0, 40), lang: ix ? pick(ix.lang) : '', line });
+  });
+  return res;
+}
+export function parseContacts(text: string): ImportRow[] { return parseContactsDetailed(text).rows; }
 
 /** Adds opted-in contacts to lists. Returns counts. Requires the person importing to confirm consent. */
-export function importContacts(rows: ImportRow[], o: { lists: ListName[]; sequence?: string; source: string; consent: boolean; by: number; fileRows?: number }) {
+export function importContacts(rows: (ImportRow & { line?: number })[], o: { lists: ListName[]; sequence?: string; source: string; consent: boolean; by: number; fileRows?: number; invalid?: { line: number; text: string }[] }) {
   if (!o.consent) throw new Error('Confirm that these people asked to hear from Kitovu or ComboTrader.');
   const seq = o.lists.includes('sequence') ? o.sequence || 'nurture' : null;
   if (seq && !SEQUENCES[seq]) throw new Error('Unknown sequence');
@@ -143,15 +181,20 @@ export function importContacts(rows: ImportRow[], o: { lists: ListName[]; sequen
   dedupeContacts(); // so every existing contact has its mailbox key before we compare
   const importId = q.insert('contact_imports', { created_by: o.by, source: o.source.slice(0, 200) || null, file_rows: o.fileRows ?? rows.length, status: 'checking', created_at: now() }).id;
   res.importId = importId;
-  const seen = new Set<string>();
+  // What happened to each row, so the import can be checked line by line (downloadable from Contacts).
+  const note = (line: number | undefined, email: string, outcome: string) => q.insert('contact_import_rows', { import_id: importId, line: line ?? null, email, outcome });
+  for (const b of o.invalid || []) note(b.line, b.text, 'no valid email address in this row');
+  const seen = new Map<string, number | undefined>();
   rows.forEach((r, i) => {
+    if (!EMAIL_RE.test(r.email)) { note(r.line, r.email, 'no valid email address in this row'); return; }
     const key = emailKey(r.email);
-    if (seen.has(key)) { res.skipped++; res.dupFile++; return; } seen.add(key); // the same mailbox twice in this list
+    if (seen.has(key)) { res.skipped++; res.dupFile++; note(r.line, r.email, `duplicate of line ${seen.get(key) ?? '?'} in this file`); return; }
+    seen.set(key, r.line);
     const lang = ['en', 'fr', 'sw', 'pt', 'ar'].includes(String(r.lang)) ? String(r.lang) : 'en';
     const user = q.get<any>('SELECT id FROM users WHERE lower(email)=?', r.email);
-    if (emailSuppressed(r.email)) { res.skipped++; res.removedBefore++; return; } // failed or bounced before: never re-added
+    if (emailSuppressed(r.email)) { res.skipped++; res.removedBefore++; note(r.line, r.email, 'not added: removed before (bounced, failed or domain gone)'); return; } // failed or bounced before: never re-added
     const ex = q.get<any>('SELECT * FROM leads WHERE email_key=? OR lower(email)=? ORDER BY id LIMIT 1', key, r.email); // already a contact: update, never add twice
-    if (ex && ['unsubscribed', 'bounced'].includes(ex.status)) { res.skipped++; res.optedOut++; return; } // never re-add someone who opted out
+    if (ex && ['unsubscribed', 'bounced'].includes(ex.status)) { res.skipped++; res.optedOut++; note(r.line, r.email, `not added: ${ex.status} before`); return; } // never re-add someone who opted out
     // Stagger first emails so a big import doesn't go out in one burst.
     const first = new Date(Date.now() + Math.floor(i / 50) * 3600e3).toISOString();
     const lists = [...new Set([...(String(ex?.lists || '').split(',').filter(Boolean)), ...o.lists])].join(',');
@@ -159,10 +202,11 @@ export function importContacts(rows: ImportRow[], o: { lists: ListName[]; sequen
     if (ex) {
       q.run(`UPDATE leads SET consent=1, name=COALESCE(NULLIF(?, ''), name), phone=COALESCE(NULLIF(?, ''), phone), lists=?${startSeq ? ', seq=?, seq_step=0, seq_next_at=?' : ''} WHERE id=?`,
         r.name || '', r.phone || '', lists, ...(startSeq ? [seq, first] : []), ex.id);
-      res.updated++;
+      res.updated++; note(r.line, r.email, 'already in your contacts: updated, not added twice');
     } else {
       const pub = PUBLIC_DOMAINS.has(r.email.split('@')[1] || '');
       if (pub) res.publicAdded++; else res.toCheck++;
+      note(r.line, r.email, pub ? 'imported: public email, added straight away' : 'imported: company email, Chidi is checking the domain');
       q.insert('leads', { email: r.email, email_key: key, import_id: importId, email_check: pub ? 'public' : null, email_checked_at: pub ? now() : null, name: r.name || null, phone: r.phone || null, lang, source: 'import', consent: 1, status: user ? 'signed_up' : 'new', user_id: user?.id ?? null, note: o.source.slice(0, 200) || null, token: randomToken(18), lists, seq: startSeq ? seq : null, seq_step: 0, seq_next_at: startSeq ? first : null, created_at: now() });
       res.added++;
     }

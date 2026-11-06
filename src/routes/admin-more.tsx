@@ -25,7 +25,7 @@ import { savePublicImage } from '../lib/uploads';
 import { audit } from '../lib/audit';
 import { parseNaira, fmtNGN } from '../lib/util';
 import { config } from '../lib/config';
-import { libraryStats, parseContacts, importContacts, runLibrary, seedLibrary, renderNewsletter, type ListName } from '../lib/library';
+import { libraryStats, parseContactsDetailed, importContacts, runLibrary, seedLibrary, renderNewsletter, type ListName } from '../lib/library';
 import { BLOG, NEWSLETTERS, SEQUENCES, RESPONSES } from '../content/library';
 import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCES } from '../content/playbook';
 import { marked } from 'marked';
@@ -801,7 +801,7 @@ function ImportsBox() {
       ['Duplicates', (im) => <>{im.dup_in_file}<span className="small muted"><br />+{im.already_contacts} already contacts</span></>],
       ['Not re-added', (im) => im.removed_before + im.opted_out],
       ['Ready', (im) => <b>{im.public_added + im.cleared}</b>],
-      ['Status', (im) => im.status === 'done' ? 'Done' : 'Checking…'],
+      ['Status', (im) => <>{im.status === 'done' ? 'Done' : 'Checking…'}<br /><a className="small" href={`/admin/audience/import/${im.id}.csv`}>Each row (CSV)</a></>],
     ]} />
   </Box>;
 }
@@ -854,22 +854,27 @@ get('/admin/audience', 'admin:content', (c) => {
     <Box title="Recently added"><Table rows={recent} cols={[['Email', (r) => r.email], ['Name', (r) => r.name || ''], ['Lists', (r) => String(r.lists).split(',').map((x) => LIST_LABEL[x] || x).join(', ')], ['Sequence', (r) => r.seq ? `${SEQUENCES[r.seq]?.name || r.seq}: email ${r.seq_step + 1}` : r.seq_step ? 'finished' : '—'], ['Status', (r) => <S s={r.status} />], ['From', (r) => <span className="small">{r.note || r.source}</span>]]} empty="No contacts yet." /></Box>
   </>);
 });
+get('/admin/audience/import/:id', 'admin:content', (c) => {
+  const id = Number(String(c.params.id).replace(/\.csv$/, ''));
+  const rows = q.all<any>('SELECT line, email, outcome FROM contact_import_rows WHERE import_id=? ORDER BY COALESCE(line, 0), id', id);
+  const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  c.send(200, `\uFEFF${['Line in file,Email (or row text),What happened', ...rows.map((r) => [r.line ?? '', r.email, r.outcome].map(cell).join(','))].join('\r\n')}`, 'text/csv; charset=utf-8', { 'Content-Disposition': `attachment; filename="import-${id}-rows.csv"`, 'Cache-Control': 'no-store' });
+});
 post('/admin/audience/scan', 'admin:content', async (c) => { c.redirect('/admin/audience', ['ok', `Pre-scan: ${await scanContacts(5000)}.`]); });
 post('/admin/audience/import', 'admin:content', (c) => {
   const file = c.files?.file;
   const text = `${c.str('text', 2_000_000)}\n${file?.data ? file.data.toString('utf8') : ''}`;
-  const rows = parseContacts(text);
-  if (!rows.length) return c.redirect('/admin/audience', ['error', 'No email addresses found.']);
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const fileRows = lines.length - (/email/i.test(lines[0] || '') && !/@/.test(lines[0] || '') ? 1 : 0);
+  const parsed = parseContactsDetailed(text);
+  const rows = parsed.rows, fileRows = parsed.dataRows;
+  if (!rows.length) return c.redirect('/admin/audience', ['error', `No email addresses found in ${fileRows} rows. Check that the file has an “Email” column.`]);
   const lists = (Array.isArray(c.body['lists']) ? c.body['lists'] : [c.body['lists']]).filter((x: unknown) => ['sequence', 'newsletter', 'blog'].includes(String(x))) as ListName[];
   if (!lists.length) return c.redirect('/admin/audience', ['error', 'Choose at least one list.']);
   try {
-    const r = importContacts(rows, { lists, sequence: c.str('sequence', 20), source: c.str('source', 200), consent: c.bool('consent'), by: c.user!.id, fileRows });
-    const bad = fileRows - rows.length;
+    const r = importContacts(rows, { lists, sequence: c.str('sequence', 20), source: c.str('source', 200), consent: c.bool('consent'), by: c.user!.id, fileRows, invalid: parsed.invalid });
+    const bad = parsed.invalid.length;
     // The numbers before the check; Chidi starts checking company addresses now and the table below updates as he goes.
     if (r.toCheck) void scanContacts(5000).catch(() => undefined);
-    c.redirect('/admin/audience#imports', ['ok', `Import #${r.importId}: ${fileRows} rows. ${r.added} imported: ${r.publicAdded} public email addresses added straight away, ${r.toCheck} company addresses for Chidi to check${r.toCheck ? ' (checking now; you’ll get an email with the final numbers)' : ''}. Not added: ${r.dupFile} duplicates in the file, ${r.updated} already in your contacts (updated), ${r.removedBefore} removed before, ${r.optedOut} unsubscribed${bad > 0 ? `, ${bad} rows without a valid email` : ''}.`]);
+    c.redirect('/admin/audience#imports', ['ok', `Import #${r.importId}: ${fileRows} rows. ${r.added} imported: ${r.publicAdded} public email addresses added straight away, ${r.toCheck} company addresses for Chidi to check${r.toCheck ? ' (checking now; you’ll get an email with the final numbers)' : ''}. Not added: ${r.dupFile} duplicates in the file, ${r.updated} already in your contacts (updated), ${r.removedBefore} removed before, ${r.optedOut} unsubscribed${bad > 0 ? `, ${bad} rows without a valid email` : ''}. Download “What happened to each row” in the Imports table to check any line.`]);
   } catch (e: any) { c.redirect('/admin/audience', ['error', e.message]); }
 });
 
