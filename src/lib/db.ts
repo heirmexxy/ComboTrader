@@ -819,6 +819,18 @@ ALTER TABLE outbox ADD COLUMN opened_at TEXT;
 ALTER TABLE outbox ADD COLUMN bounced_at TEXT;
 CREATE INDEX outbox_provider ON outbox(provider_id);
 `,
+`
+-- One row per contact import: what came in, what was added straight away, what Chidi checked and what he removed.
+CREATE TABLE contact_imports (
+  id INTEGER PRIMARY KEY, created_by INTEGER, source TEXT, file_rows INTEGER NOT NULL DEFAULT 0,
+  imported INTEGER NOT NULL DEFAULT 0, already_contacts INTEGER NOT NULL DEFAULT 0, dup_in_file INTEGER NOT NULL DEFAULT 0,
+  removed_before INTEGER NOT NULL DEFAULT 0, opted_out INTEGER NOT NULL DEFAULT 0, champions INTEGER NOT NULL DEFAULT 0,
+  public_added INTEGER NOT NULL DEFAULT 0, to_check INTEGER NOT NULL DEFAULT 0,
+  cleared INTEGER NOT NULL DEFAULT 0, removed_domain INTEGER NOT NULL DEFAULT 0, removed_no_answer INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'checking', created_at TEXT NOT NULL, finished_at TEXT
+);
+ALTER TABLE leads ADD COLUMN import_id INTEGER;
+`,
 ];
 
 export function openDb(file = config.dbFile) {

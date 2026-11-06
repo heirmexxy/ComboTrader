@@ -5,7 +5,8 @@
 // they are not looked up. Nothing is sent to a contact until it has passed.
 import { promises as dnsp } from 'node:dns';
 import { q, now } from './db';
-import { dropAddress } from './notify';
+import { dropAddress, queueEmail, emailShell, escapeHtml } from './notify';
+import { config } from './config';
 import { audit } from './audit';
 
 export const PUBLIC_DOMAINS = new Set(['gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'yahoo.fr', 'ymail.com', 'rocketmail.com', 'outlook.com', 'hotmail.com', 'hotmail.co.uk', 'hotmail.fr', 'live.com', 'msn.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'protonmail.com', 'proton.me', 'gmx.com', 'gmx.de', 'mail.com', 'zoho.com', 'yandex.com', 'yandex.ru']);
@@ -33,9 +34,9 @@ const domainOf = (email: string) => String(email).split('@')[1]?.trim().toLowerC
 /** Checks contacts that have not been checked yet (a batch at a time; one lookup per domain, remembered for 30 days). */
 export async function scanContacts(limit = 400) {
   const d0 = dedupeContacts();
-  const rows = q.all<any>("SELECT id, email, email_tries FROM leads WHERE email IS NOT NULL AND email_check IS NULL ORDER BY id LIMIT ?", limit);
+  const rows = q.all<any>("SELECT id, email, email_tries, import_id FROM leads WHERE email IS NOT NULL AND email_check IS NULL ORDER BY id LIMIT ?", limit);
   const dup = d0.merged + d0.subs ? `${d0.merged + d0.subs} duplicates merged; ` : '';
-  if (!rows.length) return `${dup}nothing to check`;
+  if (!rows.length) { finishImports(); return `${dup}nothing to check`; }
   const res = { ok: 0, public: 0, removed: 0, retry: 0 };
   const seen = new Map<string, DomainVerdict>();
   for (const r of rows) {
@@ -48,8 +49,11 @@ export async function scanContacts(limit = 400) {
       if (!v || v === 'unknown') { v = d ? await checkDomain(d) : 'dead'; q.run('INSERT INTO email_domains (domain, verdict, checked_at) VALUES (?,?,?) ON CONFLICT(domain) DO UPDATE SET verdict=excluded.verdict, checked_at=excluded.checked_at', d, v, now()); }
       seen.set(d, v);
     }
-    if (v === 'ok') { q.run("UPDATE leads SET email_check='ok', email_checked_at=? WHERE id=?", now(), r.id); res.ok++; }
-    else if (v === 'dead' || Number(r.email_tries || 0) >= 2) { dropAddress(r.email, v === 'dead' ? 'domain no longer takes email' : 'domain could not be checked 3 times'); res.removed++; }
+    if (v === 'ok') { q.run("UPDATE leads SET email_check='ok', email_checked_at=? WHERE id=?", now(), r.id); res.ok++; if (r.import_id) q.run('UPDATE contact_imports SET cleared=cleared+1 WHERE id=?', r.import_id); }
+    else if (v === 'dead' || Number(r.email_tries || 0) >= 2) {
+      dropAddress(r.email, v === 'dead' ? 'domain no longer takes email' : 'domain could not be checked 3 times'); res.removed++;
+      if (r.import_id) q.run(`UPDATE contact_imports SET ${v === 'dead' ? 'removed_domain=removed_domain+1' : 'removed_no_answer=removed_no_answer+1'} WHERE id=?`, r.import_id);
+    }
     else { q.run('UPDATE leads SET email_tries=COALESCE(email_tries,0)+1 WHERE id=?', r.id); res.retry++; } // DNS did not answer: try again next hour (contact stays on hold)
   }
   // Organisations the Prospector found or you imported: clear emails on dead domains so no outreach is drafted to them.
@@ -61,6 +65,7 @@ export async function scanContacts(limit = 400) {
     else if (v === 'ok') q.run("UPDATE prospects SET email_check='ok' WHERE id=?", p.id);
   }
   audit(null, 'email.prescan', undefined, res);
+  finishImports();
   return `${dup}checked ${rows.length}: ${res.ok} company domains fine, ${res.public} webmail, ${res.removed} removed, ${res.retry} to retry`;
 }
 
@@ -117,3 +122,30 @@ export function dedupeContacts() {
   if (merged || subs || dupMail) audit(null, 'contacts.dedupe', undefined, { merged, subs, dupMail });
   return { merged, subs, dupMail: Number(dupMail) };
 }
+
+/** Imports whose company addresses have all been checked: mark done and email the person who imported the final report. */
+export function finishImports() {
+  for (const im of q.all<any>("SELECT * FROM contact_imports WHERE status='checking'")) {
+    if (q.get('SELECT 1 FROM leads WHERE import_id=? AND email_check IS NULL', im.id)) continue;
+    q.run("UPDATE contact_imports SET status='done', finished_at=? WHERE id=?", now(), im.id);
+    const u = im.created_by ? q.get<any>('SELECT email, first_name FROM users WHERE id=?', im.created_by) : null;
+    if (u) queueEmail(u.email, `Contact import #${im.id} checked: ${im.public_added + im.cleared} ready, ${im.removed_domain + im.removed_no_answer} removed`, emailShell(`Import #${im.id} is checked`, importReportHtml(im), { label: 'Open contacts', url: `${config.baseUrl}/admin/audience` }));
+  }
+}
+export function importReportLines(im: any) {
+  return [
+    ['Rows in the file', im.file_rows],
+    ['Imported as new contacts', im.imported],
+    ['  Public email (Gmail, Yahoo…): added straight away', im.public_added],
+    ['  Company or organisation email: checked by Chidi', im.to_check],
+    ['    Cleared (domain takes email)', im.cleared],
+    ['    Removed: domain gone or takes no email', im.removed_domain],
+    ['    Removed: domain did not answer 3 times', im.removed_no_answer],
+    ['Duplicates in the file (removed)', im.dup_in_file],
+    ['Already in your contacts (updated, not added twice)', im.already_contacts],
+    ['Removed before (bounced or failed) — not re-added', im.removed_before],
+    ['Unsubscribed before — not re-added', im.opted_out],
+    ['Ready to receive email', im.public_added + im.cleared],
+  ] as [string, number][];
+}
+const importReportHtml = (im: any) => `<p>Chidi has finished checking import #${im.id}${im.source ? ` (${escapeHtml(im.source)})` : ''}.</p><table style="border-collapse:collapse">${importReportLines(im).map(([k, v]) => `<tr><td style="padding:3px 16px 3px 0;white-space:pre">${escapeHtml(k)}</td><td style="text-align:right"><b>${v}</b></td></tr>`).join('')}</table>`;

@@ -1041,6 +1041,19 @@ await t('duplicates: the same mailbox is never added twice, and existing copies 
   eq(Number(q.val("SELECT COUNT(*) FROM subscribers WHERE lower(email)='dup@coop.ng'")), 1);
 });
 
+await t('import report: counts before the check (public added, company to check, duplicates) and after (cleared, removed), with an email to the importer', async () => {
+  const E = await import('../src/lib/emailcheck'); const L = await import('../src/lib/library');
+  E._setResolver(async (d) => { if (d === 'closed-firm.ng') throw Object.assign(new Error('nx'), { code: 'ENOTFOUND' }); return [{ exchange: `mx.${d}`, priority: 10 }]; });
+  const r = L.importContacts(L.parseContacts('x1@yahoo.com\nx2@gmail.com\nX2@gmail.com\nx3@openfirm.ng\nx4@closed-firm.ng'), { lists: ['blog'], consent: true, source: 'expo list', by: 1, fileRows: 6 });
+  eq([r.added, r.publicAdded, r.toCheck, r.dupFile], [4, 2, 2, 1]);
+  eq(q.val('SELECT status FROM contact_imports WHERE id=?', r.importId), 'checking');
+  q.run("DELETE FROM outbox WHERE subject LIKE 'Contact import%'");
+  await E.scanContacts();
+  const im = q.get<any>('SELECT * FROM contact_imports WHERE id=?', r.importId);
+  eq([im.cleared, im.removed_domain, im.status, im.file_rows], [1, 1, 'done', 6]);
+  eq(String(q.val("SELECT subject FROM outbox WHERE subject LIKE 'Contact import%' ORDER BY id DESC")), `Contact import #${r.importId} checked: 3 ready, 1 removed`);
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');

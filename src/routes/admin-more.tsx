@@ -784,6 +784,27 @@ post('/admin/meta/disconnect', 'admin:content', (c) => { metaDisconnect(); audit
 
 // ============ Contacts & sequences, content library, playbook ============
 const LIST_LABEL: Record<string, string> = { sequence: 'Email sequence', newsletter: 'Newsletter', blog: 'New articles' };
+function ImportsBox() {
+  const ims = q.all<any>('SELECT * FROM contact_imports ORDER BY id DESC LIMIT 10');
+  if (!ims.length) return null;
+  const pending = (im: any) => Number(q.val('SELECT COUNT(*) FROM leads WHERE import_id=? AND email_check IS NULL', im.id) ?? 0);
+  return <Box title="Imports" id="imports">
+    <p className="small muted">Public addresses (Gmail, Yahoo, Outlook…) are added straight away. Chidi checks every company or organisation address; nothing is sent to it until it passes. Duplicates and anyone removed or unsubscribed before are never added.</p>
+    <Table rows={ims} cols={[
+      ['Import', (im) => <><b>#{im.id}</b><br /><span className="small muted">{String(im.created_at).slice(0, 16).replace('T', ' ')}{im.source ? ` · ${im.source}` : ''}</span></>],
+      ['Rows', (im) => im.file_rows],
+      ['Imported', (im) => im.imported],
+      ['Public: added', (im) => im.public_added],
+      ['Company: to check', (im) => <>{im.to_check}{im.status === 'checking' ? <span className="small muted"><br />{pending(im)} still waiting</span> : null}</>],
+      ['Cleared', (im) => im.cleared],
+      ['Removed: bad domain', (im) => im.removed_domain + im.removed_no_answer],
+      ['Duplicates', (im) => <>{im.dup_in_file}<span className="small muted"><br />+{im.already_contacts} already contacts</span></>],
+      ['Not re-added', (im) => im.removed_before + im.opted_out],
+      ['Ready', (im) => <b>{im.public_added + im.cleared}</b>],
+      ['Status', (im) => im.status === 'done' ? 'Done' : 'Checking…'],
+    ]} />
+  </Box>;
+}
 function EmailHealthBox() {
   const h = emailHealth(7);
   const slow = Object.entries(JSON.parse(String(settings().email_slow_groups || '{}'))).filter(([, u]) => String(u) > now()).map(([g]) => g);
@@ -806,6 +827,7 @@ get('/admin/audience', 'admin:content', (c) => {
     <p className="small muted"><b>Pre-scan:</b> before anything is sent, Chidi (the email agent) merges duplicates (the same mailbox written twice, in any case, with a +tag, or Gmail with and without dots), then checks every address on a company or organisation domain: does the domain still exist and still have a mail server? Addresses that fail are removed for good. Gmail, Yahoo, Outlook and similar are not looked up. Any address the email service refuses on the first send is also removed. <Act action="/admin/audience/scan" label="Check addresses now" /></p>
     <p className="muted">Add people who <b>asked to hear from Kitovu or ComboTrader</b> (event sign-ups, partners, customers, a group’s members who agreed). They get the chosen email sequence one email at a time, the fortnightly newsletter and/or new articles. Everyone can stop with one click; people who stopped are never re-added. Champions already on the platform get their own lifecycle emails instead of a sequence.</p>
     <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Addresses checked and cleared', sc.ok, `${sc.waiting} waiting for the pre-scan · ${sc.removed} removed (domain gone or takes no email) · ${sc.duplicates} duplicates merged`], ['Marketing emails waiting for their slot', marketingQueued(), `${marketingDailyCap()} a day now (warming up to ${settings().sequence_daily_cap}), spread 8:00–19:00${String(settings().marketing_paused_until || '') > now() ? ' · PAUSED: too many failed' : ''}`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
+    <ImportsBox />
     <EmailHealthBox />
     <div className="grid-2 top">
       <Box title="Add contacts">
@@ -838,12 +860,16 @@ post('/admin/audience/import', 'admin:content', (c) => {
   const text = `${c.str('text', 2_000_000)}\n${file?.data ? file.data.toString('utf8') : ''}`;
   const rows = parseContacts(text);
   if (!rows.length) return c.redirect('/admin/audience', ['error', 'No email addresses found.']);
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const fileRows = lines.length - (/email/i.test(lines[0] || '') && !/@/.test(lines[0] || '') ? 1 : 0);
   const lists = (Array.isArray(c.body['lists']) ? c.body['lists'] : [c.body['lists']]).filter((x: unknown) => ['sequence', 'newsletter', 'blog'].includes(String(x))) as ListName[];
   if (!lists.length) return c.redirect('/admin/audience', ['error', 'Choose at least one list.']);
   try {
-    const r = importContacts(rows, { lists, sequence: c.str('sequence', 20), source: c.str('source', 200), consent: c.bool('consent'), by: c.user!.id });
-    void scanContacts(5000).catch(() => undefined); // Chidi checks every new address's domain before anything is sent
-    c.redirect('/admin/audience', ['ok', `Chidi is checking each address’s domain now; nothing is sent until it passes. ${r.added} added, ${r.updated} updated${r.champions ? `, ${r.champions} already Champions (no sequence)` : ''}${r.skipped ? `, ${r.skipped} skipped (duplicates, already removed, or opted out)` : ''}${r.newsletter ? `, ${r.newsletter} on the newsletter` : ''}.`]);
+    const r = importContacts(rows, { lists, sequence: c.str('sequence', 20), source: c.str('source', 200), consent: c.bool('consent'), by: c.user!.id, fileRows });
+    const bad = fileRows - rows.length;
+    // The numbers before the check; Chidi starts checking company addresses now and the table below updates as he goes.
+    if (r.toCheck) void scanContacts(5000).catch(() => undefined);
+    c.redirect('/admin/audience#imports', ['ok', `Import #${r.importId}: ${fileRows} rows. ${r.added} imported: ${r.publicAdded} public email addresses added straight away, ${r.toCheck} company addresses for Chidi to check${r.toCheck ? ' (checking now; you’ll get an email with the final numbers)' : ''}. Not added: ${r.dupFile} duplicates in the file, ${r.updated} already in your contacts (updated), ${r.removedBefore} removed before, ${r.optedOut} unsubscribed${bad > 0 ? `, ${bad} rows without a valid email` : ''}.`]);
   } catch (e: any) { c.redirect('/admin/audience', ['error', e.message]); }
 });
 
