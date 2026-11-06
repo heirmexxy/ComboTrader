@@ -9,6 +9,7 @@ import { learn, keyOf } from './learning';
 import { propose, registerExecutors, agentOn } from './agents';
 import { ensurePostCover, ensureNewsletterCover, newsletterCoverUrl } from './covers';
 import { queueEmail, emailShell, escapeHtml, marketingDailyCap, marketingQueued, emailSuppressed } from './notify';
+import { emailKey } from './emailcheck';
 import { trackedLink, trackHtmlLinks } from './tracking';
 import { lotPeriods, rateFor } from './trading';
 import { latestPrices } from './prices';
@@ -141,11 +142,12 @@ export function importContacts(rows: ImportRow[], o: { lists: ListName[]; sequen
   const res = { added: 0, updated: 0, champions: 0, skipped: 0, newsletter: 0 };
   const seen = new Set<string>();
   rows.forEach((r, i) => {
-    if (seen.has(r.email)) { res.skipped++; return; } seen.add(r.email);
+    const key = emailKey(r.email);
+    if (seen.has(key)) { res.skipped++; return; } seen.add(key); // the same mailbox twice in this list
     const lang = ['en', 'fr', 'sw', 'pt', 'ar'].includes(String(r.lang)) ? String(r.lang) : 'en';
     const user = q.get<any>('SELECT id FROM users WHERE lower(email)=?', r.email);
     if (emailSuppressed(r.email)) { res.skipped++; return; } // failed or bounced before: never re-added
-    const ex = q.get<any>('SELECT * FROM leads WHERE email=?', r.email);
+    const ex = q.get<any>('SELECT * FROM leads WHERE email_key=? OR lower(email)=? ORDER BY id LIMIT 1', key, r.email); // already a contact: update, never add twice
     if (ex && ['unsubscribed', 'bounced'].includes(ex.status)) { res.skipped++; return; } // never re-add someone who opted out
     // Stagger first emails so a big import doesn't go out in one burst.
     const first = new Date(Date.now() + Math.floor(i / 50) * 3600e3).toISOString();
@@ -156,12 +158,12 @@ export function importContacts(rows: ImportRow[], o: { lists: ListName[]; sequen
         r.name || '', r.phone || '', lists, ...(startSeq ? [seq, first] : []), ex.id);
       res.updated++;
     } else {
-      q.insert('leads', { email: r.email, name: r.name || null, phone: r.phone || null, lang, source: 'import', consent: 1, status: user ? 'signed_up' : 'new', user_id: user?.id ?? null, note: o.source.slice(0, 200) || null, token: randomToken(18), lists, seq: startSeq ? seq : null, seq_step: 0, seq_next_at: startSeq ? first : null, created_at: now() });
+      q.insert('leads', { email: r.email, email_key: key, name: r.name || null, phone: r.phone || null, lang, source: 'import', consent: 1, status: user ? 'signed_up' : 'new', user_id: user?.id ?? null, note: o.source.slice(0, 200) || null, token: randomToken(18), lists, seq: startSeq ? seq : null, seq_step: 0, seq_next_at: startSeq ? first : null, created_at: now() });
       res.added++;
     }
     if (user) res.champions++;
     if (o.lists.includes('newsletter')) {
-      const s = q.get<any>('SELECT * FROM subscribers WHERE email=?', r.email);
+      const s = q.get<any>('SELECT * FROM subscribers WHERE lower(email)=?', r.email);
       if (!s) { q.insert('subscribers', { email: r.email, lang, user_id: user?.id ?? null, status: 'confirmed', token: randomToken(18), created_at: now(), confirmed_at: now() }); res.newsletter++; }
       else if (s.status === 'pending') { q.run("UPDATE subscribers SET status='confirmed', confirmed_at=? WHERE id=?", now(), s.id); res.newsletter++; }
     }

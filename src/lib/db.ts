@@ -802,6 +802,11 @@ ALTER TABLE leads ADD COLUMN email_tries INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE prospects ADD COLUMN email_check TEXT;
 CREATE TABLE email_domains (domain TEXT PRIMARY KEY, verdict TEXT NOT NULL, checked_at TEXT NOT NULL);
 `,
+`
+-- One key per mailbox (lower case, no +tag, Gmail without dots) so duplicates are found and merged.
+ALTER TABLE leads ADD COLUMN email_key TEXT;
+CREATE INDEX leads_email_key ON leads(email_key);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

@@ -1025,6 +1025,22 @@ await t('pre-scan: company domains are checked before sending; dead domains are 
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='c@gone-coop.ng'")), 0, 'never re-added');
 });
 
+await t('duplicates: the same mailbox is never added twice, and existing copies are merged with an opt-out winning', async () => {
+  const E = await import('../src/lib/emailcheck'); const L = await import('../src/lib/library');
+  eq(E.emailKey('J.Doe+news@GoogleMail.com'), 'jdoe@gmail.com'); eq(E.emailKey('Ada.Obi@coop.ng'), 'ada.obi@coop.ng');
+  const r = L.importContacts(L.parseContacts('jdoe@gmail.com\nJ.Doe@gmail.com\njdoe+x@gmail.com'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
+  eq(r.added, 1); eq(r.skipped, 2);
+  q.insert('leads', { email: 'Dup@Coop.ng', lang: 'en', source: 'contact', consent: 1, status: 'unsubscribed', token: 'd1', created_at: now() });
+  q.insert('leads', { email: 'dup@coop.ng', lang: 'en', source: 'import', consent: 1, status: 'new', lists: 'blog', seq: 'nurture', seq_next_at: now(), token: 'd2', created_at: now() });
+  q.insert('subscribers', { email: 'Dup@Coop.ng', lang: 'en', status: 'confirmed', token: 's1', created_at: now() });
+  q.insert('subscribers', { email: 'dup@coop.ng', lang: 'en', status: 'pending', token: 's2', created_at: now() });
+  const d = E.dedupeContacts();
+  eq(d.merged >= 1, true); eq(d.subs >= 1, true);
+  const left = q.all<any>("SELECT * FROM leads WHERE email_key='dup@coop.ng'");
+  eq(left.length, 1); eq(left[0].status, 'unsubscribed', 'the opt-out wins'); eq(left[0].seq, null, 'no sequence for someone who opted out');
+  eq(Number(q.val("SELECT COUNT(*) FROM subscribers WHERE lower(email)='dup@coop.ng'")), 1);
+});
+
 console.log('\nCovers');
 await t('every article and newsletter gets a branded cover; an uploaded photo is kept', async () => {
   const C = await import('../src/lib/covers');

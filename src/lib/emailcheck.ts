@@ -32,8 +32,10 @@ const domainOf = (email: string) => String(email).split('@')[1]?.trim().toLowerC
 
 /** Checks contacts that have not been checked yet (a batch at a time; one lookup per domain, remembered for 30 days). */
 export async function scanContacts(limit = 400) {
+  const d0 = dedupeContacts();
   const rows = q.all<any>("SELECT id, email, email_tries FROM leads WHERE email IS NOT NULL AND email_check IS NULL ORDER BY id LIMIT ?", limit);
-  if (!rows.length) return 'nothing to check';
+  const dup = d0.merged + d0.subs ? `${d0.merged + d0.subs} duplicates merged; ` : '';
+  if (!rows.length) return `${dup}nothing to check`;
   const res = { ok: 0, public: 0, removed: 0, retry: 0 };
   const seen = new Map<string, DomainVerdict>();
   for (const r of rows) {
@@ -59,7 +61,7 @@ export async function scanContacts(limit = 400) {
     else if (v === 'ok') q.run("UPDATE prospects SET email_check='ok' WHERE id=?", p.id);
   }
   audit(null, 'email.prescan', undefined, res);
-  return `checked ${rows.length}: ${res.ok} company domains fine, ${res.public} webmail, ${res.removed} removed, ${res.retry} to retry`;
+  return `${dup}checked ${rows.length}: ${res.ok} company domains fine, ${res.public} webmail, ${res.removed} removed, ${res.retry} to retry`;
 }
 
 export function scanStats() {
@@ -67,5 +69,51 @@ export function scanStats() {
     waiting: Number(q.val("SELECT COUNT(*) FROM leads WHERE email IS NOT NULL AND email_check IS NULL") ?? 0),
     ok: Number(q.val("SELECT COUNT(*) FROM leads WHERE email_check IN ('ok','public')") ?? 0),
     removed: Number(q.val("SELECT COUNT(*) FROM email_suppress WHERE reason LIKE 'domain%'") ?? 0),
+    duplicates: Number(q.val("SELECT COALESCE(SUM(json_extract(detail,'$.merged') + json_extract(detail,'$.subs')),0) FROM audit_log WHERE action='contacts.dedupe'") ?? 0),
   };
+}
+
+// ---------- Duplicates ----------
+/** One key per mailbox: lower case, no "+tag", and for Gmail no dots (j.doe@ and jdoe@ reach the same inbox). */
+export function emailKey(email: string) {
+  let [local, domain] = String(email).trim().toLowerCase().split('@');
+  if (!local || !domain) return String(email).trim().toLowerCase();
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  local = local.split('+')[0];
+  if (domain === 'gmail.com') local = local.replace(/\./g, '');
+  return `${local}@${domain}`;
+}
+const RANK: Record<string, number> = { unsubscribed: 5, bounced: 4, signed_up: 3, contacted: 2, new: 1 };
+/** Merges contacts that are the same mailbox into one (keeps the oldest; an opt-out on any copy wins), removes
+ * duplicate newsletter subscribers, and cancels a marketing email queued twice to the same person. */
+export function dedupeContacts() {
+  for (const l of q.all<any>('SELECT id, email FROM leads WHERE email IS NOT NULL AND email_key IS NULL')) q.run('UPDATE leads SET email_key=? WHERE id=?', emailKey(l.email), l.id);
+  let merged = 0;
+  for (const g of q.all<any>('SELECT email_key FROM leads WHERE email_key IS NOT NULL GROUP BY email_key HAVING COUNT(*)>1')) {
+    const rows = q.all<any>('SELECT * FROM leads WHERE email_key=? ORDER BY id', g.email_key);
+    const keep = rows[0], rest = rows.slice(1);
+    const status = rows.reduce((a, r) => ((RANK[r.status] || 0) > (RANK[a] || 0) ? r.status : a), keep.status);
+    const lists = [...new Set(rows.flatMap((r) => String(r.lists || '').split(',').filter(Boolean)))].join(',');
+    const furthest = rows.reduce((a, r) => (r.seq && (!a.seq || r.seq_step > a.seq_step) ? r : a), keep);
+    const stop = ['unsubscribed', 'bounced', 'signed_up'].includes(status);
+    q.run(`UPDATE leads SET status=?, lists=?, consent=?, touches=?, name=COALESCE(name, ?), phone=COALESCE(phone, ?), user_id=COALESCE(user_id, ?),
+      seq=?, seq_step=?, seq_next_at=?, email_check=COALESCE(email_check, ?) WHERE id=?`,
+      status, lists || null, Math.max(...rows.map((r) => Number(r.consent || 0))), Math.max(...rows.map((r) => Number(r.touches || 0))),
+      rows.find((r) => r.name)?.name ?? null, rows.find((r) => r.phone)?.phone ?? null, rows.find((r) => r.user_id)?.user_id ?? null,
+      stop ? null : furthest.seq, stop ? 0 : furthest.seq_step, stop ? null : furthest.seq_next_at, rows.find((r) => r.email_check)?.email_check ?? null, keep.id);
+    for (const r of rest) q.run('DELETE FROM leads WHERE id=?', r.id);
+    merged += rest.length;
+  }
+  let subs = 0;
+  const byKey = new Map<string, any[]>();
+  for (const s of q.all<any>('SELECT id, email, status FROM subscribers ORDER BY id')) { const k = emailKey(s.email); byKey.set(k, [...(byKey.get(k) || []), s]); }
+  for (const list of byKey.values()) {
+    if (list.length < 2) continue;
+    const keep = list.find((s) => s.status === 'unsubscribed') || list.find((s) => s.status === 'confirmed') || list[0];
+    for (const s of list) if (s.id !== keep.id) { q.run('DELETE FROM subscribers WHERE id=?', s.id); subs++; }
+  }
+  const dupMail = q.run(`UPDATE outbox SET status='cancelled', error='duplicate' WHERE kind='marketing' AND status='queued' AND id NOT IN (
+    SELECT MIN(id) FROM outbox WHERE kind='marketing' AND status IN ('queued','sent') GROUP BY lower(recipient), subject)`).changes;
+  if (merged || subs || dupMail) audit(null, 'contacts.dedupe', undefined, { merged, subs, dupMail });
+  return { merged, subs, dupMail: Number(dupMail) };
 }
