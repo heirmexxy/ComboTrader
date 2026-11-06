@@ -1209,6 +1209,11 @@ await t('AI providers: switch between Claude and an OpenAI-compatible service, w
   } finally { globalThis.fetch = realFetch; (cfg as any).anthropicKey = keep.a; (cfg as any).openaiKey = keep.o; setSetting('agent_mode', 'rules'); setSetting('ai_provider', 'anthropic'); setSetting('ai_fallback', true); }
 });
 
+await t('stall guard: its watcher code is valid JavaScript (a syntax error there would stop the site starting)', async () => {
+  const { GUARD_CODE } = await import('../src/lib/stallguard'); const vm = await import('node:vm');
+  new vm.Script(GUARD_CODE); eq(GUARD_CODE.includes('SIGKILL'), true);
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');
