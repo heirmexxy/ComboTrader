@@ -976,7 +976,7 @@ get('/admin/chief/chat', 'admin:any', (c) => {
     <Box title="Conversation">
       <div className="chat-thread" style={{ display: 'flex', flexDirection: 'column-reverse', gap: 10, maxHeight: 560, overflowY: 'auto' }} id="thread">
         {msgs.length ? [...msgs].reverse().map((m) => <div key={m.id} style={{ alignSelf: m.role === 'admin' ? 'flex-end' : 'flex-start', maxWidth: '78%', background: m.role === 'admin' ? 'var(--green, #1F4D2B)' : 'var(--paper-2, #F3EEE2)', color: m.role === 'admin' ? '#fff' : 'inherit', borderRadius: 12, padding: '8px 12px' }}>
-          <div className="small" style={{ opacity: 0.7 }}>{m.role === 'admin' ? 'You' : 'Adaeze'} · {String(m.created_at).slice(11, 16)}</div>
+          <div className="small" style={{ opacity: 0.7 }}>{m.role === 'admin' ? 'You' : 'Adaeze'} · {new Date(Date.parse(m.created_at) + 3600e3).toISOString().slice(5, 16).replace('T', ' ')}</div>
           <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
           {m.actions ? <ul className="small" style={{ margin: '6px 0 0', paddingLeft: 18 }}>{(JSON.parse(m.actions) as string[]).map((a, i) => <li key={i}>{a}</li>)}</ul> : null}
         </div>) : <p className="muted">No messages yet. Try “How are the open lots doing?” or “Tell Temi to focus on the sesame lot until it closes.”</p>}
