@@ -848,6 +848,13 @@ CREATE INDEX chief_chat_admin ON chief_chat(admin_id, id);
 CREATE TABLE agent_instructions (id INTEGER PRIMARY KEY, agent TEXT NOT NULL, text TEXT NOT NULL, created_by INTEGER, via TEXT, until TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, ended_at TEXT);
 CREATE INDEX agent_instructions_agent ON agent_instructions(agent, active);
 `,
+`
+-- Fast lookups for paced marketing email (a big newsletter used to scan the whole outbox for every recipient).
+CREATE INDEX IF NOT EXISTS outbox_kind_send ON outbox(kind, send_after);
+CREATE INDEX IF NOT EXISTS outbox_kind_group_send ON outbox(kind, rgroup, send_after);
+CREATE INDEX IF NOT EXISTS outbox_campaign ON outbox(campaign, status);
+CREATE INDEX IF NOT EXISTS outbox_status_kind ON outbox(status, kind);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

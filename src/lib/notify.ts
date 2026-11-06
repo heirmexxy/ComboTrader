@@ -78,11 +78,12 @@ function fitWindow(t: number) {
 export function nextMarketingSlot(group = 'company') {
   const gap = Math.max(30, Number(settings().email_gap_seconds || 150)) * 1000;
   const cap = marketingDailyCap();
-  const last = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing' AND status!='cancelled'") as string | null;
+  // All lookups use the (kind, send_after) index, so queueing stays instant however big the outbox gets.
+  const last = q.val("SELECT send_after FROM outbox WHERE kind='marketing' AND send_after IS NOT NULL AND status!='cancelled' ORDER BY kind DESC, send_after DESC LIMIT 1") as string | null;
   let t = Math.max(Date.now(), last ? Date.parse(last) + gap : 0);
   // A provider that is delaying our mail gets it four times more slowly until it recovers.
   if (String(slowGroups()[group] || '') > now()) {
-    const lastG = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing' AND rgroup=? AND status!='cancelled'", group) as string | null;
+    const lastG = q.val("SELECT send_after FROM outbox WHERE kind='marketing' AND rgroup=? AND send_after IS NOT NULL AND status!='cancelled' ORDER BY send_after DESC LIMIT 1", group) as string | null;
     if (lastG) t = Math.max(t, Date.parse(lastG) + 4 * gap);
   }
   const paused = String(settings().marketing_paused_until || '');
@@ -92,14 +93,14 @@ export function nextMarketingSlot(group = 'company') {
   for (let i = 0; i < 60; i++) {
     const d = new Date(t + LAGOS); d.setUTCHours(0, 0, 0, 0);
     const dayStart = d.getTime() - LAGOS, dayEnd = dayStart + 864e5;
-    const used = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status!='cancelled' AND send_after>=? AND send_after<?", new Date(dayStart).toISOString(), new Date(dayEnd).toISOString()) ?? 0);
+    const used = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND send_after>=? AND send_after<? AND status!='cancelled'", new Date(dayStart).toISOString(), new Date(dayEnd).toISOString()) ?? 0);
     if (used < cap) break;
     t = fitWindow(dayEnd + WINDOW.start * 3600e3 - 1);
   }
   return new Date(t + Math.floor(Math.random() * 15e3)).toISOString();
 }
 /** Marketing emails waiting for their slot (agents stop queueing more once a day's worth is waiting). */
-export const marketingQueued = () => Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status='queued'") ?? 0);
+export const marketingQueued = () => Number(q.val("SELECT COUNT(*) FROM outbox WHERE status='queued' AND kind='marketing'") ?? 0);
 /** If more than 5% of marketing emails fail in a day (bad addresses), pause marketing for 48 hours and tell super admins. */
 function guardMarketing() {
   const since = new Date(Date.now() - 864e5).toISOString();

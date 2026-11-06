@@ -1,6 +1,6 @@
 // Scheduled work. Runs in-process every minute (RUN_SCHEDULER=true), or from a system cron:
 //   npm run job -- <name>        e.g. npm run job -- prices
-import { q, now } from './db';
+import { q, now, tx } from './db';
 import { flushOutbox, notify, queueEmail, emailShell, escapeHtml } from './notify';
 import { crawlPrices } from './prices';
 import { expireCircles } from './circles';
@@ -189,12 +189,13 @@ export function sendNewsletter(id: number) {
   // A/B: half the list gets subject B; links are tracked per half so the better subject can be learned.
   const ab = !!(n.subject_b && settings().newsletter_ab && subs.length >= 2);
   const html = { a: trackHtmlLinks(raw, { channel: 'newsletter', campaign: `nl-${n.id}-a` }), b: ab ? trackHtmlLinks(raw, { channel: 'newsletter', campaign: `nl-${n.id}-b` }) : '' };
-  subs.forEach((s, i) => {
+  // One transaction for the whole list: thousands of rows are queued in a moment.
+  tx(() => subs.forEach((s, i) => {
     const v = ab && i % 2 === 1 ? 'b' : 'a';
     const subject = v === 'b' ? n.subject_b : n.subject;
     const unsub = `${config.baseUrl}/newsletter/unsubscribe/${s.token}`;
     queueEmail(s.email, subject, emailShell(escapeHtml(subject), `${html[v]}<p style="font-size:12px;color:#777;margin-top:24px"><a href="${unsub}">Unsubscribe</a></p>`), { marketing: true, campaign: `nl-${n.id}-${v}` });
-  });
+  }));
   q.run("UPDATE newsletters SET status='sent', sent_count=?, send_at=COALESCE(send_at, ?), subject_b=? WHERE id=?", subs.length, now(), ab ? n.subject_b : null, id);
   return subs.length;
 }
