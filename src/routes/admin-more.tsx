@@ -31,6 +31,8 @@ import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCE
 import { marked } from 'marked';
 import { agentLabel } from '../lib/personas';
 import { coverImage } from '../lib/covers';
+import { chatWithChief, chatHistory, agentsFor } from '../lib/chiefchat';
+import { endInstruction } from '../lib/instructions';
 import { xlsxRows, isXlsx, isOldXls } from '../lib/xlsx';
 import { scanContacts, scanStats } from '../lib/emailcheck';
 import { emailHealth, rates, type HealthRow } from '../lib/emailhealth';
@@ -939,7 +941,7 @@ get('/admin/chief', 'admin:any', (c) => {
   const decided = q.all<any>("SELECT r.*, u.first_name FROM chief_recs r LEFT JOIN users u ON u.id=r.decided_by WHERE r.status!='open' ORDER BY r.updated_at DESC LIMIT 15");
   page(c, 'Adaeze · Chief of Staff', <>
     <p className="muted">Every morning at 8:00 (after the other agents) Adaeze, the Chief of Staff, reads the whole platform, emails you a brief with ranked recommendations, sends each other admin the decisions their role owns, and asks the other agents to act on what it finds: push a lot that is behind, pause promotion when Treasury is short, favour the topics getting clicks, switch off wording that keeps losing, nudge stuck Champions, find new organisations. Three days later it checks whether each task moved the result and remembers which kinds work. It cannot move money, change rates or publish anything itself: what agents produce still waits for your approval in <a href="/admin/agents">AI agents</a>. Mode: <b>{agentMode('chief') === 'ai' && aiLive() ? 'AI' : 'Rules'}</b>{agentMode('chief') === 'ai' && aiLive() ? '' : ' (fixed thresholds; switch the agents to AI for a written brief and judgement)'}.</p>
-    <div className="btn-row"><Act action="/admin/chief/run" label="Run the brief now" tone="primary" /><Act action="/admin/chief/assign" label={s.chief_assign ? 'Stop assigning tasks (recommend only)' : 'Allow it to assign tasks'} fields={{ on: s.chief_assign ? '0' : '1' }} /></div>
+    <div className="btn-row"><a className="btn btn-primary" href="/admin/chief/chat">Chat with Adaeze</a><Act action="/admin/chief/run" label="Run the brief now" /><Act action="/admin/chief/assign" label={s.chief_assign ? 'Stop assigning tasks (recommend only)' : 'Allow it to assign tasks'} fields={{ on: s.chief_assign ? '0' : '1' }} /></div>
     <Box title={`Decisions for you (${decisions.length})`} id="decisions">
       <p className="small muted">Adaeze sends each admin only the decisions their role owns (Finance, Operations, Content, Support), with their numbers, every morning. Mark each one when you have acted. Anything still open after two days goes into the founder’s brief.</p>
       {decisions.length ? <ul className="list">{decisions.map((r) => <li key={r.id}><span>{r.priority <= 2 ? <b>{r.text}</b> : r.text}<br /><span className="small muted">For {rolesOf(r.roles).join(', ')} · since {String(r.created_at).slice(0, 10)}{r.seen > 1 ? ` · raised ${r.seen} times` : ''}{r.link ? <> · <a href={r.link}>Open</a></> : null}</span></span>
@@ -964,6 +966,38 @@ get('/admin/chief', 'admin:any', (c) => {
   </>);
 });
 get('/admin/chief/brief/:id', 'admin:any', (c) => { const b = q.get<any>('SELECT * FROM chief_briefs WHERE id=?', Number(c.params.id)); if (!b) throw new HttpError(404, 'Not found'); c.html(previewShell(`Brief ${String(b.created_at).slice(0, 10)}`, escapeHtml(b.body).replace(/&gt;/g, '>'))); });
+// ---------- Chat with Adaeze ----------
+get('/admin/chief/chat', 'admin:any', (c) => {
+  const msgs = chatHistory(c.user!.id, 60);
+  const allowed = agentsFor(rolesOf(c.user!.admin_roles));
+  const ins = q.all<any>('SELECT i.*, u.first_name FROM agent_instructions i LEFT JOIN users u ON u.id=i.created_by WHERE i.active=1 AND (i.until IS NULL OR i.until>?) ORDER BY i.id DESC', now());
+  page(c, 'Chat with Adaeze', <>
+    <p className="muted">Ask Adaeze anything about the business, or give an instruction or suggestion: she answers from the live numbers, runs one-off tasks on the right agent, and passes standing instructions on (for example “Temi, no soybean posts this week” or “Chidi, keep subject lines under 6 words”). You can direct: {allowed.map(agentLabel).join(', ')}. Agents follow written instructions in AI mode; the rules on money, promises and consent always come first. <a href="/admin/chief">Back to the brief</a></p>
+    <Box title="Conversation">
+      <div className="chat-thread" style={{ display: 'flex', flexDirection: 'column-reverse', gap: 10, maxHeight: 560, overflowY: 'auto' }} id="thread">
+        {msgs.length ? [...msgs].reverse().map((m) => <div key={m.id} style={{ alignSelf: m.role === 'admin' ? 'flex-end' : 'flex-start', maxWidth: '78%', background: m.role === 'admin' ? 'var(--green, #1F4D2B)' : 'var(--paper-2, #F3EEE2)', color: m.role === 'admin' ? '#fff' : 'inherit', borderRadius: 12, padding: '8px 12px' }}>
+          <div className="small" style={{ opacity: 0.7 }}>{m.role === 'admin' ? 'You' : 'Adaeze'} · {String(m.created_at).slice(11, 16)}</div>
+          <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+          {m.actions ? <ul className="small" style={{ margin: '6px 0 0', paddingLeft: 18 }}>{(JSON.parse(m.actions) as string[]).map((a, i) => <li key={i}>{a}</li>)}</ul> : null}
+        </div>) : <p className="muted">No messages yet. Try “How are the open lots doing?” or “Tell Temi to focus on the sesame lot until it closes.”</p>}
+      </div>
+      <form method="post" action="/admin/chief/chat" className="stack" style={{ marginTop: 12 }}><Csrf />
+        <textarea name="message" rows={3} required placeholder="Ask a question or give Adaeze an instruction…" aria-label="Message" />
+        <div className="btn-row"><button className="btn btn-primary">Send</button></div>
+      </form>
+    </Box>
+    <Box title={`Standing instructions to agents (${ins.length})`}>
+      {ins.length ? <ul className="list">{ins.map((i) => <li key={i.id}><span><b>{agentLabel(i.agent)}</b>: {i.text}<br /><span className="small muted">#{i.id} · from {i.first_name || 'an admin'}{i.via === 'chief chat' ? ' via Adaeze' : ''} · {String(i.created_at).slice(0, 10)}{i.until ? ` · until ${String(i.until).slice(0, 10)}` : ''}</span></span>
+        {allowed.includes(i.agent) ? <Act action={`/admin/chief/instructions/${i.id}/end`} label="End" /> : null}</li>)}</ul> : <p className="muted">None. Instructions you give Adaeze for an agent appear here, and each agent reads its own with every task.</p>}
+    </Box>
+  </>);
+});
+post('/admin/chief/chat', 'admin:any', async (c) => { await chatWithChief(c.user!, c.str('message', 2000)); c.redirect('/admin/chief/chat#thread'); });
+post('/admin/chief/instructions/:id/end', 'admin:any', (c) => {
+  const row = q.get<any>('SELECT * FROM agent_instructions WHERE id=?', Number(c.params.id));
+  if (row && agentsFor(rolesOf(c.user!.admin_roles)).includes(row.agent)) { endInstruction(row.id); audit(c.user!.id, 'instruction.end', String(row.id)); }
+  c.redirect('/admin/chief/chat', ['ok', 'Instruction ended.']);
+});
 post('/admin/chief/decide/:id', 'admin:any', (c) => { const a = c.str('action', 12) === 'done' ? 'done' : 'dismissed'; c.redirect('/admin/chief#decisions', ['ok', chiefDecide(Number(c.params.id), c.user!.id, rolesOf(c.user!.admin_roles), a, c.str('note', 500))]); });
 post('/admin/chief/run', 'admin:any', async (c) => { const r = await runChief('manual'); c.redirect('/admin/chief', ['ok', r === 'off' ? 'The Chief of Staff is switched off in Settings → Agents.' : `Done: ${r}.`]); });
 post('/admin/chief/assign', 'admin:super', (c) => { setSetting('chief_assign', c.str('on', 1) === '1'); audit(c.user!.id, 'chief.assign', undefined, c.str('on', 1)); c.redirect('/admin/chief', ['ok', 'Saved.']); });

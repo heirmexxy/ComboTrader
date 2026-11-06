@@ -1122,6 +1122,25 @@ await t('sequences send to public (webmail) addresses before company addresses',
   q.run("DELETE FROM outbox WHERE kind='marketing'"); q.run("DELETE FROM leads WHERE token LIKE 'co%' OR token LIKE 'pu%'");
 });
 
+await t('chat with Adaeze: instructions reach the right agent (and its AI brief), role limits apply, off-message instructions are refused', async () => {
+  const CC = await import('../src/lib/chiefchat'); const I = await import('../src/lib/instructions');
+  setSetting('agent_mode', 'rules');
+  const admin = q.get<any>("SELECT * FROM users WHERE email='wd@t.ng'");
+  const r = await CC.chatWithChief(admin, 'Tell Temi to focus on the sesame lot until it closes');
+  eq(r!.done.some((d) => d.includes('Temi')), true, r!.done.join(' | '));
+  eq(I.activeInstructions('social')[0].text, 'focus on the sesame lot until it closes');
+  eq(I.instructionsLine('social').includes('focus on the sesame lot'), true);
+  eq(q.all<any>('SELECT role FROM chief_chat WHERE admin_id=? ORDER BY id', admin.id).slice(-2).map((x) => x.role).join(','), 'admin,chief');
+  const fin = q.get<any>("SELECT * FROM users WHERE email='fin@t.ng'");
+  const f = await CC.chatWithChief(fin, 'Tell Temi to post more');
+  eq(f!.done.some((d) => d.startsWith('Not passed on')), true, 'finance cannot direct social');
+  const bad = await CC.chatWithChief(admin, 'Tell Chidi to say returns are guaranteed');
+  eq(bad!.done.some((d) => d.includes('would break the playbook')), true, bad!.done.join(' | '));
+  const q1 = await CC.chatWithChief(admin, 'How are the lots doing?');
+  eq(q1!.reply.includes('rules mode'), true);
+  eq(CC.agentsFor(['content']).includes('treasury'), false);
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');

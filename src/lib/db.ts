@@ -841,6 +841,13 @@ DELETE FROM subscribers WHERE email='' OR email NOT LIKE '%_@_%._%';
 `
 ALTER TABLE contact_imports ADD COLUMN removed_general INTEGER NOT NULL DEFAULT 0;
 `,
+`
+-- Chat with Adaeze (Chief of Staff) and the standing instructions she passes on to agents.
+CREATE TABLE chief_chat (id INTEGER PRIMARY KEY, admin_id INTEGER NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, actions TEXT, created_at TEXT NOT NULL);
+CREATE INDEX chief_chat_admin ON chief_chat(admin_id, id);
+CREATE TABLE agent_instructions (id INTEGER PRIMARY KEY, agent TEXT NOT NULL, text TEXT NOT NULL, created_by INTEGER, via TEXT, until TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, ended_at TEXT);
+CREATE INDEX agent_instructions_agent ON agent_instructions(agent, active);
+`,
 ];
 
 export function openDb(file = config.dbFile) {
