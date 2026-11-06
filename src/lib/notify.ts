@@ -12,7 +12,15 @@ import { translate } from './i18n';
 
 /** Queues an email. Marketing emails (sequences, newsletters, campaigns, outreach, blog and lot announcements) are
  * not sent at once: each gets its own slot, spread evenly over the sending window, so the domain never sends a burst. */
+const FOOTER_MARK = '<tr><td style="padding:16px 28px;font-size:12px;color:#777;border-top:1px solid #eee">ComboTrader is a platform';
+/** "Follow us" links added to every marketing email (newsletters, sequences, articles, campaigns, invitations). */
+export function followRow() {
+  const s = config.social, tag = (u: string) => `${u}${u.includes('?') ? '&' : '?'}utm_source=email&utm_campaign=follow`;
+  const links = [['Facebook', s.facebook], ['Instagram', s.instagram], ['LinkedIn', s.linkedin], ['Telegram', s.telegram], ['X', s.x]].filter(([, u]) => u);
+  return `<tr><td style="padding:14px 28px;font-size:13px;color:#1F4D2B;border-top:1px solid #eee;text-align:center"><b>Follow ComboTrader</b> for farm updates, open lots and how-tos:<br>${links.map(([n, u]) => `<a href="${tag(String(u))}" style="color:#C0603A;text-decoration:none;font-weight:bold">${n}</a>`).join(' &nbsp;·&nbsp; ')}</td></tr>`;
+}
 export function queueEmail(to: string, subject: string, html: string, o: { marketing?: boolean; campaign?: string; lessonId?: number | null; sendAfter?: string } = {}) {
+  if (o.marketing && html.includes(FOOTER_MARK) && !html.includes('Follow ComboTrader')) html = html.replace(FOOTER_MARK, followRow() + FOOTER_MARK);
   const group = o.marketing ? mailGroup(to) : null;
   q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now(), kind: o.marketing ? 'marketing' : 'tx', send_after: o.marketing ? (o.sendAfter || nextMarketingSlot(group!)) : null, campaign: o.campaign || null, rgroup: group, lesson_id: o.lessonId ?? null });
 }

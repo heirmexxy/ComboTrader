@@ -11,7 +11,7 @@ import { config } from '../../lib/config';
 import { settings } from '../../lib/settings';
 import { estimateFee } from '../../lib/wallet';
 import { LuWallet, LuSprout, LuCalendar, LuReceipt, LuArrowRight, LuDownload, LuShare2, LuCopy, LuShieldCheck, LuCheck } from 'react-icons/lu';
-import { FaWhatsapp, FaXTwitter, FaFacebook, FaLinkedin, FaTelegram } from 'react-icons/fa6';
+import { FaWhatsapp, FaXTwitter, FaFacebook, FaLinkedin, FaTelegram, FaInstagram } from 'react-icons/fa6';
 import { AccountRights, RolloverControl } from './more';
 import { qrDataUri } from '../../lib/qr';
 import { SellBox, BoughtNote, type SellInfo } from './market';
@@ -70,6 +70,17 @@ export function AppHome({ d }: { d: HomeData }) {
           <a className="arrow-link" href="/app/referrals">{c.t('app.nav.refer')} <LuArrowRight aria-hidden /></a>
         </Card>
       </div>
+      <Card title={c.t('app.follow')} className="mt">
+        <p className="muted">{c.t('app.follow_text')}</p>
+        <div className="share-row">
+          <a href={config.social.facebook} target="_blank" rel="noopener" aria-label="Facebook"><FaFacebook /></a>
+          <a href={config.social.instagram} target="_blank" rel="noopener" aria-label="Instagram"><FaInstagram /></a>
+          <a href={config.social.linkedin} target="_blank" rel="noopener" aria-label="LinkedIn"><FaLinkedin /></a>
+          <a href={config.social.telegram} target="_blank" rel="noopener" aria-label="Telegram"><FaTelegram /></a>
+          <a href={config.social.x} target="_blank" rel="noopener" aria-label="X"><FaXTwitter /></a>
+          <a className="btn btn-ghost btn-sm" href="/app/referrals">{c.t('app.nav.refer')}</a>
+        </div>
+      </Card>
       <h2 className="section-title">{c.t('app.open_lots')}</h2>
       {d.lots.length ? <div className="grid-3">{d.lots.map((l) => <LotCard key={l.id} lot={l} href={`/app/lots/${l.id}`} />)}</div> : <Empty>{c.t('lot.none')}</Empty>}
       <h2 className="section-title">{c.t('app.recent')}</h2>

@@ -1,5 +1,6 @@
 // Novas funcionalidades — português (a rever por um falante nativo).
 const x: Record<string, string> = {
+  'app.follow': "Siga a ComboTrader", 'app.follow_text': "Notícias das quintas, lotes abertos e guias curtos. Siga-nos e partilhe uma publicação para ajudar um amigo a encontrar-nos.",
   "code.body.telegram": "Olá {name}, alguém pediu para ligar o Telegram à sua conta ComboTrader. Se foi você, envie este código ao bot da ComboTrader no Telegram. Se não, ignore este e-mail.",
   "tg.welcome": "Olá, sou Adaeze, Chief of Staff de IA da ComboTrader 🌾\nA ComboTrader, da Kitovu Technology, permite-lhe financiar negócios reais de produtos agrícolas: o seu dinheiro compra colheitas que um comprador identificado já se comprometeu a comprar, e pode acompanhar cada lote da quinta ao comprador.\n\nPergunte-me o que quiser, ou envie:\n/lots Lotes abertos\n/person Falar com uma pessoa\nJá é Champion? Envie /link e o e-mail da sua conta para ver aqui a carteira e as operações.",
   "tg.join": "Registe-se grátis: {url}",

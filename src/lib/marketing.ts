@@ -9,7 +9,7 @@ import { q, now } from './db';
 import { config } from './config';
 import { settings } from './settings';
 import { completeJson, useAI, AiUnavailable, POLICY, logRun } from './ai';
-import { propose, registerExecutors, agentOn, supportAnswer, AGENT_JOBS } from './agents';
+import { propose, registerExecutors, agentOn, supportAnswer, AGENT_JOBS, executeAction } from './agents';
 import { learn, bestLesson, lessonsFor, parseLesson, used, scoreLesson, trackOutcome, fill, lessonScore, type Lesson } from './learning';
 import { trackedLink, forRecipient, signupsFor } from './tracking';
 import { queueEmail, emailShell, escapeHtml } from './notify';
@@ -183,12 +183,41 @@ function learnSinceLastLot() {
 export function planNextPost(): Plan {
   // 1) Introduction first: until every intro topic has been posted, explain ComboTrader before promoting lots.
   const nextIntro = INTRO_TOPICS.find((tp) => !posted(`intro:${tp}`));
-  if (nextIntro && settings().social_intro_series) {
+  if (nextIntro && settings().social_intro_series) return introPlan(nextIntro);
+  return planAfterIntro();
+}
+/** The post plan for one introduction topic. */
+export function introPlan(nextIntro: string): Plan {
+  {
     const head = INTRO_HEAD[nextIntro] || ({ how: ['How ComboTrader works', ['Pick a lot with a named buyer', 'Choose 4 to 12 months', 'Follow it on the Harvest Trail']], trail: ['Follow your money', ['Sourcing · Warehouse · Delivery', 'Dated updates and photos']], risk: ['Straight talk on risk', ['Trades are not bank deposits', 'Read the risk statement']], circles: ['Back a trade together', ['Harvest Circles for groups', 'Small slots, own certificate']] } as Record<string, [string, string[]]>)[nextIntro];
     return { kind: 'intro', ref: `intro:${nextIntro}`, key: `post:intro:${nextIntro}`, url: nextIntro === 'risk' ? '/legal/risk' : nextIntro === 'circles' ? '/circles' : nextIntro === 'kitovu' ? '/why-kitovu' : nextIntro === 'how' || nextIntro === 'buyer' ? '/how-it-works' : '/join',
       // "about" tells the AI what this introduction post must explain (the built-in text, without the link).
       facts: { topic: `introduction: ${nextIntro}`, about: (DEFAULT_POSTS[`post:intro:${nextIntro}`]?.[0] || '').replace('{link}', '').trim(), rate4: rateFor(4) / 100, rate12: rateFor(12) / 100 }, card: { eyebrow: 'Welcome', headline: head[0], lines: head[1] } };
   }
+}
+/** Posts the whole introduction series now: one post every few hours, quiet overnight (22:00–07:00 Lagos). The
+ * posts are approved for publishing at once (built-in or AI wording, checked against the playbook). */
+export async function postIntroSeries(hours = 2, by: number | null = null) {
+  const todo = INTRO_TOPICS.filter((tp) => !posted(`intro:${tp}`));
+  if (!todo.length) return 'the introduction series has already been posted';
+  const lagosHour = (t: number) => new Date(t + 3600e3).getUTCHours();
+  let t = Date.now() + 5 * 60e3;
+  const done: string[] = [];
+  for (const tp of todo) {
+    while (lagosHour(t) >= 22 || lagosHour(t) < 7) t += 30 * 60e3; // quiet hours: next slot from 7:00
+    const r = await createPost(true, introPlan(tp));
+    const postId = Number(/post #(\d+)/.exec(r)?.[1]);
+    const action = postId ? q.get<any>("SELECT * FROM agent_actions WHERE kind='publish_social' AND status='proposed' AND payload LIKE ?", `%"post_id":${postId},%`) : null;
+    if (!action) { done.push(`${tp}: ${r}`); continue; }
+    const payload = JSON.parse(action.payload || '{}'); payload.when = new Date(t).toISOString();
+    q.run('UPDATE agent_actions SET payload=? WHERE id=?', JSON.stringify(payload), action.id);
+    if (action.risk === 'low') { executeAction(action.id, by); done.push(`${tp} at ${new Date(t + 3600e3).toISOString().slice(11, 16)}`); }
+    else done.push(`${tp}: held for your review (wording)`);
+    t += hours * 3600e3;
+  }
+  return `introduction series scheduled: ${done.join(', ')}`;
+}
+function planAfterIntro(): Plan {
   // 2) Lots, but never two lot posts in a row: at least two useful posts between them (the Chief of Staff can still push a lot that is behind).
   const lot = socialPaused() || learnSinceLastLot() < 2 ? null : q.get<any>("SELECT l.*, c.name AS commodity_name FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' AND l.closes_at>? AND NOT EXISTS (SELECT 1 FROM social_posts s WHERE s.ref='lot:' || l.code) ORDER BY COALESCE(l.opened_at, l.created_at) DESC", now());
   if (lot) {
@@ -431,13 +460,13 @@ export async function runSocial(force = false) {
 }
 
 // ================= Email marketing =================
-export const CAMPAIGN_KEYS = ['welcome_1', 'welcome_2', 'welcome_3', 'maturity', 'paid_out', 'winback', 'new_lot', 'market', 'verify_reminder', 'fund_reminder', 'lot_closing'] as const;
+export const CAMPAIGN_KEYS = ['welcome_1', 'welcome_2', 'welcome_3', 'maturity', 'paid_out', 'winback', 'new_lot', 'market', 'verify_reminder', 'fund_reminder', 'lot_closing', 'follow_us'] as const;
 type Recipient = { user_id: number; ref: string; vars: Record<string, string> };
 const campaignOn = (c: string) => String(settings().email_campaigns).split(',').map((x) => x.trim()).includes(c.replace(/_\d$/, ''));
 const CAMPAIGN_LINK: Record<string, (r: Recipient) => string> = {
   welcome_1: () => '/how-it-works', welcome_2: () => '/app/lots', welcome_3: () => '/app/circles',
   maturity: (r) => `/app/trades/${r.ref}`, paid_out: () => '/app/lots', winback: () => '/app/lots', new_lot: (r) => `/lots/${r.ref}`, market: () => '/app/market',
-  verify_reminder: () => '/app/profile#kyc', fund_reminder: () => '/app/wallet', lot_closing: (r) => `/lots/${r.ref}`,
+  verify_reminder: () => '/app/profile#kyc', fund_reminder: () => '/app/wallet', lot_closing: (r) => `/lots/${r.ref}`, follow_us: () => '/app/referrals',
 };
 const d = (days: number) => new Date(Date.now() + days * 864e5).toISOString();
 /** Who each lifecycle email goes to today (each person gets each email once per trade, lot or quarter). */
@@ -478,6 +507,12 @@ export function campaignAudience(c: string): Recipient[] {
     case 'fund_reminder':
       return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND u.kyc_status='verified' AND u.created_at<=? AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id AND p.status='success') AND ${notSent("''")} LIMIT 300`, d(-3))
         .map((u) => ({ user_id: u.id, ref: '', vars: name(u) }));
+    case 'follow_us': {
+      // Once per Champion: invite them to follow the pages (sent after the introduction posts are up).
+      if (Number(q.val("SELECT COUNT(*) FROM social_posts WHERE kind='intro' AND status IN ('published','partly')") ?? 0) < 3) return [];
+      const so = config.social;
+      return q.all<any>(`SELECT u.* FROM users u WHERE ${base} AND ${notSent("''")} LIMIT 500`).map((u) => ({ user_id: u.id, ref: '', vars: { ...name(u), facebook: so.facebook, instagram: so.instagram, linkedin: so.linkedin, telegram: so.telegram } }));
+    }
     case 'lot_closing': {
       if (String(settings().social_paused_until || '') > now()) return [];
       const lot = q.get<any>("SELECT l.* FROM lots l WHERE l.status='open' AND l.closes_at BETWEEN ? AND ? AND (SELECT COALESCE(SUM(t.amount),0) FROM trades t WHERE t.lot_id=l.id AND t.status!='cancelled') < l.target_amount * 0.9 ORDER BY l.closes_at", d(1), d(3));
@@ -607,7 +642,7 @@ registerExecutors({
       const title = fill(String(p.title), r.vars), body = fill(String(p.body), r.vars);
       const link = forRecipient(trackedLink(CAMPAIGN_LINK[p.campaign]?.(r) || '/app', { channel: 'email', campaign: `email-${p.campaign}`, lessonId }).url, { userId: u.id });
       queueEmail(u.email, title, emailShell(escapeHtml(title), `<p>${escapeHtml(body).replace(/\n/g, '<br>')}</p><p style="font-size:12px;color:#777;margin-top:24px">${escapeHtml(translate(u.lang, 'agent.unsub'))} <a href="${unsubLink(u.id)}">${unsubLink(u.id)}</a></p>`,
-        { label: translate(u.lang, `mkt.${p.campaign}.cta`) !== `mkt.${p.campaign}.cta` ? translate(u.lang, `mkt.${p.campaign}.cta`) : ({ verify_reminder: 'Verify now', fund_reminder: 'Fund your wallet', lot_closing: 'See the lot' } as Record<string, string>)[p.campaign] || 'Open ComboTrader', url: link }), { marketing: true, campaign: `campaign-${p.campaign}`, lessonId });
+        { label: translate(u.lang, `mkt.${p.campaign}.cta`) !== `mkt.${p.campaign}.cta` ? translate(u.lang, `mkt.${p.campaign}.cta`) : ({ follow_us: 'Invite a friend', verify_reminder: 'Verify now', fund_reminder: 'Fund your wallet', lot_closing: 'See the lot' } as Record<string, string>)[p.campaign] || 'Open ComboTrader', url: link }), { marketing: true, campaign: `campaign-${p.campaign}`, lessonId });
       trackOutcome(lessonId, `email:${p.campaign}`, { userId: u.id });
       sent++;
     }

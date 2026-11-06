@@ -1,5 +1,6 @@
 // New features (Harvest Plan, Gift a Harvest, Keep Growing, receipts, data rights, WhatsApp, agents) — English.
 const x: Record<string, string> = {
+  'app.follow': "Follow ComboTrader", 'app.follow_text': "Farm updates, open lots and short how-tos. Follow us, and share a post to help a friend find us.",
   "code.body.telegram": "Hi {name}, someone asked to link Telegram to your ComboTrader account. If it was you, send this code to the ComboTrader bot on Telegram. If not, ignore this email.",
   "tg.welcome": "Hi, I’m Adaeze, AI Chief of Staff at ComboTrader 🌾\nComboTrader, by Kitovu Technology, lets you fund real farm produce deals: your money buys crops that a named buyer has already agreed to purchase, and you can follow every lot from farm to buyer.\n\nAsk me anything about how trades work, payouts or getting started, or send:\n/lots Open Trade Lots\n/person Talk to a person\nAlready a Champion? Send /link and your account email to see your wallet and trades here.",
   "tg.join": "Join free: {url}",

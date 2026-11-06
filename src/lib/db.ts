@@ -872,6 +872,9 @@ CREATE INDEX tg_messages_chat ON tg_messages(chat_id, tg_id);
 ALTER TABLE users ADD COLUMN telegram_chat_id TEXT;
 CREATE TABLE tg_ads (id INTEGER PRIMARY KEY, code TEXT, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', created_by INTEGER, created_at TEXT NOT NULL);
 `,
+`
+UPDATE settings SET value = substr(value, 1, length(value) - 1) || ',follow_us"' WHERE key='email_campaigns' AND value NOT LIKE '%follow_us%';
+`,
 ];
 
 export function openDb(file = config.dbFile) {

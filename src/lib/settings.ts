@@ -84,7 +84,7 @@ export const DEFAULTS = {
   social_channels: 'facebook,instagram,linkedin,x,telegram', // where posts go (connected channels publish; others become copy-ready)
   social_auto_reply: true, // answer comments/DMs that ask how to join, with the /join link
   social_click_goal: 10, // a post "worked" if it gets this many clicks (or one sign-up) in a week
-  email_campaigns: 'welcome,maturity,paid_out,winback,new_lot,market,verify_reminder,fund_reminder,lot_closing', // lifecycle emails the Email agent may send
+  email_campaigns: 'welcome,maturity,paid_out,winback,new_lot,market,verify_reminder,fund_reminder,lot_closing,follow_us', // lifecycle emails the Email agent may send
   newsletter_ab: true, // test two subject lines on every newsletter
   agent_mode: 'ai' as 'ai' | 'rules', // ai: use Claude when ANTHROPIC_API_KEY is set; rules: learned rules and templates only
   agent_modes: '{}', // per-agent override, e.g. {"growth":"rules"}

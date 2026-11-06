@@ -10,7 +10,7 @@ import { coverage, receivables, latestCash, treasurySnapshot } from '../lib/trea
 import { AGENTS, ACTION_KINDS, AGENT_JOBS, agentOn, executeAction, rejectAction, opsTrailDraft, opsLotDraft, researchProspects, syncLeads, type AgentName } from '../lib/agents';
 import { aiLive, callsToday, agentMode, aiProvider, providerName, providerReady } from '../lib/ai';
 import { lessonScore, scoreOutcomes, type Lesson } from '../lib/learning';
-import { CHANNELS, CHANNEL_NAMES, CHANNEL_SETUP, channelReady, wantedChannels, runSocial, runEmail, CAMPAIGN_KEYS, publishDueSocial, type Channel } from '../lib/marketing';
+import { CHANNELS, CHANNEL_NAMES, CHANNEL_SETUP, channelReady, wantedChannels, runSocial, runEmail, CAMPAIGN_KEYS, publishDueSocial, postIntroSeries, INTRO_TOPICS, type Channel } from '../lib/marketing';
 import { savePublicImage as saveImg } from '../lib/uploads';
 import { marketOn, openListings, quote, buyUnits, houseUser } from '../lib/market';
 import { userById as uById } from '../lib/auth';
@@ -307,6 +307,10 @@ get('/admin/marketing', 'admin:content', (c) => {
         <p className="small">Comments, DMs and lead forms: in your Meta app, subscribe the Page (fields <code>feed</code>, <code>messages</code>, <code>leadgen</code>) and Instagram (<code>comments</code>, <code>messages</code>) to <code>{meta}</code> with the verify token in META_VERIFY_TOKEN. Your ads and posts can also point to <a href="/join" target="_blank">{config.baseUrl}/join</a>, which captures leads with consent.</p>
       </Box>
     </div>
+    <Box title="Introduction series">
+      <p className="small">{(() => { const done = INTRO_TOPICS.filter((tp) => q.get('SELECT 1 FROM social_posts WHERE ref=?', `intro:${tp}`)).length; return done >= INTRO_TOPICS.length ? 'All 8 introduction posts are done.' : `${done} of ${INTRO_TOPICS.length} introduction posts done. The rest normally go out on posting days, before any lot is promoted.`; })()}</p>
+      <Act action="/admin/marketing/intro-series" label="Post the rest today, every 2 hours" confirm="Approve and schedule the remaining introduction posts, one every 2 hours (nothing between 22:00 and 07:00)?" />
+    </Box>
     <Box title="Social posts">{posts.length ? posts.map((p) => {
       const res: Record<string, any> = JSON.parse(p.results || '{}');
       const links = q.all<any>('SELECT channel, clicks, id FROM links WHERE campaign=?', `post-${p.id}`);
@@ -1092,6 +1096,7 @@ post('/admin/agents/credit', 'admin:super', (c) => {
   setSetting('ai_credit_usd', v); setSetting('ai_credit_at', now()); audit(c.user!.id, 'ai.credit_recorded', undefined, { usd: v });
   c.redirect('/admin/agents', ['ok', `Recorded $${v.toFixed(2)} of Claude credit.`]);
 });
+post('/admin/marketing/intro-series', 'admin:content', async (c) => { c.redirect('/admin/marketing', ['ok', await postIntroSeries(2, c.user!.id)]); });
 post('/admin/chief/run', 'admin:any', async (c) => { const r = await runChief('manual'); c.redirect('/admin/chief', ['ok', r === 'off' ? 'The Chief of Staff is switched off in Settings → Agents.' : `Done: ${r}.`]); });
 post('/admin/chief/assign', 'admin:super', (c) => { setSetting('chief_assign', c.str('on', 1) === '1'); audit(c.user!.id, 'chief.assign', undefined, c.str('on', 1)); c.redirect('/admin/chief', ['ok', 'Saved.']); });
 post('/admin/chief/approve-safe', 'admin:any', (c) => { const n = chiefApproveSafe(c.user!.id); c.redirect('/admin/chief#triage', ['ok', `${n} approved.`]); });

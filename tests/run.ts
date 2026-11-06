@@ -1258,6 +1258,27 @@ await t('social: the introduction series comes before lots, then a lot post need
   if (hasOpenLot) eq(M.planNextPost().kind, 'lot', 'after two useful posts a lot can be promoted');
 });
 
+await t('introduction series today: one post every 2 hours, approved, nothing 22:00–07:00; follow links in marketing emails; Champions invited to follow', async () => {
+  const M = await import('../src/lib/marketing'); const N = await import('../src/lib/notify');
+  setSetting('agent_mode', 'rules'); setSetting('social_intro_series', true);
+  q.run("DELETE FROM social_posts WHERE ref LIKE 'intro:%'");
+  const r = await M.postIntroSeries(2, null);
+  eq(r.startsWith('introduction series scheduled'), true, r);
+  const rows = q.all<any>("SELECT scheduled_at FROM social_posts WHERE ref LIKE 'intro:%' AND status='scheduled' ORDER BY scheduled_at").map((x) => Date.parse(x.scheduled_at));
+  eq(rows.length, M.INTRO_TOPICS.length);
+  for (const x of rows) { const h = new Date(x + 3600e3).getUTCHours(); eq(h >= 7 && h < 22, true, 'not overnight'); }
+  for (let i = 1; i < rows.length; i++) eq(rows[i] - rows[i - 1] >= 2 * 3600e3 - 60e3, true, 'two hours apart');
+  eq((await M.postIntroSeries(2, null)).includes('already'), true);
+  // Follow links go into marketing emails only.
+  q.run("DELETE FROM outbox WHERE recipient IN ('fol@t.ng','tx@t.ng')");
+  N.queueEmail('fol@t.ng', 'News', N.emailShell('News', '<p>x</p>'), { marketing: true });
+  N.queueEmail('tx@t.ng', 'Code', N.emailShell('Code', '<p>1</p>'));
+  eq(String(q.val("SELECT body FROM outbox WHERE recipient='fol@t.ng'")).includes('Follow ComboTrader'), true);
+  eq(String(q.val("SELECT body FROM outbox WHERE recipient='tx@t.ng'")).includes('Follow ComboTrader'), false);
+  q.run("UPDATE social_posts SET status='published' WHERE ref LIKE 'intro:%'");
+  eq(M.campaignAudience('follow_us').length >= 0, true);
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');

@@ -1,5 +1,6 @@
 // Vipengele vipya — Kiswahili (kipitiwe na mzungumzaji asilia).
 const x: Record<string, string> = {
+  'app.follow': "Fuata ComboTrader", 'app.follow_text': "Taarifa za mashamba, lot zilizo wazi na maelezo mafupi. Tufuate, na shiriki chapisho kumsaidia rafiki kutupata.",
   "code.body.telegram": "Habari {name}, mtu ameomba kuunganisha Telegram na akaunti yako ya ComboTrader. Kama ni wewe, tuma msimbo huu kwa bot ya ComboTrader kwenye Telegram. Kama sivyo, puuza barua pepe hii.",
   "tg.welcome": "Habari, mimi ni Adaeze, Chief of Staff wa AI wa ComboTrader 🌾\nComboTrader, ya Kitovu Technology, inakuwezesha kufadhili biashara halisi za mazao ya shamba: pesa yako inanunua mazao ambayo mnunuzi anayejulikana ameshakubali kununua, na unafuatilia kila lot kutoka shambani hadi kwa mnunuzi.\n\nNiulize chochote, au tuma:\n/lots Lot zilizo wazi\n/person Ongea na mtu\nTayari ni Champion? Tuma /link na barua pepe ya akaunti yako kuona pochi na biashara zako hapa.",
   "tg.join": "Jiunge bure: {url}",

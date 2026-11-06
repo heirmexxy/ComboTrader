@@ -15,7 +15,7 @@ import { audit } from './audit';
 import { runChecks } from './watchdog';
 import { paystackFloat } from './paysync';
 import { treasurySnapshot } from './treasury';
-import { createPost, planForLot, lotPushAudience, proposeCampaign } from './marketing';
+import { createPost, planForLot, lotPushAudience, proposeCampaign, postIntroSeries } from './marketing';
 import { runLibrary } from './library';
 import { fmtNGN, lagosNow } from './util';
 import { offMessage, playbookFor, TARGETS_90, PROSPECT_SEGMENTS, PROSPECT_REGIONS } from '../content/playbook';
@@ -34,6 +34,7 @@ export const TASK_KINDS = {
   'onboarding.run': { agent: 'onboarding', what: 'Nudge Champions stuck between sign-up and first trade now', needs: '' },
   'prospector.research': { agent: 'prospector', what: 'Find more organisations of a type in a city (AI only)', needs: 'segment, region' },
   'growth.library': { agent: 'growth', what: 'Prepare the next library article or newsletter if due', needs: '' },
+  'social.intro_series': { agent: 'social', what: 'Post the whole introduction series now, one post every few hours (quiet 22:00–07:00)', needs: 'hours (default 2)' },
   'email.slow_down': { agent: 'email', what: 'Send marketing email at half pace for some days (delivery is dropping)', needs: 'days' },
 } as const;
 export type TaskKind = keyof typeof TASK_KINDS;
@@ -181,6 +182,7 @@ export async function runTask(id: number) {
       case 'onboarding.run': result = await AGENT_JOBS.onboarding(); break;
       case 'prospector.research': result = await researchProspects(d.segment, d.region); break;
       case 'growth.library': result = runLibrary(); break;
+      case 'social.intro_series': result = await postIntroSeries(Math.min(12, Math.max(1, Number(d.hours) || 2)), typeof t.created_by === 'string' && /^\d+$/.test(t.created_by) ? Number(t.created_by) : null); break;
       case 'email.slow_down': { const until = new Date(Date.now() + Number(d.days || 3) * 864e5).toISOString(); setSetting('email_slowdown_until', until); result = `marketing email at half pace until ${until.slice(0, 10)}`; break; }
     }
     q.run("UPDATE agent_tasks SET status='done', result=?, done_at=? WHERE id=?", String(result).slice(0, 500), now(), id);
