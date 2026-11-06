@@ -978,19 +978,26 @@ await t('chief: briefs from facts, assigns tasks for a lot that is behind, pause
 });
 
 console.log('\nEmail pacing');
-await t('marketing email is spread over the sending window, warms up from 20 a day, and pauses if too many fail', async () => {
+await t('marketing email goes out 2 every 5 minutes from 8:00, 50 on day one then +50% a day, and pauses if too many fail', async () => {
   const N = await import('../src/lib/notify');
-  setSetting('email_warmup_start', now()); setSetting('marketing_paused_until', '');
+  setSetting('email_warmup_start', now()); setSetting('marketing_paused_until', ''); setSetting('email_slow_groups', '{}');
   q.run("DELETE FROM outbox WHERE kind='marketing'");
-  eq(N.marketingDailyCap(), 20);
-  for (let i = 0; i < 5; i++) N.queueEmail(`pace${i}@t.ng`, 'Hi', '<p>x</p>', { marketing: true });
+  eq(N.marketingDailyCap(), 50);
+  for (let i = 0; i < 52; i++) N.queueEmail(`pace${i}@t.ng`, 'Hi', '<p>x</p>', { marketing: true });
   N.queueEmail('otp@t.ng', 'Code', '<p>1</p>');
   const slots = q.all<any>("SELECT send_after FROM outbox WHERE kind='marketing' ORDER BY id").map((r) => Date.parse(r.send_after));
-  for (let i = 1; i < slots.length; i++) eq(slots[i] - slots[i - 1] >= 30 * 60e3, true, 'about 33 minutes apart on day one');
+  for (let i = 1; i < 50; i++) if (new Date(slots[i] + 3600e3).getUTCDate() === new Date(slots[i - 1] + 3600e3).getUTCDate()) eq(slots[i] - slots[i - 1] >= 150e3 - 15e3 && slots[i] - slots[i - 1] <= 150e3 + 15e3, true, 'about 2½ minutes apart');
   for (const x of slots) { const h = new Date(x + 3600e3).getUTCHours(); eq(h >= 8 && h < 19, true, 'inside 8:00-19:00 Lagos'); }
+  const day = (x: number) => new Date(x + 3600e3).toISOString().slice(0, 10);
+  const perDay = new Map<string, number>(); for (const x of slots) perDay.set(day(x), (perDay.get(day(x)) || 0) + 1);
+  eq(Math.max(...perDay.values()) <= 50, true, 'no more than 50 on one day');
+  const nextDayFirst = slots.find((x) => day(x) > day(slots[0]) && perDay.get(day(slots[0]))! >= 50);
+  if (nextDayFirst) eq(new Date(nextDayFirst + 3600e3).getUTCHours(), 8, 'the overflow starts at 8:00 the next day');
   eq(q.val("SELECT send_after FROM outbox WHERE recipient='otp@t.ng'"), null, 'transactional email is not delayed');
+  setSetting('email_warmup_start', new Date(Date.now() - 1.5 * 864e5).toISOString());
+  eq(N.marketingDailyCap(), 75, 'day two');
   setSetting('email_warmup_start', new Date(Date.now() - 10 * 864e5).toISOString());
-  eq(N.marketingDailyCap(), 200, 'warmed up after about a week');
+  eq(N.marketingDailyCap(), 200, 'warmed up after about four days');
   q.run("DELETE FROM outbox WHERE kind='marketing'");
   // One failure removes the address everywhere; only a hash stays so it is never re-imported.
   eq(N.addressRefused('Email 422: invalid to address'), true); eq(N.addressRefused('Email 401: bad key'), false); eq(N.addressRefused('Email 503: down'), false); eq(N.addressRefused('fetch failed'), false);
@@ -1094,6 +1101,20 @@ await t('general company inboxes (info@, admin@, inquiries@…) are purged on im
   await E.scanContacts();
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='sales@oldlist.ng'")), 0, 'existing general address purged');
   eq(L.importContacts(L.parseContacts('info@zumaxnigeria.com'), { lists: ['blog'], consent: true, source: 'test', by: 1 }).added, 0);
+});
+
+await t('sequences send to public (webmail) addresses before company addresses', async () => {
+  const L = await import('../src/lib/library'); const N = await import('../src/lib/notify');
+  q.run("DELETE FROM outbox WHERE kind='marketing'"); q.run("UPDATE leads SET seq=NULL");
+  setSetting('email_warmup_start', now()); setSetting('sequences_enabled', true);
+  for (let i = 0; i < 40; i++) q.insert('leads', { email: `co${i}@firm${i}.ng`, lang: 'en', source: 'import', consent: 1, token: `co${i}`, lists: 'sequence', seq: 'nurture', seq_step: 0, seq_next_at: new Date(Date.now() - 864e5).toISOString(), email_check: 'ok', created_at: now() });
+  for (let i = 0; i < 40; i++) q.insert('leads', { email: `pub${i}@gmail.com`, lang: 'en', source: 'import', consent: 1, token: `pu${i}`, lists: 'sequence', seq: 'nurture', seq_step: 0, seq_next_at: now(), email_check: 'public', created_at: now() });
+  L.runSequences();
+  const sent = q.all<any>("SELECT recipient FROM outbox WHERE kind='marketing' ORDER BY id").map((r) => r.recipient);
+  eq(sent.length, N.marketingDailyCap());
+  eq(sent.slice(0, 40).every((e) => e.endsWith('@gmail.com')), true, 'all public first');
+  eq(sent.slice(40).every((e) => !e.endsWith('@gmail.com')), true, 'then company');
+  q.run("DELETE FROM outbox WHERE kind='marketing'"); q.run("DELETE FROM leads WHERE token LIKE 'co%' OR token LIKE 'pu%'");
 });
 
 console.log('\nEmail health');

@@ -239,7 +239,7 @@ export function runSequences() {
   if (!settings().sequences_enabled) return 'sequences off';
   const cap = Math.max(0, marketingDailyCap() - marketingQueued());
   if (!cap) return 'a day of emails is already waiting to send';
-  const due = q.all<any>("SELECT * FROM leads WHERE seq IS NOT NULL AND seq_next_at<=? AND consent=1 AND email IS NOT NULL AND email_check IN ('ok','public') AND status NOT IN ('unsubscribed','bounced','signed_up') ORDER BY seq_next_at LIMIT ?", now(), cap);
+  const due = q.all<any>("SELECT * FROM leads WHERE seq IS NOT NULL AND seq_next_at<=? AND consent=1 AND email IS NOT NULL AND email_check IN ('ok','public') AND status NOT IN ('unsubscribed','bounced','signed_up') ORDER BY (email_check='public') DESC, seq_next_at LIMIT ?", now(), cap);
   let sent = 0, stopped = 0;
   const cache = new Map<string, { html: string; cta: string }>();
   for (const l of due) {
@@ -262,7 +262,7 @@ export function runSequences() {
 /** Emails a new article to contacts on the blog list (within the daily cap). */
 function notifyBlogList(post: any) {
   const cap = Math.max(0, marketingDailyCap() - marketingQueued());
-  const people = q.all<any>("SELECT * FROM leads WHERE lists LIKE '%blog%' AND consent=1 AND email IS NOT NULL AND email_check IN ('ok','public') AND status NOT IN ('unsubscribed','bounced') LIMIT ?", cap);
+  const people = q.all<any>("SELECT * FROM leads WHERE lists LIKE '%blog%' AND consent=1 AND email IS NOT NULL AND email_check IN ('ok','public') AND status NOT IN ('unsubscribed','bounced') ORDER BY (email_check='public') DESC, id LIMIT ?", cap);
   const link = trackedLink(`/chronicles/${post.slug}`, { channel: 'email', campaign: `blog-${post.slug}` }).url;
   for (const l of people) {
     const subject = `New on ComboTrader: ${post.title}`;

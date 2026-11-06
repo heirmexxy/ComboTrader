@@ -54,13 +54,13 @@ export function dropAddress(email: string, reason: string) {
 // ---------- Pacing marketing email (protects the sending domain's reputation) ----------
 const WINDOW = { start: 8, end: 19 }; // Lagos time (UTC+1, no daylight saving)
 const LAGOS = 3600e3;
-/** Most marketing emails per day: starts at 20 and grows by half each day (warm-up) up to the set daily cap. */
+/** Most marketing emails per day: starts at 50 and grows by half each day (warm-up) up to the set daily cap. */
 export function marketingDailyCap() {
   const s = settings();
   let start = String(s.email_warmup_start || '');
   if (!start) { start = now(); setSetting('email_warmup_start', start); }
   const days = Math.max(0, Math.floor((Date.now() - Date.parse(start)) / 864e5));
-  const cap = Math.max(1, Math.min(Number(s.sequence_daily_cap || 200), Math.round(20 * Math.pow(1.5, days))));
+  const cap = Math.max(1, Math.min(Number(s.sequence_daily_cap || 200), Math.round(Number(s.email_warmup_first_day || 50) * Math.pow(1.5, days))));
   // Delivery trouble: the Chief of Staff halves the pace for a few days.
   return String(s.email_slowdown_until || '') > now() ? Math.max(1, Math.ceil(cap / 2)) : cap;
 }
@@ -70,19 +70,30 @@ function fitWindow(t: number) {
   if (h >= WINDOW.end) { d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(WINDOW.start, 0, 0, 0); return d.getTime() - LAGOS; }
   return t;
 }
+/** The next send time for a marketing email: a steady trickle from 8:00 Lagos time (2 every 5 minutes by default),
+ * at most the day's warm-up cap per day; whatever doesn't fit moves to the next morning. */
 export function nextMarketingSlot(group = 'company') {
-  const gap = ((WINDOW.end - WINDOW.start) * 3600e3) / marketingDailyCap();
-  const last = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing'") as string | null;
+  const gap = Math.max(30, Number(settings().email_gap_seconds || 150)) * 1000;
+  const cap = marketingDailyCap();
+  const last = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing' AND status!='cancelled'") as string | null;
   let t = Math.max(Date.now(), last ? Date.parse(last) + gap : 0);
   // A provider that is delaying our mail gets it four times more slowly until it recovers.
   if (String(slowGroups()[group] || '') > now()) {
-    const lastG = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing' AND rgroup=?", group) as string | null;
+    const lastG = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing' AND rgroup=? AND status!='cancelled'", group) as string | null;
     if (lastG) t = Math.max(t, Date.parse(lastG) + 4 * gap);
   }
   const paused = String(settings().marketing_paused_until || '');
   if (paused && Date.parse(paused) > t) t = Date.parse(paused);
   t = fitWindow(t);
-  return new Date(t + Math.floor(Math.random() * Math.min(gap / 4, 90e3))).toISOString();
+  // Daily cap (Lagos calendar day): if today's slots are used up, start at 8:00 the next day.
+  for (let i = 0; i < 60; i++) {
+    const d = new Date(t + LAGOS); d.setUTCHours(0, 0, 0, 0);
+    const dayStart = d.getTime() - LAGOS, dayEnd = dayStart + 864e5;
+    const used = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status!='cancelled' AND send_after>=? AND send_after<?", new Date(dayStart).toISOString(), new Date(dayEnd).toISOString()) ?? 0);
+    if (used < cap) break;
+    t = fitWindow(dayEnd + WINDOW.start * 3600e3 - 1);
+  }
+  return new Date(t + Math.floor(Math.random() * 15e3)).toISOString();
 }
 /** Marketing emails waiting for their slot (agents stop queueing more once a day's worth is waiting). */
 export const marketingQueued = () => Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status='queued'") ?? 0);
