@@ -34,8 +34,15 @@ const domainOf = (email: string) => String(email).split('@')[1]?.trim().toLowerC
 /** Checks contacts that have not been checked yet (a batch at a time; one lookup per domain, remembered for 30 days). */
 export async function scanContacts(limit = 400) {
   const d0 = dedupeContacts();
+  // General company inboxes (info@, admin@, inquiries@…) are not people who asked to hear from us: purge them.
+  let general = 0;
+  for (const l of q.all<any>("SELECT id, email, import_id FROM leads WHERE email IS NOT NULL AND status NOT IN ('signed_up')")) {
+    if (!isGeneralAddress(l.email)) continue;
+    if (l.import_id) { q.run('UPDATE contact_imports SET removed_general=removed_general+1 WHERE id=?', l.import_id); q.run("UPDATE contact_import_rows SET outcome='removed: general company address (not a person)' WHERE import_id=? AND email=?", l.import_id, l.email); }
+    dropAddress(l.email, 'general company address'); general++;
+  }
   const rows = q.all<any>("SELECT id, email, email_tries, import_id FROM leads WHERE email IS NOT NULL AND email_check IS NULL ORDER BY id LIMIT ?", limit);
-  const dup = d0.merged + d0.subs ? `${d0.merged + d0.subs} duplicates merged; ` : '';
+  const dup = (d0.merged + d0.subs ? `${d0.merged + d0.subs} duplicates merged; ` : '') + (general ? `${general} general company addresses removed; ` : '');
   if (!rows.length) { finishImports(); return `${dup}nothing to check`; }
   // Safety: if DNS on this server is not working, every domain would look dead. Check two domains that certainly take
   // email first; if either fails, stop without changing anything and try again next hour.
@@ -81,8 +88,21 @@ export function scanStats() {
     waiting: Number(q.val("SELECT COUNT(*) FROM leads WHERE email IS NOT NULL AND email_check IS NULL") ?? 0),
     ok: Number(q.val("SELECT COUNT(*) FROM leads WHERE email_check IN ('ok','public')") ?? 0),
     removed: Number(q.val("SELECT COUNT(*) FROM email_suppress WHERE reason LIKE 'domain%'") ?? 0),
+    general: Number(q.val("SELECT COUNT(*) FROM email_suppress WHERE reason='general company address'") ?? 0),
     duplicates: Number(q.val("SELECT COALESCE(SUM(json_extract(detail,'$.merged') + json_extract(detail,'$.subs')),0) FROM audit_log WHERE action='contacts.dedupe'") ?? 0),
   };
+}
+
+// ---------- General (role) addresses ----------
+// Strong role words: a shared inbox even with a suffix (info.lagos@, sales-ng@, contact2@).
+const ROLE_STRONG = 'info|information|enquiry|enquiries|inquiry|inquiries|contact|contactus|contacts|sales|support|admin|administrator|administration|hello|office|mail|email|careers?|jobs?|recruitment|accounts?|accounting|billing|invoices?|payments?|noreply|no-reply|donotreply|do-not-reply|marketing|webmaster|postmaster|hostmaster|abuse|help|helpdesk|infodesk|customercare|customerservice|customersupport|customers?|service|services|feedback|reception|procurement|purchasing|headoffice|secretariat|admissions|registrar|newsletter|notifications?|alerts?|bookings?|reservations?';
+// Weak role words: a role inbox only on their own (hr@, it@, team@), since hr.ade@ or tech.ola@ may be a person.
+const ROLE_WEAK = 'hi|team|hr|recruit|finance|press|pr|media|general|ops|operations|hq|secretary|events|partners?|partnerships|business|news|orders?|shop|store|management|legal|compliance|it|tech|dev|security|privacy|investors?|ir|projects?|exports?|imports?|logistics|warehouse|quality';
+const ROLE_RE = new RegExp(`^((${ROLE_STRONG})([._-][a-z0-9]+)*|(${ROLE_WEAK}))\\d*$`);
+/** True for a shared company inbox (info@, admin@, sales@, inquiries@, contact.lagos@…) rather than a person. */
+export function isGeneralAddress(email: string) {
+  const local = String(email).trim().toLowerCase().split('@')[0].split('+')[0];
+  return ROLE_RE.test(local);
 }
 
 // ---------- Duplicates ----------
@@ -148,6 +168,7 @@ export function importReportLines(im: any) {
     ['    Cleared (domain takes email)', im.cleared],
     ['    Removed: domain gone or takes no email', im.removed_domain],
     ['    Removed: domain did not answer 3 times', im.removed_no_answer],
+    ['General company addresses (info@, admin@…): removed', im.removed_general],
     ['Duplicates in the file (removed)', im.dup_in_file],
     ['Already in your contacts (updated, not added twice)', im.already_contacts],
     ['Removed before (bounced or failed) — not re-added', im.removed_before],

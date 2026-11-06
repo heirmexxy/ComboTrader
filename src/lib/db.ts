@@ -838,6 +838,9 @@ CREATE INDEX contact_import_rows_imp ON contact_import_rows(import_id, email);
 DELETE FROM leads WHERE email IS NOT NULL AND (email='' OR email NOT LIKE '%_@_%._%');
 DELETE FROM subscribers WHERE email='' OR email NOT LIKE '%_@_%._%';
 `,
+`
+ALTER TABLE contact_imports ADD COLUMN removed_general INTEGER NOT NULL DEFAULT 0;
+`,
 ];
 
 export function openDb(file = config.dbFile) {

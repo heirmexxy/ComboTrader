@@ -1083,6 +1083,19 @@ await t('Excel import: .xlsx sheets are read (shared strings, numbers, blank cel
   eq(X.isOldXls(Buffer.from('d0cf11e0a1b11ae1', 'hex')), true);
 });
 
+await t('general company inboxes (info@, admin@, inquiries@…) are purged on import and from existing contacts, never re-added', async () => {
+  const E = await import('../src/lib/emailcheck'); const L = await import('../src/lib/library');
+  E._setResolver(async (d) => [{ exchange: `mx.${d}`, priority: 10 }]);
+  for (const [e, want] of [['info@zumaxnigeria.com', true], ['admin@zitadelgroup.com', true], ['inquiries@x.ng', true], ['contact.lagos@x.ng', true], ['hr@x.ng', true], ['tech.ade@x.ng', false], ['ola.info@x.ng', false], ['uchenna.mich@ulesson.com', false]] as [string, boolean][]) eq(E.isGeneralAddress(e), want, e);
+  const r = L.importContacts(L.parseContacts('info@zumaxnigeria.com\nadmin@zitadelgroup.com\nada@zumaxnigeria.com'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
+  eq([r.general, r.added], [2, 1]);
+  eq(String(q.val('SELECT outcome FROM contact_import_rows WHERE import_id=? AND email=?', r.importId, 'info@zumaxnigeria.com')), 'removed: general company address (not a person)');
+  q.insert('leads', { email: 'sales@oldlist.ng', lang: 'en', source: 'import', consent: 1, token: 'g1', created_at: now() });
+  await E.scanContacts();
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='sales@oldlist.ng'")), 0, 'existing general address purged');
+  eq(L.importContacts(L.parseContacts('info@zumaxnigeria.com'), { lists: ['blog'], consent: true, source: 'test', by: 1 }).added, 0);
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');

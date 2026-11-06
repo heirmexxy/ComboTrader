@@ -8,8 +8,8 @@ import { settings, setSetting } from './settings';
 import { learn, keyOf } from './learning';
 import { propose, registerExecutors, agentOn } from './agents';
 import { ensurePostCover, ensureNewsletterCover, newsletterCoverUrl } from './covers';
-import { queueEmail, emailShell, escapeHtml, marketingDailyCap, marketingQueued, emailSuppressed } from './notify';
-import { emailKey, dedupeContacts, PUBLIC_DOMAINS } from './emailcheck';
+import { queueEmail, emailShell, escapeHtml, marketingDailyCap, marketingQueued, emailSuppressed, dropAddress } from './notify';
+import { emailKey, dedupeContacts, PUBLIC_DOMAINS, isGeneralAddress } from './emailcheck';
 import { trackedLink, trackHtmlLinks } from './tracking';
 import { lotPeriods, rateFor } from './trading';
 import { latestPrices } from './prices';
@@ -178,7 +178,7 @@ export function importContacts(rows: (ImportRow & { line?: number })[], o: { lis
   if (!o.consent) throw new Error('Confirm that these people asked to hear from Kitovu or ComboTrader.');
   const seq = o.lists.includes('sequence') ? o.sequence || 'nurture' : null;
   if (seq && !SEQUENCES[seq]) throw new Error('Unknown sequence');
-  const res = { added: 0, updated: 0, champions: 0, skipped: 0, newsletter: 0, dupFile: 0, removedBefore: 0, optedOut: 0, publicAdded: 0, toCheck: 0, importId: 0 };
+  const res = { added: 0, updated: 0, champions: 0, skipped: 0, newsletter: 0, general: 0, dupFile: 0, removedBefore: 0, optedOut: 0, publicAdded: 0, toCheck: 0, importId: 0 };
   dedupeContacts(); // so every existing contact has its mailbox key before we compare
   const importId = q.insert('contact_imports', { created_by: o.by, source: o.source.slice(0, 200) || null, file_rows: o.fileRows ?? rows.length, status: 'checking', created_at: now() }).id;
   res.importId = importId;
@@ -193,6 +193,7 @@ export function importContacts(rows: (ImportRow & { line?: number })[], o: { lis
     seen.set(key, r.line);
     const lang = ['en', 'fr', 'sw', 'pt', 'ar'].includes(String(r.lang)) ? String(r.lang) : 'en';
     const user = q.get<any>('SELECT id FROM users WHERE lower(email)=?', r.email);
+    if (isGeneralAddress(r.email)) { res.skipped++; res.general++; note(r.line, r.email, 'removed: general company address (not a person)'); dropAddress(r.email, 'general company address'); return; }
     if (emailSuppressed(r.email)) { res.skipped++; res.removedBefore++; note(r.line, r.email, 'not added: removed before (bounced, failed or domain gone)'); return; } // failed or bounced before: never re-added
     const ex = q.get<any>('SELECT * FROM leads WHERE email_key=? OR lower(email)=? ORDER BY id LIMIT 1', key, r.email); // already a contact: update, never add twice
     if (ex && ['unsubscribed', 'bounced'].includes(ex.status)) { res.skipped++; res.optedOut++; note(r.line, r.email, `not added: ${ex.status} before`); return; } // never re-add someone who opted out
@@ -218,8 +219,8 @@ export function importContacts(rows: (ImportRow & { line?: number })[], o: { lis
       else if (s.status === 'pending') { q.run("UPDATE subscribers SET status='confirmed', confirmed_at=? WHERE id=?", now(), s.id); res.newsletter++; }
     }
   });
-  q.run(`UPDATE contact_imports SET imported=?, already_contacts=?, dup_in_file=?, removed_before=?, opted_out=?, champions=?, public_added=?, to_check=?, status=? WHERE id=?`,
-    res.added, res.updated, res.dupFile, res.removedBefore, res.optedOut, res.champions, res.publicAdded, res.toCheck, res.toCheck ? 'checking' : 'done', importId);
+  q.run(`UPDATE contact_imports SET removed_general=?, imported=?, already_contacts=?, dup_in_file=?, removed_before=?, opted_out=?, champions=?, public_added=?, to_check=?, status=? WHERE id=?`,
+    res.general, res.added, res.updated, res.dupFile, res.removedBefore, res.optedOut, res.champions, res.publicAdded, res.toCheck, res.toCheck ? 'checking' : 'done', importId);
   if (!res.toCheck) q.run('UPDATE contact_imports SET finished_at=? WHERE id=?', now(), importId);
   audit(o.by, 'contacts.import', o.source, { ...res, lists: o.lists, sequence: seq });
   return res;
