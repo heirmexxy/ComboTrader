@@ -523,12 +523,18 @@ async function challenger(c: string, lang: Lang) {
   const ok = [...new Set(placeholders)].every((p) => `${r.data.title} ${r.data.body}`.includes(p));
   if (ok && r.data.title && r.data.body) learn({ agent: 'email', kind: 'template', key: `email:${c}`, lang, content: { title: r.data.title, body: r.data.body }, source: 'ai' });
 }
-/** After 3 days: which newsletter subject got more clicks? */
+/** After 3 days (and once every copy is sent): which newsletter subject got more opens and clicks per email? */
 function scoreNewsletterAB() {
   let n = 0;
   for (const nl of q.all<any>("SELECT * FROM newsletters WHERE status='sent' AND subject_b IS NOT NULL AND ab_scored=0 AND send_at<=?", d(-3))) {
+    // Wait until every copy has gone out (marketing email is paced over several days for big lists).
+    if (q.get("SELECT 1 FROM outbox WHERE status='queued' AND campaign IN (?, ?)", `nl-${nl.id}-a`, `nl-${nl.id}-b`)) continue;
     const clicks = (v: string) => Number(q.val('SELECT COALESCE(SUM(clicks),0) FROM links WHERE campaign=?', `nl-${nl.id}-${v}`) ?? 0);
-    const a = clicks('a'), b = clicks('b');
+    const half = (v: string) => q.get<any>("SELECT COUNT(*) sent, SUM(opened_at IS NOT NULL) opened FROM outbox WHERE campaign=? AND status='sent'", `nl-${nl.id}-${v}`);
+    // Score = (opens + 3 × clicks) per email sent: opens show the subject line worked, clicks count more.
+    const score = (v: string) => { const h = half(v); return h?.sent ? (Number(h.opened || 0) + 3 * clicks(v)) / h.sent : clicks(v); };
+    const sa = score('a'), sb = score('b');
+    const a = Math.abs(sa - sb) < 0.01 ? 0 : sa, b = Math.abs(sa - sb) < 0.01 ? 0 : sb;
     const la = learn({ agent: 'growth', kind: 'post', key: 'subject', content: { text: nl.subject }, source: 'human', active: true });
     const lb = learn({ agent: 'growth', kind: 'post', key: 'subject', content: { text: nl.subject_b }, source: 'ai', active: true });
     if (a !== b) { scoreLesson(a > b ? la : lb, true); scoreLesson(a > b ? lb : la, false); }
@@ -566,7 +572,7 @@ registerExecutors({
       const title = fill(String(p.title), r.vars), body = fill(String(p.body), r.vars);
       const link = forRecipient(trackedLink(CAMPAIGN_LINK[p.campaign]?.(r) || '/app', { channel: 'email', campaign: `email-${p.campaign}`, lessonId }).url, { userId: u.id });
       queueEmail(u.email, title, emailShell(escapeHtml(title), `<p>${escapeHtml(body).replace(/\n/g, '<br>')}</p><p style="font-size:12px;color:#777;margin-top:24px">${escapeHtml(translate(u.lang, 'agent.unsub'))} <a href="${unsubLink(u.id)}">${unsubLink(u.id)}</a></p>`,
-        { label: translate(u.lang, `mkt.${p.campaign}.cta`) !== `mkt.${p.campaign}.cta` ? translate(u.lang, `mkt.${p.campaign}.cta`) : ({ verify_reminder: 'Verify now', fund_reminder: 'Fund your wallet', lot_closing: 'See the lot' } as Record<string, string>)[p.campaign] || 'Open ComboTrader', url: link }), { marketing: true });
+        { label: translate(u.lang, `mkt.${p.campaign}.cta`) !== `mkt.${p.campaign}.cta` ? translate(u.lang, `mkt.${p.campaign}.cta`) : ({ verify_reminder: 'Verify now', fund_reminder: 'Fund your wallet', lot_closing: 'See the lot' } as Record<string, string>)[p.campaign] || 'Open ComboTrader', url: link }), { marketing: true, campaign: `campaign-${p.campaign}`, lessonId });
       trackOutcome(lessonId, `email:${p.campaign}`, { userId: u.id });
       sent++;
     }

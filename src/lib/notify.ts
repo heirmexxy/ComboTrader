@@ -2,6 +2,7 @@
 // Email/SMS go through an outbox table; a worker sends them. Without provider keys,
 // messages stay visible in Admin → Messages (demo mode) so nothing is lost.
 import { createHash } from 'node:crypto';
+import { audit } from './audit';
 import { q, now } from './db';
 import { config } from './config';
 import { settings, setSetting } from './settings';
@@ -11,9 +12,21 @@ import { translate } from './i18n';
 
 /** Queues an email. Marketing emails (sequences, newsletters, campaigns, outreach, blog and lot announcements) are
  * not sent at once: each gets its own slot, spread evenly over the sending window, so the domain never sends a burst. */
-export function queueEmail(to: string, subject: string, html: string, o: { marketing?: boolean } = {}) {
-  q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now(), kind: o.marketing ? 'marketing' : 'tx', send_after: o.marketing ? nextMarketingSlot() : null });
+export function queueEmail(to: string, subject: string, html: string, o: { marketing?: boolean; campaign?: string; lessonId?: number | null } = {}) {
+  const group = o.marketing ? mailGroup(to) : null;
+  q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now(), kind: o.marketing ? 'marketing' : 'tx', send_after: o.marketing ? nextMarketingSlot(group!) : null, campaign: o.campaign || null, rgroup: group, lesson_id: o.lessonId ?? null });
 }
+/** Which kind of mailbox an address is, for delivery reports and per-provider pacing. */
+export function mailGroup(email: string) {
+  const d = String(email).split('@')[1]?.toLowerCase() || '';
+  if (d === 'gmail.com' || d === 'googlemail.com') return 'gmail';
+  if (/^(yahoo\.|ymail\.com$|rocketmail\.com$)/.test(d)) return 'yahoo';
+  if (/^(outlook|hotmail|live|msn)\./.test(d)) return 'microsoft';
+  if (/^(icloud|me|mac)\.com$/.test(d)) return 'apple';
+  if (/^(aol|protonmail|proton|gmx|mail|zoho|yandex)\./.test(d)) return 'other webmail';
+  return 'company';
+}
+const slowGroups = (): Record<string, string> => { try { return JSON.parse(String(settings().email_slow_groups || '{}')) || {}; } catch { return {}; } };
 
 // ---------- Failed addresses ----------
 /** The provider refused this address (not an outage, a bad key or a rate limit, which say nothing about the address). */
@@ -47,7 +60,9 @@ export function marketingDailyCap() {
   let start = String(s.email_warmup_start || '');
   if (!start) { start = now(); setSetting('email_warmup_start', start); }
   const days = Math.max(0, Math.floor((Date.now() - Date.parse(start)) / 864e5));
-  return Math.max(1, Math.min(Number(s.sequence_daily_cap || 200), Math.round(20 * Math.pow(1.5, days))));
+  const cap = Math.max(1, Math.min(Number(s.sequence_daily_cap || 200), Math.round(20 * Math.pow(1.5, days))));
+  // Delivery trouble: the Chief of Staff halves the pace for a few days.
+  return String(s.email_slowdown_until || '') > now() ? Math.max(1, Math.ceil(cap / 2)) : cap;
 }
 function fitWindow(t: number) {
   const d = new Date(t + LAGOS), h = d.getUTCHours() + d.getUTCMinutes() / 60;
@@ -55,10 +70,15 @@ function fitWindow(t: number) {
   if (h >= WINDOW.end) { d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(WINDOW.start, 0, 0, 0); return d.getTime() - LAGOS; }
   return t;
 }
-export function nextMarketingSlot() {
+export function nextMarketingSlot(group = 'company') {
   const gap = ((WINDOW.end - WINDOW.start) * 3600e3) / marketingDailyCap();
   const last = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing'") as string | null;
   let t = Math.max(Date.now(), last ? Date.parse(last) + gap : 0);
+  // A provider that is delaying our mail gets it four times more slowly until it recovers.
+  if (String(slowGroups()[group] || '') > now()) {
+    const lastG = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing' AND rgroup=?", group) as string | null;
+    if (lastG) t = Math.max(t, Date.parse(lastG) + 4 * gap);
+  }
   const paused = String(settings().marketing_paused_until || '');
   if (paused && Date.parse(paused) > t) t = Date.parse(paused);
   t = fitWindow(t);
@@ -69,6 +89,12 @@ export const marketingQueued = () => Number(q.val("SELECT COUNT(*) FROM outbox W
 /** If more than 5% of marketing emails fail in a day (bad addresses), pause marketing for 48 hours and tell super admins. */
 function guardMarketing() {
   const since = new Date(Date.now() - 864e5).toISOString();
+  // Per provider: if 10% or more of what reached it in a day was delayed, slow down to it for 48 hours.
+  const slow = slowGroups(); let changed = false;
+  for (const g of q.all<any>("SELECT rgroup, COUNT(*) n, SUM(delayed_at IS NOT NULL) d FROM outbox WHERE kind='marketing' AND status='sent' AND sent_at>=? AND provider_id IS NOT NULL GROUP BY rgroup", since)) {
+    if (g.rgroup && g.n >= 10 && g.d / g.n >= 0.1 && !(String(slow[g.rgroup] || '') > now())) { slow[g.rgroup] = new Date(Date.now() + 48 * 3600e3).toISOString(); changed = true; audit(null, 'email.slow_provider', g.rgroup, { sent: g.n, delayed: g.d }); }
+  }
+  if (changed) setSetting('email_slow_groups', JSON.stringify(slow));
   const tried = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND attempts>0 AND send_after>=?", since) ?? 0);
   const failed = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status='failed' AND send_after>=?", since) ?? 0);
   const paused = String(settings().marketing_paused_until || '');
@@ -133,9 +159,10 @@ export async function flushOutbox(limit = 50) {
   for (const m of rows) {
     try {
       let sent = false;
-      if (m.channel === 'email' && config.emailProvider && config.emailApiKey) { await sendEmail(m.recipient, m.subject, m.body); sent = true; }
+      let pid: string | null = null;
+      if (m.channel === 'email' && config.emailProvider && config.emailApiKey) { pid = await sendEmail(m.recipient, m.subject, m.body); sent = true; }
       else if ((m.channel === 'sms' || m.channel === 'whatsapp') && config.termiiKey) { await sendTermii(m.recipient, m.body, m.channel); sent = true; }
-      if (sent) q.run("UPDATE outbox SET status='sent', sent_at=?, attempts=attempts+1 WHERE id=?", now(), m.id);
+      if (sent) q.run("UPDATE outbox SET status='sent', sent_at=?, attempts=attempts+1, provider_id=? WHERE id=?", now(), pid, m.id);
       else q.run("UPDATE outbox SET status='held', error='No provider configured (demo mode)' WHERE id=?", m.id);
     } catch (e: any) {
       const err = String(e?.message || e).slice(0, 500);
@@ -165,6 +192,8 @@ export async function sendEmail(to: string, subject: string, html: string) {
     });
   } else throw new Error(`Unknown EMAIL_PROVIDER ${config.emailProvider}`);
   if (!res.ok) throw new Error(`Email ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  // The provider's id for this email, so delivery, delay, open and bounce reports can be matched to it.
+  try { const j: any = await res.json(); return String(j?.id || j?.messageId || '') || null; } catch { return null; }
 }
 
 async function sendTermii(to: string, sms: string, channel: string) {

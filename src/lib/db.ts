@@ -807,6 +807,18 @@ CREATE TABLE email_domains (domain TEXT PRIMARY KEY, verdict TEXT NOT NULL, chec
 ALTER TABLE leads ADD COLUMN email_key TEXT;
 CREATE INDEX leads_email_key ON leads(email_key);
 `,
+`
+-- Email health: the provider's id for each email and what happened to it (from the Resend/Brevo webhook).
+ALTER TABLE outbox ADD COLUMN provider_id TEXT;
+ALTER TABLE outbox ADD COLUMN campaign TEXT;
+ALTER TABLE outbox ADD COLUMN rgroup TEXT;
+ALTER TABLE outbox ADD COLUMN lesson_id INTEGER;
+ALTER TABLE outbox ADD COLUMN delivered_at TEXT;
+ALTER TABLE outbox ADD COLUMN delayed_at TEXT;
+ALTER TABLE outbox ADD COLUMN opened_at TEXT;
+ALTER TABLE outbox ADD COLUMN bounced_at TEXT;
+CREATE INDEX outbox_provider ON outbox(provider_id);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

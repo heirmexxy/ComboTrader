@@ -162,7 +162,7 @@ export function notifyWaitlist(lotId: number) {
   for (const w of q.all<any>("SELECT * FROM waitlist WHERE commodity IN (?, 'any') AND notified_at IS NULL", lot.commodity)) {
     const u = w.user_id ? userById(w.user_id) : null;
     if (u) notify(u, 'waitlist_open', { commodity: lot.cname, lot: lot.title, rate: top }, { link: `/lots/${lot.code}`, sms: true });
-    else if (w.email) queueEmail(w.email, `A new ${lot.cname} lot is open`, emailShell(`A new ${escapeHtml(lot.cname)} lot is open`, `<p>${escapeHtml(lot.title)} is open, earning up to ${top}% per annum depending on how long you stay. Slots are limited.</p>`, { label: 'View the lot', url: `${config.baseUrl}/lots/${lot.code}` }), { marketing: true });
+    else if (w.email) queueEmail(w.email, `A new ${lot.cname} lot is open`, emailShell(`A new ${escapeHtml(lot.cname)} lot is open`, `<p>${escapeHtml(lot.title)} is open, earning up to ${top}% per annum depending on how long you stay. Slots are limited.</p>`, { label: 'View the lot', url: `${config.baseUrl}/lots/${lot.code}` }), { marketing: true, campaign: 'lot-alert' });
     q.run('UPDATE waitlist SET notified_at=? WHERE id=?', now(), w.id);
     n++;
   }
@@ -187,7 +187,7 @@ export function sendNewsletter(id: number) {
     const v = ab && i % 2 === 1 ? 'b' : 'a';
     const subject = v === 'b' ? n.subject_b : n.subject;
     const unsub = `${config.baseUrl}/newsletter/unsubscribe/${s.token}`;
-    queueEmail(s.email, subject, emailShell(escapeHtml(subject), `${html[v]}<p style="font-size:12px;color:#777;margin-top:24px"><a href="${unsub}">Unsubscribe</a></p>`), { marketing: true });
+    queueEmail(s.email, subject, emailShell(escapeHtml(subject), `${html[v]}<p style="font-size:12px;color:#777;margin-top:24px"><a href="${unsub}">Unsubscribe</a></p>`), { marketing: true, campaign: `nl-${n.id}-${v}` });
   });
   q.run("UPDATE newsletters SET status='sent', sent_count=?, send_at=COALESCE(send_at, ?), subject_b=? WHERE id=?", subs.length, now(), ab ? n.subject_b : null, id);
   return subs.length;

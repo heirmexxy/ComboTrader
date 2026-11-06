@@ -32,6 +32,7 @@ import { marked } from 'marked';
 import { agentLabel } from '../lib/personas';
 import { coverImage } from '../lib/covers';
 import { scanContacts, scanStats } from '../lib/emailcheck';
+import { emailHealth, rates, type HealthRow } from '../lib/emailhealth';
 import { marketingDailyCap, marketingQueued } from '../lib/notify';
 import { decide as chiefDecide, rolesOf, runChief, triage as chiefTriage, approveSafe as chiefApproveSafe, assignTask, lotPct as chiefLotPct, TASK_KINDS, type TaskKind } from '../lib/chief';
 import { escapeHtml } from '../lib/notify';
@@ -783,6 +784,20 @@ post('/admin/meta/disconnect', 'admin:content', (c) => { metaDisconnect(); audit
 
 // ============ Contacts & sequences, content library, playbook ============
 const LIST_LABEL: Record<string, string> = { sequence: 'Email sequence', newsletter: 'Newsletter', blog: 'New articles' };
+function EmailHealthBox() {
+  const h = emailHealth(7);
+  const slow = Object.entries(JSON.parse(String(settings().email_slow_groups || '{}'))).filter(([, u]) => String(u) > now()).map(([g]) => g);
+  const p = (v: number | null) => (v === null ? '–' : `${v}%`);
+  const cols: [string, (r: HealthRow) => any][] = [['Sent', (r) => r.sent], ['Delivered', (r) => p(rates(r).delivery)], ['Opened', (r) => p(rates(r).open)], ['Bounced', (r) => p(rates(r).bounce)], ['Delayed', (r) => p(rates(r).delay)]];
+  return <Box title="Email health (last 7 days)">
+    {!h.total.sent ? <p className="muted">No marketing email sent in the last 7 days.</p> : <>
+      <p className="small muted">Delivered = reached the person’s mail server (aim for 95%+). Opened is a share of delivered; Apple Mail opens every email automatically, so use it to compare subject lines, not as a count of readers. Bounced = refused or bounced (keep under 2%; each address is removed). Clicks are in Marketing.{h.total.tracked < h.total.sent ? ' Delivery and opens need the Resend webhook; emails sent before it was set up show as not delivered.' : ''}{settings().email_slowdown_until > now() ? ` Sending at half pace until ${String(settings().email_slowdown_until).slice(0, 10)} (delivery dropped).` : ''}{slow.length ? ` Sending slowly to ${slow.join(', ')} for now (they were delaying our mail).` : ''}</p>
+      <Table rows={[h.total, ...h.byGroup]} cols={[['Mailbox', (r) => r.name === 'All marketing email' ? <b>{r.name}</b> : r.name], ...cols]} />
+      <h4 className="small">By campaign</h4>
+      <Table rows={h.byCampaign} cols={[['Campaign', (r) => r.name], ...cols]} />
+    </>}
+  </Box>;
+}
 get('/admin/audience', 'admin:content', (c) => {
   const s = libraryStats();
   const recent = q.all<any>("SELECT * FROM leads WHERE lists IS NOT NULL AND lists!='' ORDER BY id DESC LIMIT 30");
@@ -791,6 +806,7 @@ get('/admin/audience', 'admin:content', (c) => {
     <p className="small muted"><b>Pre-scan:</b> before anything is sent, Chidi (the email agent) merges duplicates (the same mailbox written twice, in any case, with a +tag, or Gmail with and without dots), then checks every address on a company or organisation domain: does the domain still exist and still have a mail server? Addresses that fail are removed for good. Gmail, Yahoo, Outlook and similar are not looked up. Any address the email service refuses on the first send is also removed. <Act action="/admin/audience/scan" label="Check addresses now" /></p>
     <p className="muted">Add people who <b>asked to hear from Kitovu or ComboTrader</b> (event sign-ups, partners, customers, a group’s members who agreed). They get the chosen email sequence one email at a time, the fortnightly newsletter and/or new articles. Everyone can stop with one click; people who stopped are never re-added. Champions already on the platform get their own lifecycle emails instead of a sequence.</p>
     <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Addresses checked and cleared', sc.ok, `${sc.waiting} waiting for the pre-scan · ${sc.removed} removed (domain gone or takes no email) · ${sc.duplicates} duplicates merged`], ['Marketing emails waiting for their slot', marketingQueued(), `${marketingDailyCap()} a day now (warming up to ${settings().sequence_daily_cap}), spread 8:00–19:00${String(settings().marketing_paused_until || '') > now() ? ' · PAUSED: too many failed' : ''}`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
+    <EmailHealthBox />
     <div className="grid-2 top">
       <Box title="Add contacts">
         <form method="post" action="/admin/audience/import" encType="multipart/form-data" className="stack"><Csrf />

@@ -15,8 +15,9 @@ import { settings } from '../lib/settings';
 import { verifyTotp } from '../lib/totp';
 import { rateLimit, destroySession } from '../lib/auth';
 import { parseNaira, randomToken, sha256, fmtNGN } from '../lib/util';
-import { queueEmail, queueSms, emailShell, escapeHtml, dropAddress } from '../lib/notify';
+import { queueEmail, queueSms, emailShell, escapeHtml } from '../lib/notify';
 import { timingSafeEqual } from 'node:crypto';
+import { recordProviderEvents } from '../lib/emailhealth';
 import { audit } from '../lib/audit';
 import { config } from '../lib/config';
 import { HttpError, type Ctx } from '../lib/http';
@@ -171,15 +172,9 @@ post('/webhooks/email/:token', 'public', (c) => {
   if (!config.emailWebhookToken || want.length !== got.length || !timingSafeEqual(want, got)) return c.send(404, 'not found');
   let body: any;
   try { body = JSON.parse(c.rawBody.toString()); } catch { return c.send(400, 'bad json'); }
-  let n = 0;
-  for (const ev of Array.isArray(body) ? body : [body]) {
-    // Resend sends many kinds of events; only these say an address should not be emailed again. The rest are ignored.
-    const resend = typeof ev?.type === 'string' && /^(email\.(bounced|complained|failed|suppressed)|suppression\.added)$/.test(ev.type);
-    const brevo = typeof ev?.event === 'string' && /^(hard_bounce|soft_bounce|blocked|invalid_email|spam|complaint|error)$/.test(ev.event);
-    const to: string[] = resend ? [].concat(ev.data?.to || ev.data?.email || []) : brevo ? [ev.email] : [];
-    for (const e of to) if (typeof e === 'string' && e.includes('@')) { dropAddress(e, resend ? ev.type : `brevo ${ev.event}`); n++; }
-  }
-  if (n) audit(null, 'email.bounce_webhook', undefined, { removed: n });
+  // Delivered, delayed, opened and bounced events are recorded; bounces and complaints remove the address for good.
+  const r = recordProviderEvents(body);
+  if (r.dropped) audit(null, 'email.bounce_webhook', undefined, { removed: r.dropped });
   c.send(200, 'ok');
 });
 

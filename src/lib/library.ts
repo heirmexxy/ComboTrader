@@ -197,7 +197,7 @@ export function runSequences() {
     const ck = `${l.seq}-${step.key}-${v.name}`;
     if (!cache.has(ck)) cache.set(ck, { html: trackHtmlLinks(marked.parse(fillName(step.body, v), { async: false }) as string, { channel: 'email', campaign: `seq-${l.seq}-${step.key}` }), cta: trackedLink(step.cta.path, { channel: 'email', campaign: `seq-${l.seq}-${step.key}` }).url });
     const { html, cta } = cache.get(ck)!;
-    queueEmail(l.email, subject, emailShell(escapeHtml(subject), `<div data-seq="${l.seq}-${step.key}">${html}</div><p style="font-size:12px;color:#777;margin-top:24px">You’re receiving this because you asked to hear from ComboTrader. <a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: step.cta.label, url: cta }), { marketing: true });
+    queueEmail(l.email, subject, emailShell(escapeHtml(subject), `<div data-seq="${l.seq}-${step.key}">${html}</div><p style="font-size:12px;color:#777;margin-top:24px">You’re receiving this because you asked to hear from ComboTrader. <a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: step.cta.label, url: cta }), { marketing: true, campaign: `seq-${l.seq}-${step.key}` });
     const next = s.steps[l.seq_step + 1];
     q.run("UPDATE leads SET seq_step=seq_step+1, seq_next_at=?, seq=CASE WHEN ? THEN seq ELSE NULL END, touches=touches+1, last_touch_at=?, status=CASE WHEN status='new' THEN 'contacted' ELSE status END WHERE id=?", next ? at9(next.day - step.day) : null, next ? 1 : 0, now(), l.id);
     sent++;
@@ -212,7 +212,7 @@ function notifyBlogList(post: any) {
   const link = trackedLink(`/chronicles/${post.slug}`, { channel: 'email', campaign: `blog-${post.slug}` }).url;
   for (const l of people) {
     const subject = `New on ComboTrader: ${post.title}`;
-    queueEmail(l.email, subject, emailShell(escapeHtml(post.title), `<div data-seq="blog">${post.cover_path ? `<p><a href="${link}"><img src="${config.baseUrl}/uploads/${post.cover_path}" alt="" width="560" style="width:100%;max-width:560px;height:auto;border-radius:8px"></a></p>` : ''}${post.excerpt ? `<p>${escapeHtml(post.excerpt)}</p>` : ''}</div><p style="font-size:12px;color:#777;margin-top:24px"><a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: 'Read the article', url: link }), { marketing: true });
+    queueEmail(l.email, subject, emailShell(escapeHtml(post.title), `<div data-seq="blog">${post.cover_path ? `<p><a href="${link}"><img src="${config.baseUrl}/uploads/${post.cover_path}" alt="" width="560" style="width:100%;max-width:560px;height:auto;border-radius:8px"></a></p>` : ''}${post.excerpt ? `<p>${escapeHtml(post.excerpt)}</p>` : ''}</div><p style="font-size:12px;color:#777;margin-top:24px"><a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: 'Read the article', url: link }), { marketing: true, campaign: 'blog' });
   }
   return people.length;
 }

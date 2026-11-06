@@ -1041,6 +1041,41 @@ await t('duplicates: the same mailbox is never added twice, and existing copies 
   eq(Number(q.val("SELECT COUNT(*) FROM subscribers WHERE lower(email)='dup@coop.ng'")), 1);
 });
 
+console.log('\nEmail health');
+await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
+  const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');
+  q.run("DELETE FROM outbox WHERE kind='marketing'"); setSetting('email_slow_groups', '{}'); setSetting('email_slowdown_until', ''); setSetting('marketing_paused_until', '');
+  eq(N.mailGroup('a@gmail.com'), 'gmail'); eq(N.mailGroup('b@yahoo.co.uk'), 'yahoo'); eq(N.mailGroup('c@hotmail.com'), 'microsoft'); eq(N.mailGroup('d@coop.ng'), 'company');
+  for (let i = 0; i < 40; i++) N.queueEmail(`h${i}@${i % 2 ? 'gmail.com' : 'coop.ng'}`, 'Hi', '<p>x</p>', { marketing: true, campaign: i < 20 ? 'seq-nurture-day0' : 'blog' });
+  q.run("UPDATE outbox SET status='sent', sent_at=?, attempts=1, provider_id='re_' || id WHERE kind='marketing'", now());
+  const ids = q.all<any>("SELECT provider_id, recipient FROM outbox WHERE kind='marketing' ORDER BY id");
+  // Resend: 30 delivered (so 75%), 10 opened, 5 delayed (gmail); Brevo-style event shape too.
+  H.recordProviderEvents(ids.slice(0, 30).map((r) => ({ type: 'email.delivered', data: { email_id: r.provider_id, to: [r.recipient] } })));
+  H.recordProviderEvents(ids.slice(0, 10).map((r) => ({ type: 'email.opened', data: { email_id: r.provider_id } })));
+  H.recordProviderEvents({ event: 'deferred', 'message-id': ids[39].provider_id, email: ids[39].recipient });
+  H.recordProviderEvents(ids.filter((r) => r.recipient.endsWith('gmail.com')).slice(0, 4).map((r) => ({ type: 'email.delivery_delayed', data: { email_id: r.provider_id } })));
+  H.recordProviderEvents({ type: 'contact.updated', data: {} });
+  const h = H.emailHealth(7);
+  eq(h.total.sent, 40); eq(h.rates.delivery, 75); eq(h.rates.open, 33.3);
+  eq(h.byCampaign.map((x) => x.name).sort().join('|'), 'New article|Sequence: nurture');
+  // Bounce through the webhook removes the address and counts as bounced.
+  q.insert('leads', { email: 'h2@coop.ng', lang: 'en', source: 'import', consent: 1, token: 'hb', created_at: now() });
+  H.recordProviderEvents({ type: 'email.bounced', data: { email_id: ids[2].provider_id, to: ['h2@coop.ng'] } });
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='h2@coop.ng'")), 0);
+  eq(H.emailHealth(7).total.bounced, 1);
+  // 5 of 20 gmail emails delayed today -> gmail is paced 4x slower.
+  await N.flushOutbox();
+  eq(JSON.parse(String(q.val("SELECT value FROM settings WHERE key='email_slow_groups'")).replace(/^"|"$/g, '').replace(/\\"/g, '"')).gmail > now(), true, 'gmail slowed');
+  // The Chief sees 75% delivery: recommends, and halves the pace.
+  const C = await import('../src/lib/chief');
+  const plan = C.rulePlan(await C.gatherFacts());
+  eq(plan.recs.some((r) => r.key === 'email_delivery'), true); eq(plan.tasks.some((x) => x.kind === 'email.slow_down'), true);
+  setSetting('email_warmup_start', new Date(Date.now() - 10 * 864e5).toISOString());
+  const full = N.marketingDailyCap(); setSetting('email_slowdown_until', new Date(Date.now() + 864e5).toISOString());
+  eq(N.marketingDailyCap(), Math.ceil(full / 2));
+  setSetting('email_slowdown_until', ''); setSetting('email_slow_groups', '{}'); q.run("DELETE FROM outbox WHERE kind='marketing'");
+});
+
 console.log('\nCovers');
 await t('every article and newsletter gets a branded cover; an uploaded photo is kept', async () => {
   const C = await import('../src/lib/covers');

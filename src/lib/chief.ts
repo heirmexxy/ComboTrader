@@ -21,6 +21,7 @@ import { fmtNGN, lagosNow } from './util';
 import { offMessage, playbookFor, TARGETS_90, PROSPECT_SEGMENTS, PROSPECT_REGIONS } from '../content/playbook';
 import { marked } from 'marked';
 import { PERSONAS } from './personas';
+import { emailHealth } from './emailhealth';
 
 /** What the Chief of Staff may ask each agent to do. */
 export const TASK_KINDS = {
@@ -32,6 +33,7 @@ export const TASK_KINDS = {
   'onboarding.run': { agent: 'onboarding', what: 'Nudge Champions stuck between sign-up and first trade now', needs: '' },
   'prospector.research': { agent: 'prospector', what: 'Find more organisations of a type in a city (AI only)', needs: 'segment, region' },
   'growth.library': { agent: 'growth', what: 'Prepare the next library article or newsletter if due', needs: '' },
+  'email.slow_down': { agent: 'email', what: 'Send marketing email at half pace for some days (delivery is dropping)', needs: 'days' },
 } as const;
 export type TaskKind = keyof typeof TASK_KINDS;
 interface TaskIn { kind: TaskKind; detail?: Record<string, unknown>; reason: string }
@@ -82,6 +84,7 @@ export async function gatherFacts() {
     week: { signups: num("SELECT COUNT(*) FROM users WHERE role='champion' AND created_at>=?", ago(7)), verified_not_funded: num("SELECT COUNT(*) FROM users u WHERE u.role='champion' AND u.kyc_status='verified' AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id AND p.status='success')"), leads: num('SELECT COUNT(*) FROM leads WHERE created_at>=?', ago(7)), funded_naira: fmtNGN(num("SELECT COALESCE(SUM(amount-fee),0) FROM payments WHERE status='success' AND paid_at>=?", ago(7))) },
     social, learn_topics: learnTopics,
     progress, targets_90: TARGETS_90,
+    email: (() => { const h = emailHealth(7); return { sent: h.total.sent, tracked: h.total.tracked, delivery_pct: h.rates.delivery, open_pct: h.rates.open, bounce_pct: h.rates.bounce, delay_pct: h.rates.delay, slow_providers: Object.entries(JSON.parse(String(settings().email_slow_groups || '{}'))).filter(([, u]) => String(u) > now()).map(([g]) => g) }; })(),
     ai_calls_today: callsToday(), ai_limit: settings().agent_daily_limit,
   };
 }
@@ -136,6 +139,14 @@ export function rulePlan(f: Facts) {
     const n = num("SELECT COUNT(*) FROM agent_tasks WHERE kind='prospector.research'");
     tasks.push({ kind: 'prospector.research', detail: { segment: PROSPECT_SEGMENTS[n % PROSPECT_SEGMENTS.length], region: PROSPECT_REGIONS[Math.floor(n / PROSPECT_SEGMENTS.length) % PROSPECT_REGIONS.length] }, reason: 'Fewer than 10 new organisations to approach' });
   }
+  // Email health (needs the provider's webhook; at least 30 tracked emails in 7 days).
+  const em = f.email;
+  if (em.tracked >= 30 && em.delivery_pct !== null && em.delivery_pct < 95) {
+    recs.push({ key: 'email_delivery', roles: ['content'], priority: 2, text: `Only ${em.delivery_pct}% of marketing emails reached the inbox server in the last 7 days (aim for 95%+). I’ve halved the sending pace for 3 days. Check the domain settings in Resend (SPF, DKIM, DMARC) and remove old lists.`, link: '/admin/audience' });
+    if (!(String(settings().email_slowdown_until || '') > now()) && !recentTask('email.slow_down', '', 3)) tasks.push({ kind: 'email.slow_down', detail: { days: 3, delivery_before: em.delivery_pct }, reason: `Delivery at ${em.delivery_pct}%` });
+  }
+  if (em.sent >= 30 && em.bounce_pct !== null && em.bounce_pct > 2) recs.push({ key: 'email_bounces', roles: ['content'], priority: 2, text: `${em.bounce_pct}% of marketing emails bounced in the last 7 days (keep it under 2%). The bad addresses are already removed; look at which list they came from before importing more like it.`, link: '/admin/audience' });
+  if (em.slow_providers.length) recs.push({ key: 'email_slow_providers', roles: ['content'], priority: 4, text: `${em.slow_providers.join(', ')} ${em.slow_providers.length > 1 ? 'are' : 'is'} delaying our email, so I’m sending to ${em.slow_providers.length > 1 ? 'them' : 'it'} more slowly for 48 hours.`, link: '/admin/audience' });
   if (!recentTask('growth.library', '', 6)) tasks.push({ kind: 'growth.library', reason: 'Keep the weekly article and fortnightly newsletter on schedule' });
   // Progress against the 90-day targets (pro rata).
   const d = Math.min(90, Math.max(1, f.progress.days_since_start));
@@ -165,6 +176,7 @@ export async function runTask(id: number) {
       case 'onboarding.run': result = await AGENT_JOBS.onboarding(); break;
       case 'prospector.research': result = await researchProspects(d.segment, d.region); break;
       case 'growth.library': result = runLibrary(); break;
+      case 'email.slow_down': { const until = new Date(Date.now() + Number(d.days || 3) * 864e5).toISOString(); setSetting('email_slowdown_until', until); result = `marketing email at half pace until ${until.slice(0, 10)}`; break; }
     }
     q.run("UPDATE agent_tasks SET status='done', result=?, done_at=? WHERE id=?", String(result).slice(0, 500), now(), id);
   } catch (e: any) {
@@ -196,6 +208,7 @@ export function scoreTasks() {
     let win: boolean | null = null, note = '';
     if (t.kind === 'social.promote_lot' || t.kind === 'email.lot_push') { const after = lotPct(String(d.lot_code)); win = after - Number(d.pct_before || 0) >= 10; note = `${d.lot_code}: ${d.pct_before}% → ${after}%`; }
     else if (t.kind === 'onboarding.run') { const after = num("SELECT COUNT(*) FROM users u WHERE u.role='champion' AND u.kyc_status='verified' AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id AND p.status='success')"); win = after < Number(d.stuck_before || 0); note = `stuck: ${d.stuck_before} → ${after}`; }
+    else if (t.kind === 'email.slow_down') { const h = emailHealth(3); if (h.rates.delivery === null) continue; win = h.rates.delivery >= Math.min(95, Number(d.delivery_before || 0) + 3); note = `delivery ${d.delivery_before}% → ${h.rates.delivery}%`; }
     else if (t.kind === 'social.boost_topic') {
       if (Date.now() - new Date(t.done_at).getTime() < 14 * 864e5) continue;
       const r = q.get<any>(`SELECT COUNT(*) posts, COALESCE(SUM((SELECT COALESCE(SUM(clicks),0) FROM links WHERE campaign='post-' || p.id)),0) clicks FROM social_posts p WHERE p.created_at>=? AND p.status IN ('published','partly')`, t.done_at);
@@ -316,6 +329,7 @@ function roleSnapshot(roles: AdminRole[], f: Facts) {
   if (roles.includes('finance')) out.push(`**Finance:** ${f.paystack ? f.paystack.summary : 'Paystack balance not available'}. Treasury cover: ${f.treasury.map((h) => `${h.days} days ${h.level}`).join(', ')}. Overdue buyer payments: ${f.overdue_buyers}. Withdrawals waiting over a day: ${f.waiting.withdrawals}. Funded this week: ${f.week.funded_naira}.`);
   if (roles.includes('operations')) out.push(`**Operations:** ${f.lots.length ? f.lots.map((l) => `${l.code} ${l.pct}% funded, ${l.days_left} days left`).join('; ') : 'no lots open'}.`);
   if (roles.includes('support')) out.push(`**Support:** ${f.waiting.chats} chats waiting over 4 hours, ${f.waiting.tickets} open tickets, ${f.waiting.id_checks} ID documents to review, ${f.week.verified_not_funded} verified Champions not yet funded.`);
+  if (roles.includes('content') && f.email.tracked) out.push(`**Email health (7 days):** ${f.email.sent} sent, ${f.email.delivery_pct ?? '–'}% delivered, ${f.email.open_pct ?? '–'}% opened, ${f.email.bounce_pct ?? '–'}% bounced.`);
   if (roles.includes('content')) out.push(`**Content:** ${f.queue.by.filter((b) => /^(social|email|growth|prospector)\//.test(b)).join(', ') || 'nothing'} waiting for approval. This week: ${f.week.leads} new leads, ${f.week.signups} sign-ups.${whatWorks().length ? ` Working: ${whatWorks().join('; ')}.` : ''}`);
   return out;
 }
@@ -339,6 +353,7 @@ function briefMarkdown(f: Facts, headline: string, recs: Rec[], tasks: { t: Task
     tasks.length ? `## What I asked the agents to do\n${tasks.map((a) => `- **${a.t.kind}**: ${a.t.reason}${a.result ? `. Result: ${a.result}` : ''}`).join('\n')}` : '',
     `## Approval queue\n${tri.safe.length} low-risk, on-message item${tri.safe.length === 1 ? '' : 's'} ready to approve together; ${tri.review.length} need${tri.review.length === 1 ? 's' : ''} your judgement. [Review](/admin/chief#triage)`,
     `## Open lots\n${f.lots.length ? f.lots.map((l) => `- ${l.title} (${l.code}): ${l.pct}% funded, ${l.days_left} days left, ${l.remaining} to go`).join('\n') : 'None open.'}`,
+    f.email.tracked ? `## Email health (7 days)\n- ${f.email.sent} marketing emails · delivered ${f.email.delivery_pct ?? '–'}% · opened ${f.email.open_pct ?? '–'}% · bounced ${f.email.bounce_pct ?? '–'}% · delayed ${f.email.delay_pct ?? '–'}%${f.email.slow_providers.length ? `\n- Sending slowly to: ${f.email.slow_providers.join(', ')}` : ''}` : '',
     `## This week\n- Sign-ups: ${f.week.signups} · New leads: ${f.week.leads} · Funded: ${f.week.funded_naira}\n- Verified but not yet funded: ${f.week.verified_not_funded}`,
     `## Progress against the 90-day plan (day ${p.days_since_start})\n| Measure | Now | Expected by day ${d} | Day-90 target |\n| --- | --- | --- | --- |\n${(Object.keys(TARGETS_90) as (keyof typeof TARGETS_90)[]).map((k) => `| ${k.replace('_', ' ')} | ${p[k]} | ${Math.round((TARGETS_90[k] * d) / 90)} | ${TARGETS_90[k]} |`).join('\n')}`,
     whatWorks().length ? `## What’s working\n${whatWorks().map((w) => `- ${w}`).join('\n')}` : '',
