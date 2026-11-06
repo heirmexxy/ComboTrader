@@ -8,6 +8,12 @@ import { config } from './config';
 import { BRAND as B, MARK_SVG, useBrandFonts } from './brand';
 
 const W = 1200, H = 675;
+// Keep image work gentle on a small server: one image at a time, one thread, nothing cached in memory.
+sharp.concurrency(1); sharp.cache(false);
+let chain: Promise<unknown> = Promise.resolve();
+/** Runs image jobs one after another, so a burst (a page of thumbnails, a backfill) can't take over the CPU. */
+function queued<T>(job: () => Promise<T>): Promise<T> { const r = chain.then(job, job); chain = r.catch(() => undefined); return r; }
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const xml = (s: string) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 function wrap(text: string, max: number, lines: number) {
   const out: string[] = [];
@@ -48,7 +54,8 @@ function motif(kind: string, issue?: number) {
   }
 }
 
-export async function coverImage(o: { title: string; kind: string; issue?: number }) {
+export function coverImage(o: { title: string; kind: string; issue?: number }): Promise<Buffer> { return queued(() => drawCover(o)); }
+async function drawCover(o: { title: string; kind: string; issue?: number }) {
   useBrandFonts();
   const host = config.baseUrl.replace(/^https?:\/\//, '').replace(/^www\./, '');
   const lines = wrap(o.title, 20, 3);
@@ -89,11 +96,26 @@ export async function ensurePostCover(id: number) {
   q.run('UPDATE posts SET cover_path=?, updated_at=? WHERE id=? AND cover_path IS NULL', f.rel, now(), id);
   return f.rel;
 }
-/** Covers for posts that have none, and for every library newsletter (a few at a time). */
-export async function backfillCovers(limit = 25) {
+/** Covers for posts that have none, every library newsletter and every library article's preview (a few at a time,
+ * with a pause between each so the site stays fast). */
+export async function backfillCovers(limit = 25, gapMs = 2000) {
   let n = 0;
-  for (const p of q.all<any>('SELECT id FROM posts WHERE cover_path IS NULL ORDER BY id LIMIT ?', limit)) { await ensurePostCover(p.id); n++; }
-  const { NEWSLETTERS } = await import('../content/library');
-  for (const x of NEWSLETTERS) { if (n >= limit) break; if (!fs.existsSync(coverFile(`newsletter-${x.n}`).abs)) { await ensureNewsletterCover(x.n, x.subject); n++; } }
+  for (const p of q.all<any>('SELECT id FROM posts WHERE cover_path IS NULL ORDER BY id LIMIT ?', limit)) { await ensurePostCover(p.id); n++; await pause(gapMs); }
+  const { NEWSLETTERS, BLOG } = await import('../content/library');
+  for (const x of NEWSLETTERS) { if (n >= limit) break; if (!fs.existsSync(coverFile(`newsletter-${x.n}`).abs)) { await ensureNewsletterCover(x.n, x.subject); n++; await pause(gapMs); } }
+  for (const b of BLOG) { if (n >= limit) break; if (!fs.existsSync(coverFile(`library-${b.slug}`).abs)) { await libraryCover(b.slug, b.title, b.category); n++; await pause(gapMs); } }
   return n;
+}
+/** A library article's cover for previews (saved, so each is drawn only once). */
+export async function libraryCover(slug: string, title: string, category: string) {
+  const f = coverFile(`library-${slug}`);
+  if (fs.existsSync(f.abs)) return fs.readFileSync(f.abs);
+  const img = await coverImage({ title, kind: category });
+  fs.mkdirSync(coversDir(), { recursive: true }); fs.writeFileSync(f.abs, img);
+  return img;
+}
+/** A newsletter's saved cover (drawn once). */
+export async function newsletterCover(n: number, subject: string) {
+  await ensureNewsletterCover(n, subject);
+  return fs.readFileSync(coverFile(`newsletter-${n}`).abs);
 }

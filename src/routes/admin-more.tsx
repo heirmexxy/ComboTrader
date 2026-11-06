@@ -30,7 +30,7 @@ import { BLOG, NEWSLETTERS, SEQUENCES, RESPONSES } from '../content/library';
 import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCES } from '../content/playbook';
 import { marked } from 'marked';
 import { agentLabel } from '../lib/personas';
-import { coverImage } from '../lib/covers';
+import { libraryCover, newsletterCover } from '../lib/covers';
 import { creditStatus, creditLine } from '../lib/aicost';
 import { chatWithChief, chatHistory, agentsFor } from '../lib/chiefchat';
 import { endInstruction } from '../lib/instructions';
@@ -925,9 +925,9 @@ get('/admin/library/post/:slug', 'admin:content', (c) => { const b = BLOG.find((
 get('/admin/library/cover/:kind/:id', 'admin:content', async (c) => {
   const id = String(c.params.id).replace(/\.jpg$/, '');
   let img: Buffer;
-  if (c.params.kind === 'post') { const b = BLOG.find((x) => x.slug === id); if (!b) throw new HttpError(404, 'Not found'); img = await coverImage({ title: b.title, kind: b.category }); }
-  else { const x = NEWSLETTERS.find((n) => n.n === Number(id)); if (!x) throw new HttpError(404, 'Not found'); img = await coverImage({ title: x.subject, kind: 'newsletter', issue: x.n }); }
-  c.send(200, img, 'image/jpeg', { 'Cache-Control': 'private, max-age=3600' });
+  if (c.params.kind === 'post') { const b = BLOG.find((x) => x.slug === id); if (!b) throw new HttpError(404, 'Not found'); img = await libraryCover(b.slug, b.title, b.category); }
+  else { const x = NEWSLETTERS.find((n) => n.n === Number(id)); if (!x) throw new HttpError(404, 'Not found'); img = await newsletterCover(x.n, x.subject); }
+  c.send(200, img, 'image/jpeg', { 'Cache-Control': 'private, max-age=86400' });
 });
 get('/admin/library/newsletter/:n', 'admin:content', (c) => { const r = renderNewsletter(Number(c.params.n)); if (!r) throw new HttpError(404, 'Not found'); c.html(previewShell(r.subject, `**Subject B:** ${r.subject_b}\n\n${r.body.replace(/^!\[[^\]]*\]\([^)]*\)/, `![Cover](/admin/library/cover/newsletter/${Number(c.params.n)}.jpg)`)}`)); });
 get('/admin/library/email/:seq/:step', 'admin:content', (c) => { const st = SEQUENCES[c.params.seq]?.steps.find((x) => x.key === c.params.step); if (!st) throw new HttpError(404, 'Not found'); const f = (s: string) => s.replace(/\{name\}/g, 'Ada'); c.html(previewShell(f(st.subject), `*${st.preview}*\n\n${f(st.body)}\n\n**[${st.cta.label}](${config.baseUrl}${st.cta.path})**`)); });

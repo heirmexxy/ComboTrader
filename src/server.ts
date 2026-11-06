@@ -123,7 +123,8 @@ export function start() {
   openDb();
   bootstrap();
   try { seedLibrary(); } catch (e) { console.error('library seed failed', e); }
-  void backfillCovers(120).catch((e) => console.error('covers failed', e));
+  // Covers are drawn slowly in the background, a minute after start, so a restart is never slow.
+  setTimeout(() => void backfillCovers(30).catch((e) => console.error('covers failed', e)), 60_000);
   setOverrideLoader(() => q.all('SELECT key, lang, value FROM page_text'));
   const server = http.createServer((req, res) => { handle(req, res); });
   server.listen(config.port, config.bindHost, () => console.log(`ComboTrader listening on ${config.baseUrl} (port ${config.port})${config.paystackDemo ? ' — Paystack DEMO mode' : ''}`));

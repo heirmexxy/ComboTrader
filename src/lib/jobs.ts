@@ -73,7 +73,7 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async watchdog() { return watchdog(); },
   async social_publish() { const n = await publishDueSocial(); return `${n} posts published`; },
   async paystack_sync() { return syncPaystack(); },
-  async library() { seedLibrary(); const r = runLibrary(); const n = await backfillCovers(60).catch(() => 0); return `${r}${n ? `; ${n} covers made` : ''}`; },
+  async library() { seedLibrary(); const r = runLibrary(); const n = await backfillCovers(40).catch(() => 0); return `${r}${n ? `; ${n} covers made` : ''}`; },
   async sequences() { const scan = await scanContacts().catch((e) => `pre-scan failed: ${e.message}`); return `${scan}; ${runSequences()}`; },
   async chief() { return runChief('daily'); },
   async reconcile() { return reconcile(); },

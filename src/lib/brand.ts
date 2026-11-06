@@ -28,8 +28,11 @@ export function useBrandFonts() {
   const dir = path.resolve('assets/fonts');
   if (!fs.existsSync(dir)) return;
   const conf = path.join(os.tmpdir(), 'combotrader-fonts.conf');
+  // Keep the font cache in the data folder so it survives restarts (building it is slow on a small server).
+  let cacheDir = path.resolve('data/.fontcache');
+  try { fs.mkdirSync(cacheDir, { recursive: true }); fs.accessSync(cacheDir, fs.constants.W_OK); } catch { cacheDir = path.join(os.tmpdir(), 'combotrader-fontcache'); }
   try {
-    fs.writeFileSync(conf, `<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir>${dir}</dir><include ignore_missing="yes">/etc/fonts/fonts.conf</include><cachedir>${path.join(os.tmpdir(), 'combotrader-fontcache')}</cachedir></fontconfig>`);
+    fs.writeFileSync(conf, `<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><dir>${dir}</dir><include ignore_missing="yes">/etc/fonts/fonts.conf</include><cachedir>${cacheDir}</cachedir></fontconfig>`);
     process.env.FONTCONFIG_FILE = conf;
   } catch { /* fall back to system fonts */ }
 }
