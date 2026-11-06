@@ -1168,6 +1168,33 @@ await t('Claude credit: left = recorded balance − spend since (from the Cost A
   } finally { globalThis.fetch = realFetch; (cfg as any).anthropicAdminKey = oldKey; setSetting('ai_credit_usd', 0); setSetting('ai_credit_at', ''); }
 });
 
+await t('AI providers: switch between Claude and an OpenAI-compatible service, with automatic fallback when one fails', async () => {
+  const AI = await import('../src/lib/ai'); const { config: cfg } = await import('../src/lib/config');
+  const realFetch = globalThis.fetch; const keep = { a: cfg.anthropicKey, o: cfg.openaiKey };
+  (cfg as any).anthropicKey = 'sk-ant-test'; (cfg as any).openaiKey = 'sk-openai-test';
+  const hits: string[] = [];
+  let claudeDown = true;
+  globalThis.fetch = (async (url: string, init: any) => {
+    hits.push(String(url));
+    if (String(url).includes('anthropic.com')) return claudeDown ? new Response(JSON.stringify({ error: { message: 'Your credit balance is too low' } }), { status: 400 }) : new Response(JSON.stringify({ content: [{ type: 'text', text: '{"ok":"claude"}' }], usage: { input_tokens: 5, output_tokens: 3 } }), { status: 200 });
+    const body = JSON.parse(init.body); eq(body.messages[0].role, 'system');
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":"openai"}' } }], usage: { prompt_tokens: 7, completion_tokens: 2 } }), { status: 200 });
+  }) as any;
+  try {
+    setSetting('agent_mode', 'ai'); setSetting('ai_provider', 'anthropic'); setSetting('ai_fallback', true);
+    eq((await AI.completeJson('growth', { system: 's', input: 'x' })).data.ok, 'openai', 'Claude out of credit -> OpenAI');
+    eq(hits.some((h) => h.includes('anthropic.com')) && hits.some((h) => h.includes('/chat/completions')), true);
+    setSetting('ai_fallback', false);
+    let failed = false; try { await AI.completeJson('growth', { system: 's', input: 'x' }); } catch { failed = true; }
+    eq(failed, true, 'no fallback when it is off');
+    setSetting('ai_provider', 'openai'); hits.length = 0;
+    eq((await AI.completeJson('growth', { system: 's', input: 'x' })).data.ok, 'openai'); eq(hits.length, 1);
+    claudeDown = false; hits.length = 0;
+    eq((await AI.completeJson('prospector', { system: 's', input: 'x', tools: [{ type: 'web_search' }] })).data.ok, 'claude', 'web research stays on Claude');
+    eq(AI.aiProvider(), 'openai');
+  } finally { globalThis.fetch = realFetch; (cfg as any).anthropicKey = keep.a; (cfg as any).openaiKey = keep.o; setSetting('agent_mode', 'rules'); setSetting('ai_provider', 'anthropic'); setSetting('ai_fallback', true); }
+});
+
 console.log('\nEmail health');
 await t('email health: provider events are recorded, rates reported by mailbox and campaign, slow providers paced, Chief reacts to poor delivery', async () => {
   const N = await import('../src/lib/notify'); const H = await import('../src/lib/emailhealth');

@@ -1115,7 +1115,7 @@ get('/admin/settings', 'admin:super', (c) => {
         <dt>tawk.to</dt><dd>{config.tawkPropertyId ? `Property ${config.tawkPropertyId}` : 'Not set (TAWK_PROPERTY_ID)'}</dd>
         <dt>Google sign-in</dt><dd>{config.googleClientId ? 'On' : 'Off (GOOGLE_CLIENT_ID)'}</dd>
         <dt>Push alerts</dt><dd>{config.vapidPublic ? 'On' : 'Off (run npm run job -- vapid… see README)'}</dd>
-        <dt>AI agents</dt><dd>{config.anthropicKey ? `Claude API (${config.aiModel})` : 'Demo mode (ANTHROPIC_API_KEY)'}</dd>
+        <dt>AI agents</dt><dd>{[config.anthropicKey && `Claude (${config.aiModel})`, config.openaiKey && `OpenAI-compatible (${config.openaiModel})`].filter(Boolean).join(' + ') || 'Demo mode (ANTHROPIC_API_KEY or OPENAI_API_KEY)'}</dd>
         <dt>WhatsApp</dt><dd>{config.waToken && config.waPhoneId ? `Cloud API${config.waNumber ? ` · +${config.waNumber}` : ''}` : 'Not set (WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)'}</dd>
         <dt>Uptime check URL</dt><dd><code>{config.baseUrl}/healthz</code></dd>
       </dl>

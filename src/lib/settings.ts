@@ -23,6 +23,8 @@ export const DEFAULTS = {
   email_warmup_first_day: 50, // marketing emails on the first day of sending
   email_gap_seconds: 150, // time between marketing emails (150 = 2 every 5 minutes), from 9:00 Lagos time, Monday to Friday
   marketing_paused_until: '', // set automatically if too many marketing emails fail
+  ai_provider: 'anthropic', // which AI the agents use: anthropic (Claude) | openai (or the OpenAI-compatible service in OPENAI_BASE_URL)
+  ai_fallback: true, // if the chosen provider fails (no credit, outage), try the other one
   ai_credit_usd: 0, // Claude credit balance (USD) as shown in the Claude Console when last recorded
   ai_credit_at: '', // when it was recorded
   ai_credit_low_days: 7, // warn when credit will run out within this many days

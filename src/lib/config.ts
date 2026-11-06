@@ -48,6 +48,11 @@ export const config = {
   // AI agents (Claude API)
   anthropicKey: e.ANTHROPIC_API_KEY || '',
   anthropicAdminKey: e.ANTHROPIC_ADMIN_KEY || '', // read-only use: the Cost API, for Claude spend in the briefs
+  // A second AI provider (OpenAI, or any OpenAI-compatible service: Google Gemini, DeepSeek, OpenRouter, Groq…).
+  openaiKey: e.OPENAI_API_KEY || '',
+  openaiBaseUrl: (e.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
+  openaiModel: e.OPENAI_MODEL || 'gpt-5',
+  openaiModelFast: e.OPENAI_MODEL_FAST || 'gpt-5-mini',
   aiModel: e.AI_MODEL || 'claude-sonnet-5-5',
   aiModelFast: e.AI_MODEL_FAST || 'claude-haiku-5-5',
 

@@ -82,7 +82,7 @@ export async function chatWithChief(admin: User, message: string) {
   const roles = rolesOf(admin.admin_roles), allowed = agentsFor(roles);
   let plan: Plan;
   // Say exactly why I can't think it through with AI, so a wrong setting or an API problem is visible.
-  const why = !aiLive() ? 'I can’t use AI: there is no ANTHROPIC_API_KEY on the server.'
+  const why = !aiLive() ? 'I can’t use AI: there is no AI key on the server (ANTHROPIC_API_KEY or OPENAI_API_KEY).'
     : agentMode('chief') === 'rules' ? 'I’m in Rules mode, so I can’t read free-text questions yet. Switch me to AI in Admin → AI agents (the main switch, or my own row if it says Rules).'
     : !agentOn('chief') ? 'I’m switched off in Admin → AI agents.'
     : callsToday() >= Number(settings().agent_daily_limit) ? `The agents’ daily AI limit (${settings().agent_daily_limit} calls) is used up; I’ll be back tomorrow, or raise it in Settings.` : '';

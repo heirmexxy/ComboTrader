@@ -8,7 +8,7 @@ import { Csrf } from '../views/components';
 import { q, now } from '../lib/db';
 import { coverage, receivables, latestCash, treasurySnapshot } from '../lib/treasury';
 import { AGENTS, ACTION_KINDS, AGENT_JOBS, agentOn, executeAction, rejectAction, opsTrailDraft, opsLotDraft, researchProspects, syncLeads, type AgentName } from '../lib/agents';
-import { aiLive, callsToday, agentMode } from '../lib/ai';
+import { aiLive, callsToday, agentMode, aiProvider, providerName, providerReady } from '../lib/ai';
 import { lessonScore, scoreOutcomes, type Lesson } from '../lib/learning';
 import { CHANNELS, CHANNEL_NAMES, CHANNEL_SETUP, channelReady, wantedChannels, runSocial, runEmail, CAMPAIGN_KEYS, publishDueSocial, type Channel } from '../lib/marketing';
 import { savePublicImage as saveImg } from '../lib/uploads';
@@ -145,11 +145,21 @@ get('/admin/agents', 'admin:any', async (c) => {
     <p className="muted">Agents propose; people decide. Agents cannot move money, approve withdrawals or change balances. Autonomy: <b>{s.agent_autonomy === 'auto_low' ? 'low-risk messages send automatically' : 'everything waits for review'}</b>{c.can('super') && <> (<a href="/admin/settings#agents">change</a>)</>}.</p>
     <section className="card admin-box mode-switch">
       <div className="box-head"><h2>How the agents think</h2>
-        <span className="btn-row">{c.can('super') ? (['rules', 'ai'] as const).map((m) => <Act key={m} action="/admin/agents/mode" fields={{ mode: m }} label={m === 'ai' ? 'AI (Claude)' : 'Rules'} tone={s.agent_mode === m ? 'primary' : 'ghost'} />) : <b>{s.agent_mode === 'ai' ? 'AI' : 'Rules'}</b>}</span></div>
+        <span className="btn-row">{c.can('super') ? (['rules', 'ai'] as const).map((m) => <Act key={m} action="/admin/agents/mode" fields={{ mode: m }} label={m === 'ai' ? 'AI' : 'Rules'} tone={s.agent_mode === m ? 'primary' : 'ghost'} />) : <b>{s.agent_mode === 'ai' ? 'AI' : 'Rules'}</b>}</span></div>
       <p className="small">{s.agent_mode === 'ai'
-        ? aiLive() ? <>AI is on: agents use <b>{config.aiModel}</b> / <b>{config.aiModelFast}</b> ({callsToday()} of {s.agent_daily_limit} calls in the last 24 hours) and every approved result teaches the rules.</> : <><b>AI is selected but there is no ANTHROPIC_API_KEY on the server</b>, so agents are using rules until the key is added.</>
+        ? aiLive() ? <>AI is on: agents use <b>{providerName(aiProvider())}</b> (<b>{aiProvider() === 'anthropic' ? config.aiModel : config.openaiModel}</b> / <b>{aiProvider() === 'anthropic' ? config.aiModelFast : config.openaiModelFast}</b>; {callsToday()} of {s.agent_daily_limit} calls in the last 24 hours) and every approved result teaches the rules.</> : <><b>AI is selected but there is no AI key on the server</b> (ANTHROPIC_API_KEY or OPENAI_API_KEY), so agents are using rules until a key is added.</>
         : <>Rules are on: agents use the FAQs, built-in templates and <a href="/admin/agents/learning">what they have learned</a> from AI and from your approvals. No model calls, no cost. Web research for new organisations pauses.</>}</p>
     </section>
+    <Box title="AI provider">
+      <p className="small muted">Which AI the agents use. Keys live on the server: <code>ANTHROPIC_API_KEY</code> for Claude, <code>OPENAI_API_KEY</code> for OpenAI (or another service that works like OpenAI, such as Google Gemini, DeepSeek or OpenRouter, with <code>OPENAI_BASE_URL</code>). Finding new organisations on the web always uses Claude.</p>
+      <Table rows={(['anthropic', 'openai'] as const).map((p) => ({ p }))} cols={[
+        ['Provider', (r) => <><b>{providerName(r.p)}</b>{aiProvider() === r.p ? <span className="tag tag-green" style={{ marginLeft: 6 }}>in use</span> : null}</>],
+        ['Key on server', (r) => providerReady(r.p) ? 'Yes' : <span className="muted">No</span>],
+        ['Models (main / fast)', (r) => <span className="small">{r.p === 'anthropic' ? `${config.aiModel} / ${config.aiModelFast}` : `${config.openaiModel} / ${config.openaiModelFast}`}</span>],
+        ['', (r) => c.can('super') && providerReady(r.p) && s.ai_provider !== r.p ? <Act action="/admin/agents/provider" fields={{ provider: r.p }} label="Use this" /> : null],
+      ]} />
+      {c.can('super') ? <div className="btn-row" style={{ marginTop: 8 }}><Act action="/admin/agents/fallback" fields={{ on: s.ai_fallback ? '0' : '1' }} label={s.ai_fallback ? 'Turn off automatic fallback' : 'Turn on automatic fallback'} /><span className="small muted">{s.ai_fallback ? 'On: if the provider in use fails (credit run out, outage), the agents try the other one.' : 'Off: agents only use the provider above.'}</span></div> : null}
+    </Box>
     <Box title="Claude credit">
       <p>{creditLine(credit)}</p>
       <p className="small muted">Anthropic doesn’t share the balance itself, so record it here each time you top up (it’s on the Claude Console under Settings → Billing). Spending since then comes from Anthropic’s cost report{config.anthropicAdminKey ? '' : <>, which needs an <b>Admin API key</b> (Console → Settings → Admin keys) saved on the server as <code>ANTHROPIC_ADMIN_KEY</code></>}. The figures cover everything on your Anthropic account, not only ComboTrader. Adaeze includes them in her morning brief and warns you {s.ai_credit_low_days} days before it runs out.</p>
@@ -1006,6 +1016,13 @@ post('/admin/chief/instructions/:id/end', 'admin:any', (c) => {
   c.redirect('/admin/chief/chat', ['ok', 'Instruction ended.']);
 });
 post('/admin/chief/decide/:id', 'admin:any', (c) => { const a = c.str('action', 12) === 'done' ? 'done' : 'dismissed'; c.redirect('/admin/chief#decisions', ['ok', chiefDecide(Number(c.params.id), c.user!.id, rolesOf(c.user!.admin_roles), a, c.str('note', 500))]); });
+post('/admin/agents/provider', 'admin:super', (c) => {
+  const p = c.str('provider', 20) === 'openai' ? 'openai' : 'anthropic';
+  if (!providerReady(p)) return c.redirect('/admin/agents', ['error', `Add the ${p === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'} on the server first.`]);
+  setSetting('ai_provider', p); audit(c.user!.id, 'ai.provider', p);
+  c.redirect('/admin/agents', ['ok', `Agents now use ${providerName(p)}.`]);
+});
+post('/admin/agents/fallback', 'admin:super', (c) => { setSetting('ai_fallback', c.str('on', 1) === '1'); audit(c.user!.id, 'ai.fallback', c.str('on', 1)); c.redirect('/admin/agents', ['ok', 'Saved.']); });
 post('/admin/agents/credit', 'admin:super', (c) => {
   const v = Math.max(0, Number(c.str('usd', 20)) || 0);
   setSetting('ai_credit_usd', v); setSetting('ai_credit_at', now()); audit(c.user!.id, 'ai.credit_recorded', undefined, { usd: v });
