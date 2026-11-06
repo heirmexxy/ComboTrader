@@ -80,11 +80,17 @@ export const JOBS: Record<string, () => Promise<string>> = {
   async weekly() { return weeklySummary(); },
 };
 
+/** The job running now (for the stall monitor). */
+export let currentJob = '';
 export async function runJob(name: string) {
   const fn = JOBS[name];
   if (!fn) throw new Error(`Unknown job ${name}`);
   let status: string;
+  const t0 = Date.now(); currentJob = name;
   try { status = await fn(); } catch (e: any) { status = `error: ${e?.message || e}`; reportError(`job ${name}`, e); }
+  finally { currentJob = ''; }
+  const ms = Date.now() - t0;
+  if (ms > 5000) console.warn(`[slow-job] ${name} took ${Math.round(ms / 1000)}s`);
   ran(name, status);
   return status;
 }

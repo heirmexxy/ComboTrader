@@ -12,7 +12,7 @@ import { loadSession } from './lib/auth';
 import { detectLang, isLang, translate, setOverrideLoader } from './lib/i18n';
 import { render } from './views/render';
 import { ErrorPage } from './views/public/pages';
-import { startScheduler } from './lib/jobs';
+import { startScheduler, currentJob } from './lib/jobs';
 import { audit } from './lib/audit';
 import { bootstrap } from './lib/bootstrap';
 import { reportError, health } from './lib/alerts';
@@ -60,8 +60,19 @@ function serveFile(c: Ctx, root: string, rel: string, cache: string) {
   return true;
 }
 
+// Diagnostics: log slow requests, and any time the server is blocked (with the job or request in progress).
+let lastReq = '';
+const watchStalls = () => {
+  let last = Date.now();
+  setInterval(() => {
+    const n = Date.now(), lag = n - last - 1000; last = n;
+    if (lag > 2000) console.warn(`[blocked] server was stuck for ${Math.round(lag / 1000)}s (job: ${currentJob || 'none'}; last request: ${lastReq || 'none'})`);
+  }, 1000).unref();
+};
 async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   const c = new Ctx(req, res);
+  const t0 = Date.now(); lastReq = `${req.method} ${String(req.url).split('?')[0]}`;
+  res.on('finish', () => { const ms = Date.now() - t0; if (ms > 3000) console.warn(`[slow-request] ${req.method} ${String(req.url).split('?')[0]} took ${Math.round(ms / 1000)}s`); });
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -128,6 +139,7 @@ export function start() {
   setOverrideLoader(() => q.all('SELECT key, lang, value FROM page_text'));
   const server = http.createServer((req, res) => { handle(req, res); });
   server.listen(config.port, config.bindHost, () => console.log(`ComboTrader listening on ${config.baseUrl} (port ${config.port})${config.paystackDemo ? ' — Paystack DEMO mode' : ''}`));
+  watchStalls();
   if (config.runScheduler) startScheduler();
   return server;
 }
