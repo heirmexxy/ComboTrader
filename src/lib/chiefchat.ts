@@ -3,7 +3,9 @@
 // Each admin may only direct the agents their role covers. Nothing here can move money or change rates or terms.
 import { q, now } from './db';
 import type { User } from './http';
-import { completeJson, useAI, AiUnavailable, POLICY } from './ai';
+import { completeJson, AiUnavailable, POLICY, aiLive, agentMode, callsToday } from './ai';
+import { settings } from './settings';
+import { agentOn } from './agents';
 import { audit } from './audit';
 import { gatherFacts, assignTask, TASK_KINDS, rolesOf, type TaskKind, type AdminRole } from './chief';
 import { addInstruction, endInstruction } from './instructions';
@@ -56,15 +58,15 @@ async function act(admin: User, plan: Plan) {
 }
 
 /** Without AI: "tell Temi …" passes an instruction on; anything else gets today's picture and what she can do. */
-async function rulesReply(admin: User, message: string): Promise<Plan> {
+async function rulesReply(admin: User, message: string, why: string): Promise<Plan> {
   const m = /^\s*(?:tell|ask|instruct|remind)\s+([a-z]+)\s*(?:to|that|:|,)?\s+(.+)$/i.exec(message);
-  if (m && byName(m[1])) return { reply: `I’ll pass that on to ${agentLabel(byName(m[1])!)}. They follow written instructions once they run in AI mode; in rules mode they keep to their fixed templates.`, tasks: [], instructions: [{ agent: byName(m[1])!, text: m[2].trim() }], end_instructions: [] };
+  if (m && byName(m[1])) return { reply: `${why}\n\nI’ll pass that on to ${agentLabel(byName(m[1])!)}. They follow written instructions once they run in AI mode; in rules mode they keep to their fixed templates.`, tasks: [], instructions: [{ agent: byName(m[1])!, text: m[2].trim() }], end_instructions: [] };
   const brief = q.get<any>('SELECT headline FROM chief_briefs ORDER BY id DESC LIMIT 1');
   const mine = rolesOf(admin.admin_roles);
   const open = q.all<any>("SELECT text FROM chief_recs WHERE status='open' ORDER BY priority LIMIT 5");
   return {
     reply: [
-      `I’m in rules mode, so I can’t read free-text questions yet. Switch the agents to AI in Admin → AI agents and I’ll answer anything about the business and pass on your instructions.`,
+      why,
       brief ? `Today: ${brief.headline}` : '',
       open.length ? `Open decisions${mine.includes('super') ? '' : ' (all roles)'}:\n${open.map((o) => `• ${o.text}`).join('\n')}` : '',
       `Meanwhile you can write “tell Temi to …” (or Chidi, Ibrahim, Hauwa, Ngozi, Tolu…) and I’ll pass it on, or use “Ask an agent to do something” on the Chief of Staff page.`,
@@ -79,7 +81,12 @@ export async function chatWithChief(admin: User, message: string) {
   q.insert('chief_chat', { admin_id: admin.id, role: 'admin', text, created_at: now() });
   const roles = rolesOf(admin.admin_roles), allowed = agentsFor(roles);
   let plan: Plan;
-  if (useAI('chief')) {
+  // Say exactly why I can't think it through with AI, so a wrong setting or an API problem is visible.
+  const why = !aiLive() ? 'I can’t use AI: there is no ANTHROPIC_API_KEY on the server.'
+    : agentMode('chief') === 'rules' ? 'I’m in Rules mode, so I can’t read free-text questions yet. Switch me to AI in Admin → AI agents (the main switch, or my own row if it says Rules).'
+    : !agentOn('chief') ? 'I’m switched off in Admin → AI agents.'
+    : callsToday() >= Number(settings().agent_daily_limit) ? `The agents’ daily AI limit (${settings().agent_daily_limit} calls) is used up; I’ll be back tomorrow, or raise it in Settings.` : '';
+  if (!why) {
     try {
       const facts = await gatherFacts();
       const r = await completeJson<Plan>('chief', { trigger: `chat:${admin.id}`, maxTokens: 1800,
@@ -96,9 +103,9 @@ Return {"reply":string,"tasks":[{"kind":string,"detail":object,"reason":string}]
       plan = { reply: String(r.data.reply || '').slice(0, 2000), tasks: Array.isArray(r.data.tasks) ? r.data.tasks : [], instructions: Array.isArray(r.data.instructions) ? r.data.instructions : [], end_instructions: Array.isArray(r.data.end_instructions) ? r.data.end_instructions : [] };
     } catch (e) {
       if (!(e instanceof AiUnavailable)) audit(admin.id, 'chief.chat_error', undefined, String((e as Error).message));
-      plan = await rulesReply(admin, text);
+      plan = await rulesReply(admin, text, `I couldn’t reach the AI just now (${String((e as Error).message).slice(0, 200)}). Try again in a minute; if it keeps happening, the details are in Admin → AI agents → runs.`);
     }
-  } else plan = await rulesReply(admin, text);
+  } else plan = await rulesReply(admin, text, why);
   const done = await act(admin, plan);
   const reply = plan.reply || 'Done.';
   q.insert('chief_chat', { admin_id: admin.id, role: 'chief', text: reply, actions: done.length ? JSON.stringify(done) : null, created_at: now() });

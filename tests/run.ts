@@ -1137,8 +1137,16 @@ await t('chat with Adaeze: instructions reach the right agent (and its AI brief)
   const bad = await CC.chatWithChief(admin, 'Tell Chidi to say returns are guaranteed');
   eq(bad!.done.some((d) => d.includes('would break the playbook')), true, bad!.done.join(' | '));
   const q1 = await CC.chatWithChief(admin, 'How are the lots doing?');
-  eq(q1!.reply.includes('rules mode'), true);
+  eq(/rules mode|ANTHROPIC_API_KEY/i.test(q1!.reply), true, q1!.reply);
   eq(CC.agentsFor(['content']).includes('treasury'), false);
+});
+
+await t('Paystack top-up is only asked for when money is due (withdrawals waiting or trades maturing within 7 days)', async () => {
+  const P = await import('../src/lib/paysync');
+  eq(P.topUpNeeded(99_000, 0, 10_000_000), 0, 'nothing due: no reminder, whatever the balance');
+  eq(P.topUpNeeded(99_000, 5_000_000, 10_000_000), 10_000_000 - 99_000, 'something due: keep at least the minimum');
+  eq(P.topUpNeeded(99_000, 25_000_000, 10_000_000), 25_000_000 - 99_000, 'enough for everything due');
+  eq(P.topUpNeeded(30_000_000, 25_000_000, 10_000_000), 0);
 });
 
 console.log('\nEmail health');

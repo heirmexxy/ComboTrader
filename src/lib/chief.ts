@@ -75,7 +75,7 @@ export async function gatherFacts() {
   };
   return {
     date: lagosNow().toISOString().slice(0, 10),
-    health: health.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`),
+    health: health.filter((c) => !c.ok && c.key !== 'paystack').map((c) => `${c.name}: ${c.detail}`), // Paystack has its own line below
     paystack: pf && pf.balance !== null ? { low: pf.low, summary: pf.summary } : null,
     treasury: tre.horizons.map((h) => ({ days: h.horizon, level: h.level })), overdue_buyers: tre.overdue.length,
     lots: lotsFacts(),
