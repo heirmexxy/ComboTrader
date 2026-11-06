@@ -30,6 +30,7 @@ import { BLOG, NEWSLETTERS, SEQUENCES, RESPONSES } from '../content/library';
 import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCES } from '../content/playbook';
 import { marked } from 'marked';
 import { agentLabel } from '../lib/personas';
+import { marketingDailyCap, marketingQueued } from '../lib/notify';
 import { decide as chiefDecide, rolesOf, runChief, triage as chiefTriage, approveSafe as chiefApproveSafe, assignTask, lotPct as chiefLotPct, TASK_KINDS, type TaskKind } from '../lib/chief';
 import { escapeHtml } from '../lib/notify';
 import { metaAuth, metaConfigured, metaAuthUrl, metaExchange, metaPages, metaChoosePage, metaDisconnect, metaRedirect, metaWhoAmI } from '../lib/meta';
@@ -785,7 +786,7 @@ get('/admin/audience', 'admin:content', (c) => {
   const recent = q.all<any>("SELECT * FROM leads WHERE lists IS NOT NULL AND lists!='' ORDER BY id DESC LIMIT 30");
   page(c, 'Contacts & email sequences', <>
     <p className="muted">Add people who <b>asked to hear from Kitovu or ComboTrader</b> (event sign-ups, partners, customers, a group’s members who agreed). They get the chosen email sequence one email at a time, the fortnightly newsletter and/or new articles. Everyone can stop with one click; people who stopped are never re-added. Champions already on the platform get their own lifecycle emails instead of a sequence.</p>
-    <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Sequence and article emails, last 24h', s.sentToday, `cap ${settings().sequence_daily_cap} a day (Settings)`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
+    <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Marketing emails waiting for their slot', marketingQueued(), `${marketingDailyCap()} a day now (warming up to ${settings().sequence_daily_cap}), spread 8:00–19:00${String(settings().marketing_paused_until || '') > now() ? ' · PAUSED: too many failed' : ''}`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
     <div className="grid-2 top">
       <Box title="Add contacts">
         <form method="post" action="/admin/audience/import" encType="multipart/form-data" className="stack"><Csrf />

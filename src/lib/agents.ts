@@ -135,7 +135,7 @@ const EXECUTORS: Record<string, (p: any, by: number | null) => string> = {
     if (!title || !body) throw new Error('Invitation needs a subject and body');
     const unsub = `${config.baseUrl}/u/${l.token}`;
     queueEmail(l.email, title, emailShell(escapeHtml(title), `<p>${escapeHtml(body).replace(/\n/g, '<br>')}</p><p style="font-size:12px;color:#777">${escapeHtml(translate(l.lang, 'agent.unsub'))} <a href="${unsub}">${unsub}</a></p>`,
-      { label: translate(l.lang, 'agent.inv_cta'), url: `${config.baseUrl}/signup?utm_source=${encodeURIComponent(l.source)}&utm_medium=email&utm_campaign=invite` }));
+      { label: translate(l.lang, 'agent.inv_cta'), url: `${config.baseUrl}/signup?utm_source=${encodeURIComponent(l.source)}&utm_medium=email&utm_campaign=invite` }), { marketing: true });
     q.run("UPDATE leads SET status='contacted', touches=touches+1, last_touch_at=? WHERE id=?", now(), l.id);
     learnMessage(p, l.name || '', l.lang, { leadId: l.id });
     return `invitation ${l.touches + 1} sent to ${l.email}`;
@@ -149,7 +149,7 @@ const EXECUTORS: Record<string, (p: any, by: number | null) => string> = {
     if (!title || !body) throw new Error('Outreach needs a subject and body');
     const optout = `${config.baseUrl}/u/${o.token}`;
     queueEmail(o.email, title, emailShell(escapeHtml(title), `<p>${escapeHtml(body).replace(/\n/g, '<br>')}</p><p style="font-size:12px;color:#777">Prefer not to hear from us again? <a href="${optout}">${optout}</a></p>`,
-      { label: 'See how Harvest Circles work', url: `${config.baseUrl}/circles?utm_source=outreach&utm_medium=email` }));
+      { label: 'See how Harvest Circles work', url: `${config.baseUrl}/circles?utm_source=outreach&utm_medium=email` }), { marketing: true });
     q.run("UPDATE prospects SET status=CASE WHEN status='new' THEN 'contacted' ELSE status END, touches=touches+1, last_touch_at=? WHERE id=?", now(), o.id);
     learnMessage({ ...p, situation: p.situation || `org:${o.segment}` }, o.contact_name || '', 'en', { prospectId: o.id }, o.name);
     return `outreach ${o.touches + 1} sent to ${o.name}`;

@@ -7,7 +7,7 @@ import { config } from './config';
 import { settings, setSetting } from './settings';
 import { learn, keyOf } from './learning';
 import { propose, registerExecutors, agentOn } from './agents';
-import { queueEmail, emailShell, escapeHtml } from './notify';
+import { queueEmail, emailShell, escapeHtml, marketingDailyCap, marketingQueued } from './notify';
 import { trackedLink, trackHtmlLinks } from './tracking';
 import { lotPeriods, rateFor } from './trading';
 import { latestPrices } from './prices';
@@ -175,8 +175,8 @@ const leadStop = (token: string) => `${config.baseUrl}/u/${token}`;
 /** Sends the sequence emails that are due (within the daily cap). */
 export function runSequences() {
   if (!settings().sequences_enabled) return 'sequences off';
-  const cap = Math.max(0, Number(settings().sequence_daily_cap || 200) - sentToday());
-  if (!cap) return 'daily cap reached';
+  const cap = Math.max(0, marketingDailyCap() - marketingQueued());
+  if (!cap) return 'a day of emails is already waiting to send';
   const due = q.all<any>("SELECT * FROM leads WHERE seq IS NOT NULL AND seq_next_at<=? AND consent=1 AND email IS NOT NULL AND status NOT IN ('unsubscribed','bounced','signed_up') ORDER BY seq_next_at LIMIT ?", now(), cap);
   let sent = 0, stopped = 0;
   const cache = new Map<string, { html: string; cta: string }>();
@@ -189,7 +189,7 @@ export function runSequences() {
     const ck = `${l.seq}-${step.key}-${v.name}`;
     if (!cache.has(ck)) cache.set(ck, { html: trackHtmlLinks(marked.parse(fillName(step.body, v), { async: false }) as string, { channel: 'email', campaign: `seq-${l.seq}-${step.key}` }), cta: trackedLink(step.cta.path, { channel: 'email', campaign: `seq-${l.seq}-${step.key}` }).url });
     const { html, cta } = cache.get(ck)!;
-    queueEmail(l.email, subject, emailShell(escapeHtml(subject), `<div data-seq="${l.seq}-${step.key}">${html}</div><p style="font-size:12px;color:#777;margin-top:24px">You’re receiving this because you asked to hear from ComboTrader. <a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: step.cta.label, url: cta }));
+    queueEmail(l.email, subject, emailShell(escapeHtml(subject), `<div data-seq="${l.seq}-${step.key}">${html}</div><p style="font-size:12px;color:#777;margin-top:24px">You’re receiving this because you asked to hear from ComboTrader. <a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: step.cta.label, url: cta }), { marketing: true });
     const next = s.steps[l.seq_step + 1];
     q.run("UPDATE leads SET seq_step=seq_step+1, seq_next_at=?, seq=CASE WHEN ? THEN seq ELSE NULL END, touches=touches+1, last_touch_at=?, status=CASE WHEN status='new' THEN 'contacted' ELSE status END WHERE id=?", next ? at9(next.day - step.day) : null, next ? 1 : 0, now(), l.id);
     sent++;
@@ -199,12 +199,12 @@ export function runSequences() {
 
 /** Emails a new article to contacts on the blog list (within the daily cap). */
 function notifyBlogList(post: any) {
-  const cap = Math.max(0, Number(settings().sequence_daily_cap || 200) - sentToday());
+  const cap = Math.max(0, marketingDailyCap() - marketingQueued());
   const people = q.all<any>("SELECT * FROM leads WHERE lists LIKE '%blog%' AND consent=1 AND email IS NOT NULL AND status NOT IN ('unsubscribed','bounced') LIMIT ?", cap);
   const link = trackedLink(`/chronicles/${post.slug}`, { channel: 'email', campaign: `blog-${post.slug}` }).url;
   for (const l of people) {
     const subject = `New on ComboTrader: ${post.title}`;
-    queueEmail(l.email, subject, emailShell(escapeHtml(post.title), `<div data-seq="blog">${post.excerpt ? `<p>${escapeHtml(post.excerpt)}</p>` : ''}</div><p style="font-size:12px;color:#777;margin-top:24px"><a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: 'Read the article', url: link }));
+    queueEmail(l.email, subject, emailShell(escapeHtml(post.title), `<div data-seq="blog">${post.excerpt ? `<p>${escapeHtml(post.excerpt)}</p>` : ''}</div><p style="font-size:12px;color:#777;margin-top:24px"><a href="${leadStop(l.token)}">Stop these emails</a>.</p>`, { label: 'Read the article', url: link }), { marketing: true });
   }
   return people.length;
 }

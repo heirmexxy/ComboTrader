@@ -18,7 +18,9 @@ export const DEFAULTS = {
   library_newsletter_next: 1,
   library_newsletter_at: '',
   sequences_enabled: true, // send email sequences to opted-in contacts
-  sequence_daily_cap: 200, // most sequence/blog emails per 24 hours
+  sequence_daily_cap: 200, // most marketing emails per day once warmed up (sequences, newsletters, campaigns, outreach)
+  email_warmup_start: '', // first paced marketing email (warm-up starts at 20 a day, +50% a day)
+  marketing_paused_until: '', // set automatically if too many marketing emails fail
   social_paused_until: '', // Chief of Staff: pause promoting new lots (e.g. when Treasury is short)
   social_boost: '', // Chief of Staff: {"topic":"how","until":"…"} favour a topic that is working
   chief_start_at: '', // day 1 of the 90-day plan (set on the first Chief of Staff run)

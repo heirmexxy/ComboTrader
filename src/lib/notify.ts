@@ -3,12 +3,55 @@
 // messages stay visible in Admin → Messages (demo mode) so nothing is lost.
 import { q, now } from './db';
 import { config } from './config';
+import { settings, setSetting } from './settings';
 import { sendPush } from './webpush';
 import type { User } from './http';
 import { translate } from './i18n';
 
-export function queueEmail(to: string, subject: string, html: string) {
-  q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now() });
+/** Queues an email. Marketing emails (sequences, newsletters, campaigns, outreach, blog and lot announcements) are
+ * not sent at once: each gets its own slot, spread evenly over the sending window, so the domain never sends a burst. */
+export function queueEmail(to: string, subject: string, html: string, o: { marketing?: boolean } = {}) {
+  q.insert('outbox', { channel: 'email', recipient: to, subject, body: html, created_at: now(), kind: o.marketing ? 'marketing' : 'tx', send_after: o.marketing ? nextMarketingSlot() : null });
+}
+
+// ---------- Pacing marketing email (protects the sending domain's reputation) ----------
+const WINDOW = { start: 8, end: 19 }; // Lagos time (UTC+1, no daylight saving)
+const LAGOS = 3600e3;
+/** Most marketing emails per day: starts at 20 and grows by half each day (warm-up) up to the set daily cap. */
+export function marketingDailyCap() {
+  const s = settings();
+  let start = String(s.email_warmup_start || '');
+  if (!start) { start = now(); setSetting('email_warmup_start', start); }
+  const days = Math.max(0, Math.floor((Date.now() - Date.parse(start)) / 864e5));
+  return Math.max(1, Math.min(Number(s.sequence_daily_cap || 200), Math.round(20 * Math.pow(1.5, days))));
+}
+function fitWindow(t: number) {
+  const d = new Date(t + LAGOS), h = d.getUTCHours() + d.getUTCMinutes() / 60;
+  if (h < WINDOW.start) { d.setUTCHours(WINDOW.start, 0, 0, 0); return d.getTime() - LAGOS; }
+  if (h >= WINDOW.end) { d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(WINDOW.start, 0, 0, 0); return d.getTime() - LAGOS; }
+  return t;
+}
+export function nextMarketingSlot() {
+  const gap = ((WINDOW.end - WINDOW.start) * 3600e3) / marketingDailyCap();
+  const last = q.val("SELECT MAX(send_after) FROM outbox WHERE kind='marketing'") as string | null;
+  let t = Math.max(Date.now(), last ? Date.parse(last) + gap : 0);
+  const paused = String(settings().marketing_paused_until || '');
+  if (paused && Date.parse(paused) > t) t = Date.parse(paused);
+  t = fitWindow(t);
+  return new Date(t + Math.floor(Math.random() * Math.min(gap / 4, 90e3))).toISOString();
+}
+/** Marketing emails waiting for their slot (agents stop queueing more once a day's worth is waiting). */
+export const marketingQueued = () => Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status='queued'") ?? 0);
+/** If more than 5% of marketing emails fail in a day (bad addresses), pause marketing for 48 hours and tell super admins. */
+function guardMarketing() {
+  const since = new Date(Date.now() - 864e5).toISOString();
+  const tried = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND attempts>0 AND send_after>=?", since) ?? 0);
+  const failed = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND error IS NOT NULL AND status!='sent' AND send_after>=?", since) ?? 0);
+  const paused = String(settings().marketing_paused_until || '');
+  if (tried < 20 || failed / tried <= 0.05 || (paused && Date.parse(paused) > Date.now())) return;
+  const until = new Date(Date.now() + 48 * 3600e3).toISOString();
+  setSetting('marketing_paused_until', until);
+  for (const a of q.all<any>("SELECT email FROM users WHERE role='admin' AND status='active' AND admin_roles LIKE '%super%'")) q.insert('outbox', { channel: 'email', recipient: a.email, subject: 'Marketing emails paused for 48 hours', body: emailShell('Marketing emails paused', `<p>${failed} of ${tried} marketing emails in the last 24 hours failed (usually bad or closed addresses). To protect the sending domain, sequences, newsletters and campaigns are paused until ${until.slice(0, 16).replace('T', ' ')} UTC. Clean the contact list in Admin → Contacts &amp; sequences; you can resume earlier by clearing “marketing_paused_until” in Settings.</p>`), created_at: now(), kind: 'tx' });
 }
 export function queueSms(to: string, text: string, channel: 'sms' | 'whatsapp' = 'sms') {
   if (!to) return;
@@ -60,7 +103,9 @@ export function escapeHtml(s: string) {
 
 /** Sends queued messages through the configured providers. Called by the scheduler. */
 export async function flushOutbox(limit = 50) {
-  const rows = q.all<any>("SELECT * FROM outbox WHERE status='queued' AND attempts < 5 ORDER BY id LIMIT ?", limit);
+  const paused = String(settings().marketing_paused_until || '');
+  const mk = paused && Date.parse(paused) > Date.now() ? 0 : 1;
+  const rows = q.all<any>("SELECT * FROM outbox WHERE status='queued' AND attempts < 5 AND (send_after IS NULL OR send_after<=?) AND (kind!='marketing' OR ?=1) ORDER BY COALESCE(send_after, created_at) LIMIT ?", now(), mk, limit);
   for (const m of rows) {
     try {
       let sent = false;
@@ -70,8 +115,11 @@ export async function flushOutbox(limit = 50) {
       else q.run("UPDATE outbox SET status='held', error='No provider configured (demo mode)' WHERE id=?", m.id);
     } catch (e: any) {
       q.run('UPDATE outbox SET attempts=attempts+1, error=? WHERE id=?', String(e?.message || e).slice(0, 500), m.id);
+      // An address that keeps failing is marked bounced and never emailed again by the agents.
+      if (m.kind === 'marketing' && m.attempts + 1 >= 5) q.run("UPDATE leads SET status='bounced', seq=NULL, seq_next_at=NULL WHERE lower(email)=lower(?)", m.recipient);
     }
   }
+  guardMarketing();
 }
 
 export async function sendEmail(to: string, subject: string, html: string) {

@@ -783,6 +783,12 @@ CREATE TABLE chief_recs (
 );
 CREATE INDEX chief_recs_key ON chief_recs(key, status);
 `,
+`
+-- Marketing email is paced: each message gets a send slot.
+ALTER TABLE outbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'tx';
+ALTER TABLE outbox ADD COLUMN send_after TEXT;
+CREATE INDEX outbox_due ON outbox(status, send_after);
+`,
 ];
 
 export function openDb(file = config.dbFile) {

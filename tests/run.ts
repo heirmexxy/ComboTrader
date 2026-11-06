@@ -975,6 +975,23 @@ await t('chief: briefs from facts, assigns tasks for a lot that is behind, pause
   q.run("UPDATE lots SET status='closed' WHERE code='T-CHIEF'");
 });
 
+console.log('\nEmail pacing');
+await t('marketing email is spread over the sending window, warms up from 20 a day, and pauses if too many fail', async () => {
+  const N = await import('../src/lib/notify');
+  setSetting('email_warmup_start', now()); setSetting('marketing_paused_until', '');
+  q.run("DELETE FROM outbox WHERE kind='marketing'");
+  eq(N.marketingDailyCap(), 20);
+  for (let i = 0; i < 5; i++) N.queueEmail(`pace${i}@t.ng`, 'Hi', '<p>x</p>', { marketing: true });
+  N.queueEmail('otp@t.ng', 'Code', '<p>1</p>');
+  const slots = q.all<any>("SELECT send_after FROM outbox WHERE kind='marketing' ORDER BY id").map((r) => Date.parse(r.send_after));
+  for (let i = 1; i < slots.length; i++) eq(slots[i] - slots[i - 1] >= 30 * 60e3, true, 'about 33 minutes apart on day one');
+  for (const x of slots) { const h = new Date(x + 3600e3).getUTCHours(); eq(h >= 8 && h < 19, true, 'inside 8:00-19:00 Lagos'); }
+  eq(q.val("SELECT send_after FROM outbox WHERE recipient='otp@t.ng'"), null, 'transactional email is not delayed');
+  setSetting('email_warmup_start', new Date(Date.now() - 10 * 864e5).toISOString());
+  eq(N.marketingDailyCap(), 200, 'warmed up after about a week');
+  q.run("DELETE FROM outbox WHERE kind='marketing'");
+});
+
 console.log('\nTesting tools');
 await t('test mode: simulated payments only while no Paystack key; sample lots; clearing keeps admins, settings and content', async () => {
   const tm = await import('../src/lib/testmode');

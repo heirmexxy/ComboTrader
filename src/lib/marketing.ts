@@ -566,7 +566,7 @@ registerExecutors({
       const title = fill(String(p.title), r.vars), body = fill(String(p.body), r.vars);
       const link = forRecipient(trackedLink(CAMPAIGN_LINK[p.campaign]?.(r) || '/app', { channel: 'email', campaign: `email-${p.campaign}`, lessonId }).url, { userId: u.id });
       queueEmail(u.email, title, emailShell(escapeHtml(title), `<p>${escapeHtml(body).replace(/\n/g, '<br>')}</p><p style="font-size:12px;color:#777;margin-top:24px">${escapeHtml(translate(u.lang, 'agent.unsub'))} <a href="${unsubLink(u.id)}">${unsubLink(u.id)}</a></p>`,
-        { label: translate(u.lang, `mkt.${p.campaign}.cta`) !== `mkt.${p.campaign}.cta` ? translate(u.lang, `mkt.${p.campaign}.cta`) : ({ verify_reminder: 'Verify now', fund_reminder: 'Fund your wallet', lot_closing: 'See the lot' } as Record<string, string>)[p.campaign] || 'Open ComboTrader', url: link }));
+        { label: translate(u.lang, `mkt.${p.campaign}.cta`) !== `mkt.${p.campaign}.cta` ? translate(u.lang, `mkt.${p.campaign}.cta`) : ({ verify_reminder: 'Verify now', fund_reminder: 'Fund your wallet', lot_closing: 'See the lot' } as Record<string, string>)[p.campaign] || 'Open ComboTrader', url: link }), { marketing: true });
       trackOutcome(lessonId, `email:${p.campaign}`, { userId: u.id });
       sent++;
     }
