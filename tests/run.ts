@@ -478,6 +478,7 @@ await t('prospector: invites waitlist leads, skips non-consented imports, honour
   q.insert('waitlist', { email: 'keen@lead.ng', commodity: 'any', created_at: now() });
   q.insert('leads', { email: 'cold@lead.ng', lang: 'en', source: 'import', consent: 0, token: 'tok-cold', created_at: now() });
   q.insert('prospects', { name: 'Ikeja Staff Cooperative', segment: 'Staff cooperative societies', email: 'sec@ikejacoop.ng', token: 'tok-org', created_at: now() });
+  { const E = await import('../src/lib/emailcheck'); E._setResolver(async (d) => d.startsWith('dead') ? Promise.reject(Object.assign(new Error('nx'), { code: 'ENOTFOUND' })) : [{ exchange: `mx.${d}`, priority: 10 }]); await agents.runProspector(); await E.scanContacts(); }
   const r = await agents.runProspector();
   eq(String(r).includes('invitations drafted'), true);
   const inv = q.get<any>("SELECT * FROM agent_actions WHERE kind='send_invite' AND status='proposed' ORDER BY id DESC");
@@ -898,6 +899,7 @@ await t('library: 50 articles and 50 newsletters, all on-message; import needs c
   eq(r.added, 2); eq(r.champions, 1); eq(r.skipped, 1);
   eq(q.val("SELECT status FROM subscribers WHERE email='zainab@example.com'"), 'confirmed');
   eq(q.val('SELECT seq FROM leads WHERE email=?', ada.email), null, 'Champions get lifecycle emails, not a sequence');
+  await (await import('../src/lib/emailcheck')).scanContacts();
   // Sequence: first step now, next one later
   const before = Number(q.val("SELECT COUNT(*) FROM outbox WHERE recipient='zainab@example.com'"));
   L.runSequences();
@@ -1002,6 +1004,25 @@ await t('marketing email is spread over the sending window, warms up from 20 a d
   eq(N.emailSuppressed('gone@t.ng'), true); eq(Number(q.val("SELECT COUNT(*) FROM email_suppress WHERE hash LIKE '%gone%'")), 0, 'only a hash is kept');
   L.importContacts(L.parseContacts('Bad Address, gone@t.ng'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='gone@t.ng'")), 0, 'never re-added');
+});
+
+console.log('\nEmail pre-scan');
+await t('pre-scan: company domains are checked before sending; dead domains are purged and never re-added; webmail is not looked up', async () => {
+  const E = await import('../src/lib/emailcheck'); const L = await import('../src/lib/library');
+  const looked: string[] = [];
+  E._setResolver(async (d) => { looked.push(d); if (d === 'gone-coop.ng') throw Object.assign(new Error('nx'), { code: 'ENOTFOUND' }); if (d === 'nomail.ng') return [{ exchange: '.', priority: 0 }]; if (d === 'slow.ng') throw Object.assign(new Error('t'), { code: 'ETIMEOUT' }); return [{ exchange: `mx.${d}`, priority: 10 }]; });
+  L.importContacts(L.parseContacts('a@livecoop.ng\nb@livecoop.ng\nc@gone-coop.ng\nd@nomail.ng\ne@gmail.com\nf@slow.ng'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email LIKE '%@livecoop.ng' AND email_check IS NULL")), 2, 'nothing cleared before the scan');
+  await E.scanContacts();
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email LIKE '%@livecoop.ng' AND email_check='ok'")), 2);
+  eq(looked.filter((d) => d === 'livecoop.ng').length, 1, 'one lookup per domain');
+  eq(looked.includes('gmail.com'), false); eq(q.val("SELECT email_check FROM leads WHERE email='e@gmail.com'"), 'public');
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email IN ('c@gone-coop.ng','d@nomail.ng')")), 0, 'dead domains purged');
+  eq(q.val("SELECT email_check FROM leads WHERE email='f@slow.ng'"), null, 'no answer: held, tried again later');
+  await E.scanContacts(); await E.scanContacts();
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='f@slow.ng'")), 0, 'removed after 3 checks with no answer');
+  L.importContacts(L.parseContacts('c@gone-coop.ng'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='c@gone-coop.ng'")), 0, 'never re-added');
 });
 
 console.log('\nCovers');

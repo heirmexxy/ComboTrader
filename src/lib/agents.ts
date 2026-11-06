@@ -130,6 +130,7 @@ const EXECUTORS: Record<string, (p: any, by: number | null) => string> = {
     if (!l || !l.email) throw new Error('Lead not found or has no email');
     if (['unsubscribed', 'signed_up', 'bounced'].includes(l.status)) return `skipped: lead is ${l.status}`;
     if (!l.consent) throw new Error('No consent recorded for this contact; mark consent before inviting');
+    if (!['ok', 'public'].includes(String(l.email_check))) return 'skipped: email not checked yet (the pre-scan runs hourly)';
     if (q.get('SELECT 1 FROM users WHERE email=?', l.email)) { q.run("UPDATE leads SET status='signed_up' WHERE id=?", l.id); return 'skipped: already a Champion'; }
     const title = String(p.title || '').slice(0, 120), body = String(p.body || '').slice(0, 2000);
     if (!title || !body) throw new Error('Invitation needs a subject and body');
@@ -620,7 +621,7 @@ export async function runProspector() {
   let budget = limit;
 
   // 1) Invitations to people who asked to hear from us.
-  const due = q.all<any>(`SELECT * FROM leads WHERE consent=1 AND email IS NOT NULL AND status IN ('new','contacted') AND touches < 3 AND (lists IS NULL OR lists='') ORDER BY touches, id LIMIT 200`)
+  const due = q.all<any>(`SELECT * FROM leads WHERE consent=1 AND email IS NOT NULL AND email_check IN ('ok','public') AND status IN ('new','contacted') AND touches < 3 AND (lists IS NULL OR lists='') ORDER BY touches, id LIMIT 200`)
     .filter((l) => !l.last_touch_at || Date.now() - new Date(l.last_touch_at).getTime() >= INVITE_GAP_DAYS[l.touches] * 864e5)
     .filter((l) => !q.get("SELECT 1 FROM agent_actions WHERE kind='send_invite' AND status='proposed' AND payload LIKE ?", `%"lead_id":${l.id},%`))
     .slice(0, budget);
@@ -680,7 +681,7 @@ export async function runProspector() {
   if (asked) out.push(`${asked} referral asks drafted`);
 
   // 3) Organisations: first emails and one follow-up a week later. Always reviewed by a person.
-  const orgs = q.all<any>(`SELECT * FROM prospects WHERE email IS NOT NULL AND ((status='new' AND touches=0) OR (status='contacted' AND touches=1 AND last_touch_at<=?)) ORDER BY touches, id LIMIT ?`, new Date(Date.now() - 7 * 864e5).toISOString(), Math.max(0, budget))
+  const orgs = q.all<any>(`SELECT * FROM prospects WHERE email IS NOT NULL AND email_check='ok' AND ((status='new' AND touches=0) OR (status='contacted' AND touches=1 AND last_touch_at<=?)) ORDER BY touches, id LIMIT ?`, new Date(Date.now() - 7 * 864e5).toISOString(), Math.max(0, budget))
     .filter((o) => !q.get("SELECT 1 FROM agent_actions WHERE kind='send_outreach' AND status='proposed' AND payload LIKE ?", `%"prospect_id":${o.id},%`));
   if (orgs.length) {
     type Out = { prospect_id: number; title: string; body: string; template?: { title: string; body: string }; lesson_id?: number };

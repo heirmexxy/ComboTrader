@@ -31,6 +31,7 @@ import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCE
 import { marked } from 'marked';
 import { agentLabel } from '../lib/personas';
 import { coverImage } from '../lib/covers';
+import { scanContacts, scanStats } from '../lib/emailcheck';
 import { marketingDailyCap, marketingQueued } from '../lib/notify';
 import { decide as chiefDecide, rolesOf, runChief, triage as chiefTriage, approveSafe as chiefApproveSafe, assignTask, lotPct as chiefLotPct, TASK_KINDS, type TaskKind } from '../lib/chief';
 import { escapeHtml } from '../lib/notify';
@@ -785,9 +786,11 @@ const LIST_LABEL: Record<string, string> = { sequence: 'Email sequence', newslet
 get('/admin/audience', 'admin:content', (c) => {
   const s = libraryStats();
   const recent = q.all<any>("SELECT * FROM leads WHERE lists IS NOT NULL AND lists!='' ORDER BY id DESC LIMIT 30");
+  const sc = scanStats();
   page(c, 'Contacts & email sequences', <>
+    <p className="small muted"><b>Pre-scan:</b> before anything is sent, Chidi (the email agent) checks every address on a company or organisation domain: does the domain still exist and still have a mail server? Addresses that fail are removed for good. Gmail, Yahoo, Outlook and similar are not looked up. Any address the email service refuses on the first send is also removed. <Act action="/admin/audience/scan" label="Check addresses now" /></p>
     <p className="muted">Add people who <b>asked to hear from Kitovu or ComboTrader</b> (event sign-ups, partners, customers, a group’s members who agreed). They get the chosen email sequence one email at a time, the fortnightly newsletter and/or new articles. Everyone can stop with one click; people who stopped are never re-added. Champions already on the platform get their own lifecycle emails instead of a sequence.</p>
-    <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Marketing emails waiting for their slot', marketingQueued(), `${marketingDailyCap()} a day now (warming up to ${settings().sequence_daily_cap}), spread 8:00–19:00${String(settings().marketing_paused_until || '') > now() ? ' · PAUSED: too many failed' : ''}`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
+    <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Addresses checked and cleared', sc.ok, `${sc.waiting} waiting for the pre-scan · ${sc.removed} removed (domain gone or takes no email)`], ['Marketing emails waiting for their slot', marketingQueued(), `${marketingDailyCap()} a day now (warming up to ${settings().sequence_daily_cap}), spread 8:00–19:00${String(settings().marketing_paused_until || '') > now() ? ' · PAUSED: too many failed' : ''}`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
     <div className="grid-2 top">
       <Box title="Add contacts">
         <form method="post" action="/admin/audience/import" encType="multipart/form-data" className="stack"><Csrf />
@@ -813,6 +816,7 @@ get('/admin/audience', 'admin:content', (c) => {
     <Box title="Recently added"><Table rows={recent} cols={[['Email', (r) => r.email], ['Name', (r) => r.name || ''], ['Lists', (r) => String(r.lists).split(',').map((x) => LIST_LABEL[x] || x).join(', ')], ['Sequence', (r) => r.seq ? `${SEQUENCES[r.seq]?.name || r.seq}: email ${r.seq_step + 1}` : r.seq_step ? 'finished' : '—'], ['Status', (r) => <S s={r.status} />], ['From', (r) => <span className="small">{r.note || r.source}</span>]]} empty="No contacts yet." /></Box>
   </>);
 });
+post('/admin/audience/scan', 'admin:content', async (c) => { c.redirect('/admin/audience', ['ok', `Pre-scan: ${await scanContacts(5000)}.`]); });
 post('/admin/audience/import', 'admin:content', (c) => {
   const file = c.files?.file;
   const text = `${c.str('text', 2_000_000)}\n${file?.data ? file.data.toString('utf8') : ''}`;
@@ -822,7 +826,8 @@ post('/admin/audience/import', 'admin:content', (c) => {
   if (!lists.length) return c.redirect('/admin/audience', ['error', 'Choose at least one list.']);
   try {
     const r = importContacts(rows, { lists, sequence: c.str('sequence', 20), source: c.str('source', 200), consent: c.bool('consent'), by: c.user!.id });
-    c.redirect('/admin/audience', ['ok', `${r.added} added, ${r.updated} updated${r.champions ? `, ${r.champions} already Champions (no sequence)` : ''}${r.skipped ? `, ${r.skipped} skipped (duplicates or opted out)` : ''}${r.newsletter ? `, ${r.newsletter} on the newsletter` : ''}.`]);
+    void scanContacts(5000).catch(() => undefined); // Chidi checks every new address's domain before anything is sent
+    c.redirect('/admin/audience', ['ok', `Chidi is checking each address’s domain now; nothing is sent until it passes. ${r.added} added, ${r.updated} updated${r.champions ? `, ${r.champions} already Champions (no sequence)` : ''}${r.skipped ? `, ${r.skipped} skipped (duplicates or opted out)` : ''}${r.newsletter ? `, ${r.newsletter} on the newsletter` : ''}.`]);
   } catch (e: any) { c.redirect('/admin/audience', ['error', e.message]); }
 });
 

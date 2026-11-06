@@ -794,6 +794,14 @@ CREATE INDEX outbox_due ON outbox(status, send_after);
 CREATE TABLE email_suppress (hash TEXT PRIMARY KEY, reason TEXT, created_at TEXT NOT NULL);
 UPDATE outbox SET status='failed' WHERE kind='marketing' AND status='queued' AND attempts>0;
 `,
+`
+-- Email pre-scan: contacts are checked (does the domain still take email?) before anything is sent.
+ALTER TABLE leads ADD COLUMN email_check TEXT;      -- ok | public (webmail); NULL = not checked yet
+ALTER TABLE leads ADD COLUMN email_checked_at TEXT;
+ALTER TABLE leads ADD COLUMN email_tries INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE prospects ADD COLUMN email_check TEXT;
+CREATE TABLE email_domains (domain TEXT PRIMARY KEY, verdict TEXT NOT NULL, checked_at TEXT NOT NULL);
+`,
 ];
 
 export function openDb(file = config.dbFile) {
