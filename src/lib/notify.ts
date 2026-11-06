@@ -54,15 +54,21 @@ export function dropAddress(email: string, reason: string) {
 // ---------- Pacing marketing email (protects the sending domain's reputation) ----------
 const WINDOW = { start: 9, end: 19 }; // Lagos time (UTC+1, no daylight saving), Monday to Friday only
 const LAGOS = 3600e3;
-/** Most marketing emails per day: starts at 50 and grows by half each day (warm-up) up to the set daily cap. */
-export function marketingDailyCap() {
+const lagosDayOf = (t: number) => new Date(t + LAGOS).toISOString().slice(0, 10);
+/** Most marketing emails per day. Warm-up by sending day (weekdays since the first marketing email): 300, 600, 1,000,
+ * then 2,000 a day (email_warmup_steps), never above sequence_daily_cap. */
+export function marketingDailyCap(at = Date.now()) {
   const s = settings();
   let start = String(s.email_warmup_start || '');
   if (!start) { start = now(); setSetting('email_warmup_start', start); }
-  const days = Math.max(0, Math.floor((Date.now() - Date.parse(start)) / 864e5));
-  const cap = Math.max(1, Math.min(Number(s.sequence_daily_cap || 200), Math.round(Number(s.email_warmup_first_day || 50) * Math.pow(1.5, days))));
+  // Weekdays since the warm-up started (the first sending day is 0).
+  let day = 0;
+  const startDay = Date.parse(`${lagosDayOf(Date.parse(start))}T00:00:00Z`), atDay = Date.parse(`${lagosDayOf(at)}T00:00:00Z`);
+  for (let t = startDay + 864e5; t <= atDay; t += 864e5) { const wd = new Date(t).getUTCDay(); if (wd !== 0 && wd !== 6) day++; }
+  const steps = String(s.email_warmup_steps || '300,600,1000,2000').split(',').map((x) => Number(x.trim())).filter((x) => x > 0);
+  const cap = Math.max(1, Math.min(Number(s.sequence_daily_cap || 2000), steps[Math.min(day, steps.length - 1)] || 300));
   // Delivery trouble: the Chief of Staff halves the pace for a few days.
-  return String(s.email_slowdown_until || '') > now() ? Math.max(1, Math.ceil(cap / 2)) : cap;
+  return String(s.email_slowdown_until || '') > new Date(at).toISOString() ? Math.max(1, Math.ceil(cap / 2)) : cap;
 }
 function fitWindow(t: number) {
   const d = new Date(t + LAGOS), h = d.getUTCHours() + d.getUTCMinutes() / 60;
@@ -78,8 +84,11 @@ const lagosDay = (t: number) => new Date(t + LAGOS).toISOString().slice(0, 10);
  * default), at most the day's warm-up cap per day; whatever doesn't fit moves to the next weekday morning. It reads the
  * outbox once and then works in memory, so planning 10,000 emails takes milliseconds. */
 export function marketingPlanner(o: { ignoreQueued?: boolean } = {}) {
-  const gap = Math.max(30, Number(settings().email_gap_seconds || 150)) * 1000;
-  const cap = marketingDailyCap();
+  // Each day has its own cap (the warm-up grows by sending day); the gap spreads that day's emails evenly over the
+  // window, never closer than 10 seconds or further apart than email_gap_seconds.
+  const caps = new Map<string, number>();
+  const capOn = (t: number) => { const k = lagosDay(t); if (!caps.has(k)) caps.set(k, marketingDailyCap(t)); return caps.get(k)!; };
+  const gapOn = (t: number) => Math.max(10_000, Math.min(Number(settings().email_gap_seconds || 150) * 1000, ((WINDOW.end - WINDOW.start) * 3600e3) / capOn(t)));
   const slow = slowGroups();
   const paused = Date.parse(String(settings().marketing_paused_until || '')) || 0;
   const todayStart = new Date(Date.now() - 864e5).toISOString();
@@ -94,12 +103,12 @@ export function marketingPlanner(o: { ignoreQueued?: boolean } = {}) {
     if (t > (lastByGroup.get(r.rgroup) || 0)) lastByGroup.set(r.rgroup, t);
   }
   return (group = 'company') => {
-    let t = Math.max(Date.now(), last ? last + gap : 0);
+    let t = Math.max(Date.now(), last ? last + gapOn(last) : 0);
     // A provider that is delaying our mail gets it four times more slowly until it recovers.
-    if (String(slow[group] || '') > now() && lastByGroup.get(group)) t = Math.max(t, lastByGroup.get(group)! + 4 * gap);
+    if (String(slow[group] || '') > now() && lastByGroup.get(group)) t = Math.max(t, lastByGroup.get(group)! + 4 * gapOn(lastByGroup.get(group)!));
     if (paused > t) t = paused;
     t = fitWindow(t);
-    for (let i = 0; i < 400 && (perDay.get(lagosDay(t)) || 0) >= cap; i++) {
+    for (let i = 0; i < 400 && (perDay.get(lagosDay(t)) || 0) >= capOn(t); i++) {
       const d = new Date(t + LAGOS); d.setUTCHours(0, 0, 0, 0);
       t = fitWindow(d.getTime() - LAGOS + 864e5 + WINDOW.start * 3600e3 - 1);
     }

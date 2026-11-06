@@ -858,6 +858,12 @@ CREATE INDEX IF NOT EXISTS outbox_status_kind ON outbox(status, kind);
 `
 UPDATE outbox SET send_after=NULL WHERE status='cancelled';
 `,
+`
+-- Faster warm-up chosen by the founder (about 2 weeks for 10,000 emails); restart it today and plan the queue again.
+UPDATE settings SET value = '"' || strftime('%Y-%m-%dT%H:%M:%fZ','now') || '"' WHERE key='email_warmup_start';
+UPDATE settings SET value = '2000' WHERE key='sequence_daily_cap' AND CAST(value AS INTEGER) < 2000;
+UPDATE settings SET value = '""' WHERE key='email_slowdown_until';
+`,
 ];
 
 export function openDb(file = config.dbFile) {

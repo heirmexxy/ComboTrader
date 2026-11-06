@@ -24,6 +24,7 @@ import './routes/more';
 import './routes/admin-more'; // before admin: /admin/champions/import must match before /admin/champions/:id
 import './routes/admin';
 import { backfillCovers } from './lib/covers';
+import { replanMarketingQueue } from './lib/notify';
 
 const MIME: Record<string, string> = {
   '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -134,6 +135,7 @@ export function start() {
   openDb();
   bootstrap();
   try { seedLibrary(); } catch (e) { console.error('library seed failed', e); }
+  try { replanMarketingQueue(); } catch (e) { console.error('email re-plan failed', e); }
   // Covers are drawn slowly in the background, a minute after start, so a restart is never slow.
   setTimeout(() => void backfillCovers(30).catch((e) => console.error('covers failed', e)), 60_000);
   setOverrideLoader(() => q.all('SELECT key, lang, value FROM page_text'));

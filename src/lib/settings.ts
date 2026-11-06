@@ -18,10 +18,10 @@ export const DEFAULTS = {
   library_newsletter_next: 1,
   library_newsletter_at: '',
   sequences_enabled: true, // send email sequences to opted-in contacts
-  sequence_daily_cap: 200, // most marketing emails per day once warmed up (sequences, newsletters, campaigns, outreach)
-  email_warmup_start: '', // first paced marketing email (warm-up: email_warmup_first_day on day 1, +50% a day)
-  email_warmup_first_day: 50, // marketing emails on the first day of sending
-  email_gap_seconds: 150, // time between marketing emails (150 = 2 every 5 minutes), from 9:00 Lagos time, Monday to Friday
+  sequence_daily_cap: 2000, // most marketing emails per day once warmed up (sequences, newsletters, campaigns, outreach)
+  email_warmup_start: '', // when the email warm-up started (see email_warmup_steps)
+  email_warmup_steps: '300,600,1000,2000', // marketing emails per sending day during warm-up (weekdays), then the last number
+  email_gap_seconds: 150, // time between marketing emails (at most; a bigger day is spread evenly from 9:00 to 19:00 Lagos time, Monday to Friday)
   marketing_paused_until: '', // set automatically if too many marketing emails fail
   ai_provider: 'anthropic', // which AI the agents use: anthropic (Claude) | openai (or the OpenAI-compatible service in OPENAI_BASE_URL)
   ai_fallback: true, // if the chosen provider fails (no credit, outage), try the other one

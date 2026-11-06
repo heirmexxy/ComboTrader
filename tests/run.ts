@@ -978,31 +978,34 @@ await t('chief: briefs from facts, assigns tasks for a lot that is behind, pause
 });
 
 console.log('\nEmail pacing');
-await t('marketing email goes out 2 every 5 minutes from 9:00 on weekdays, 50 on day one then +50% a day, and pauses if too many fail', async () => {
+await t('marketing email: warm-up 300, 600, 1,000 then 2,000 a weekday, spread evenly 9:00–19:00 Lagos, and pauses if too many fail', async () => {
   const N = await import('../src/lib/notify');
-  setSetting('email_warmup_start', now()); setSetting('marketing_paused_until', ''); setSetting('email_slow_groups', '{}');
+  setSetting('email_warmup_start', now()); setSetting('marketing_paused_until', ''); setSetting('email_slow_groups', '{}'); setSetting('email_slowdown_until', '');
   q.run("DELETE FROM outbox WHERE kind='marketing'");
-  eq(N.marketingDailyCap(), 50);
-  for (let i = 0; i < 52; i++) N.queueEmail(`pace${i}@t.ng`, 'Hi', '<p>x</p>', { marketing: true });
+  eq(N.marketingDailyCap(), 300);
+  const plan = N.marketingPlanner();
+  for (let i = 0; i < 302; i++) N.queueEmail(`pace${i}@t.ng`, 'Hi', '<p>x</p>', { marketing: true, sendAfter: plan('company') });
   N.queueEmail('otp@t.ng', 'Code', '<p>1</p>');
   const slots = q.all<any>("SELECT send_after FROM outbox WHERE kind='marketing' ORDER BY id").map((r) => Date.parse(r.send_after));
-  for (let i = 1; i < 50; i++) if (new Date(slots[i] + 3600e3).getUTCDate() === new Date(slots[i - 1] + 3600e3).getUTCDate()) eq(slots[i] - slots[i - 1] >= 150e3 - 15e3 && slots[i] - slots[i - 1] <= 150e3 + 15e3, true, 'about 2½ minutes apart');
-  for (const x of slots) { const d = new Date(x + 3600e3), h = d.getUTCHours(); eq(h >= 9 && h < 19, true, 'inside 9:00-19:00 Lagos'); eq(d.getUTCDay() !== 0 && d.getUTCDay() !== 6, true, 'never on a weekend'); }
   const day = (x: number) => new Date(x + 3600e3).toISOString().slice(0, 10);
+  for (let i = 1; i < slots.length; i++) if (day(slots[i]) === day(slots[0]) && day(slots[i - 1]) === day(slots[0])) eq(slots[i] - slots[i - 1] >= 120e3 - 15e3 && slots[i] - slots[i - 1] <= 120e3 + 15e3, true, '300 a day = one every 2 minutes');
+  for (const x of slots) { const d = new Date(x + 3600e3), h = d.getUTCHours(); eq(h >= 9 && h < 19, true, 'inside 9:00-19:00 Lagos'); eq(d.getUTCDay() !== 0 && d.getUTCDay() !== 6, true, 'never on a weekend'); }
   const perDay = new Map<string, number>(); for (const x of slots) perDay.set(day(x), (perDay.get(day(x)) || 0) + 1);
-  eq(Math.max(...perDay.values()) <= 50, true, 'no more than 50 on one day');
-  const nextDayFirst = slots.find((x) => day(x) > day(slots[0]) && perDay.get(day(slots[0]))! >= 50);
-  if (nextDayFirst) eq(new Date(nextDayFirst + 3600e3).getUTCHours(), 9, 'the overflow starts at 9:00 the next weekday');
+  eq(Math.max(...perDay.values()) <= 300, true, 'no more than 300 on the first day');
+  const firstDay = day(slots[0]), nextDayFirst = slots.find((x) => day(x) > firstDay);
+  if (nextDayFirst && perDay.get(firstDay)! >= 300) eq(new Date(nextDayFirst + 3600e3).getUTCHours(), 9, 'the overflow starts at 9:00 the next weekday');
+  // Re-planning gives the same rules.
+  eq(N.replanMarketingQueue().planned, 302);
+  setSetting('email_warmup_start', new Date(Date.now() - 14 * 864e5).toISOString());
+  eq(N.marketingDailyCap(), 2000, 'warmed up');
+  setSetting('email_slowdown_until', new Date(Date.now() + 864e5).toISOString());
+  eq(N.marketingDailyCap(), 1000, 'half pace'); setSetting('email_slowdown_until', ''); setSetting('email_warmup_start', now());
   eq(q.val("SELECT send_after FROM outbox WHERE recipient='otp@t.ng'"), null, 'transactional email is not delayed');
   // Inside the window a due marketing email is released; outside it, it waits (checked against the clock now).
   q.run("UPDATE outbox SET send_after=? WHERE recipient='pace0@t.ng'", new Date(Date.now() - 60e3).toISOString());
   await N.flushOutbox();
   const lag = new Date(Date.now() + 3600e3), inWin = lag.getUTCDay() % 6 !== 0 && lag.getUTCHours() >= 9 && lag.getUTCHours() < 19;
   eq(q.val("SELECT status FROM outbox WHERE recipient='pace0@t.ng'") !== 'queued', inWin, inWin ? 'sent in the window' : 'held outside the window');
-  setSetting('email_warmup_start', new Date(Date.now() - 1.5 * 864e5).toISOString());
-  eq(N.marketingDailyCap(), 75, 'day two');
-  setSetting('email_warmup_start', new Date(Date.now() - 10 * 864e5).toISOString());
-  eq(N.marketingDailyCap(), 200, 'warmed up after about four days');
   q.run("DELETE FROM outbox WHERE kind='marketing'");
   // One failure removes the address everywhere; only a hash stays so it is never re-imported.
   eq(N.addressRefused('Email 422: invalid to address'), true); eq(N.addressRefused('Email 401: bad key'), false); eq(N.addressRefused('Email 503: down'), false); eq(N.addressRefused('fetch failed'), false);
@@ -1116,7 +1119,7 @@ await t('sequences send to public (webmail) addresses before company addresses',
   for (let i = 0; i < 40; i++) q.insert('leads', { email: `pub${i}@gmail.com`, lang: 'en', source: 'import', consent: 1, token: `pu${i}`, lists: 'sequence', seq: 'nurture', seq_step: 0, seq_next_at: now(), email_check: 'public', created_at: now() });
   L.runSequences();
   const sent = q.all<any>("SELECT recipient FROM outbox WHERE kind='marketing' ORDER BY id").map((r) => r.recipient);
-  eq(sent.length, N.marketingDailyCap());
+  eq(sent.length, Math.min(80, N.marketingDailyCap()));
   eq(sent.slice(0, 40).every((e) => e.endsWith('@gmail.com')), true, 'all public first');
   eq(sent.slice(40).every((e) => !e.endsWith('@gmail.com')), true, 'then company');
   q.run("DELETE FROM outbox WHERE kind='marketing'"); q.run("DELETE FROM leads WHERE token LIKE 'co%' OR token LIKE 'pu%'");
