@@ -1139,6 +1139,17 @@ await t('chat with Adaeze: instructions reach the right agent (and its AI brief)
   const q1 = await CC.chatWithChief(admin, 'How are the lots doing?');
   eq(/rules mode|ANTHROPIC_API_KEY/i.test(q1!.reply), true, q1!.reply);
   eq(CC.agentsFor(['content']).includes('treasury'), false);
+  // A super admin can tell Adaeze to launch everything waiting; wording that breaks the playbook is held back.
+  const agentsMod = await import('../src/lib/agents');
+  const okId = agentsMod.propose({ agent: 'social', kind: 'social_posts', risk: 'low', title: 'Harvest Trail update', payload: { text: 'Planting has started.' } });
+  const badId = agentsMod.propose({ agent: 'social', kind: 'social_posts', risk: 'low', title: 'Guaranteed returns', payload: { text: 'risk-free' } });
+  setSetting('email_slowdown_until', new Date(Date.now() + 864e5).toISOString());
+  const fin2 = q.get<any>("SELECT * FROM users WHERE email='fin@t.ng'");
+  eq((await CC.chatWithChief(fin2, 'Go live'))!.done.some((d) => d.includes('only a super admin')), true);
+  const go = await CC.chatWithChief(admin, 'Go live: approve everything');
+  eq(go!.done.some((d) => d.startsWith('Approved and launched')), true, go!.done.join(' | '));
+  eq(q.val('SELECT status FROM agent_actions WHERE id=?', okId), 'approved'); eq(q.val('SELECT status FROM agent_actions WHERE id=?', badId), 'proposed', 'off-message held');
+  eq(JSON.parse(String(q.val("SELECT value FROM settings WHERE key='email_slowdown_until'"))), '', 'back to full pace');
 });
 
 await t('Paystack top-up is only asked for when money is due (withdrawals waiting or trades maturing within 7 days)', async () => {
@@ -1209,6 +1220,7 @@ await t('email health: provider events are recorded, rates reported by mailbox a
   H.recordProviderEvents({ event: 'deferred', 'message-id': ids[39].provider_id, email: ids[39].recipient });
   H.recordProviderEvents(ids.filter((r) => r.recipient.endsWith('gmail.com')).slice(0, 4).map((r) => ({ type: 'email.delivery_delayed', data: { email_id: r.provider_id } })));
   H.recordProviderEvents({ type: 'contact.updated', data: {} });
+  H.recordProviderEvents(ids.slice(30, 40).map((r) => ({ type: 'email.bounced', data: { email_id: r.provider_id, to: [r.recipient] } })));
   const h = H.emailHealth(7);
   eq(h.total.sent, 40); eq(h.rates.delivery, 75); eq(h.rates.open, 33.3);
   eq(h.byCampaign.map((x) => x.name).sort().join('|'), 'New article|Sequence: nurture');
@@ -1216,7 +1228,7 @@ await t('email health: provider events are recorded, rates reported by mailbox a
   q.insert('leads', { email: 'h2@coop.ng', lang: 'en', source: 'import', consent: 1, token: 'hb', created_at: now() });
   H.recordProviderEvents({ type: 'email.bounced', data: { email_id: ids[2].provider_id, to: ['h2@coop.ng'] } });
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='h2@coop.ng'")), 0);
-  eq(H.emailHealth(7).total.bounced, 1);
+  eq(H.emailHealth(7).total.bounced, 11);
   // 5 of 20 gmail emails delayed today -> gmail is paced 4x slower.
   await N.flushOutbox();
   eq(JSON.parse(String(q.val("SELECT value FROM settings WHERE key='email_slow_groups'")).replace(/^"|"$/g, '').replace(/\\"/g, '"')).gmail > now(), true, 'gmail slowed');

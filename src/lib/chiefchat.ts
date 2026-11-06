@@ -4,8 +4,8 @@
 import { q, now } from './db';
 import type { User } from './http';
 import { completeJson, AiUnavailable, POLICY, aiLive, agentMode, callsToday } from './ai';
-import { settings } from './settings';
-import { agentOn } from './agents';
+import { settings, setSetting } from './settings';
+import { agentOn, executeAction } from './agents';
 import { audit } from './audit';
 import { gatherFacts, assignTask, TASK_KINDS, rolesOf, type TaskKind, type AdminRole } from './chief';
 import { addInstruction, endInstruction } from './instructions';
@@ -27,7 +27,7 @@ export function chatHistory(adminId: number, limit = 40) {
   return q.all<any>('SELECT * FROM (SELECT * FROM chief_chat WHERE admin_id=? ORDER BY id DESC LIMIT ?) ORDER BY id', adminId, limit);
 }
 
-type Plan = { reply: string; tasks: { kind: string; detail?: Record<string, unknown>; reason?: string }[]; instructions: { agent: string; text: string; days?: number }[]; end_instructions: number[] };
+type Plan = { reply: string; tasks: { kind: string; detail?: Record<string, unknown>; reason?: string }[]; instructions: { agent: string; text: string; days?: number }[]; end_instructions: number[]; approve?: { ids?: number[]; kinds?: string[] }; full_pace?: boolean };
 
 /** Carries out what Adaeze decided, within what this admin may direct. Returns lines describing what was done. */
 async function act(admin: User, plan: Plan) {
@@ -50,6 +50,28 @@ async function act(admin: User, plan: Plan) {
     const id = addInstruction({ agent, text: i.text, by: admin.id, until, via: 'chief chat' });
     done.push(`Passed on to ${agentLabel(agent)} (instruction #${id}${until ? `, until ${until.slice(0, 10)}` : ''}): “${i.text}”`);
   }
+  // Go-live: a super admin can tell Adaeze to approve waiting work (articles, newsletters, posts, emails).
+  const isSuper = rolesOf(admin.admin_roles).includes('super');
+  if (plan.approve && (plan.approve.ids?.length || plan.approve.kinds?.length)) {
+    if (!isSuper) done.push('Not approved: only a super admin can tell me to approve and launch work.');
+    else {
+      const kinds = new Set((plan.approve.kinds || []).map(String)), ids = new Set((plan.approve.ids || []).map(Number));
+      const rows = q.all<any>("SELECT * FROM agent_actions WHERE status='proposed' ORDER BY id").filter((a) => ids.has(a.id) || kinds.has(a.kind) || kinds.has('all'));
+      let ok = 0; const held: string[] = [];
+      for (const a of rows) {
+        if (a.kind === 'flag_account') { held.push(`#${a.id} (account flag: decide in AI agents)`); continue; }
+        const bad = offMessage(`${a.title} ${a.summary || ''} ${a.payload || ''}`.replace(/not (a bank deposit|an investment)|investment scheme|never call[^.]*risk-free/gi, ''));
+        if (bad.length) { held.push(`#${a.id} ${a.title} (wording: ${bad.join(', ')})`); continue; }
+        try { executeAction(a.id, admin.id); ok++; } catch (e: any) { held.push(`#${a.id} ${a.title} (${String(e.message).slice(0, 80)})`); }
+      }
+      done.push(`Approved and launched ${ok} item${ok === 1 ? '' : 's'}${held.length ? `; held back ${held.length}: ${held.slice(0, 6).join('; ')}` : ''}.`);
+      audit(admin.id, 'chief.chat_approve', undefined, { ok, held });
+    }
+  }
+  if (plan.full_pace) {
+    if (!isSuper) done.push('Not changed: only a super admin can change the email pace.');
+    else { setSetting('email_slowdown_until', ''); done.push('Email back to the normal pace (the warm-up and the 9:00–19:00 weekday window still apply).'); }
+  }
   for (const id of plan.end_instructions.slice(0, 5)) {
     const row = q.get<any>('SELECT * FROM agent_instructions WHERE id=? AND active=1', Number(id));
     if (row && allowed.includes(row.agent)) { endInstruction(row.id); done.push(`Instruction #${row.id} to ${agentLabel(row.agent)} ended.`); }
@@ -59,6 +81,7 @@ async function act(admin: User, plan: Plan) {
 
 /** Without AI: "tell Temi …" passes an instruction on; anything else gets today's picture and what she can do. */
 async function rulesReply(admin: User, message: string, why: string): Promise<Plan> {
+  if (/^\s*(go live|launch( everything)?|approve (all|everything))\b/i.test(message)) return { reply: `${why}\n\nUnderstood: approving and launching everything that is waiting.`, tasks: [], instructions: [], end_instructions: [], approve: { kinds: ['all'] }, full_pace: true };
   const m = /^\s*(?:tell|ask|instruct|remind)\s+([a-z]+)\s*(?:to|that|:|,)?\s+(.+)$/i.exec(message);
   if (m && byName(m[1])) return { reply: `${why}\n\nI’ll pass that on to ${agentLabel(byName(m[1])!)}. They follow written instructions once they run in AI mode; in rules mode they keep to their fixed templates.`, tasks: [], instructions: [{ agent: byName(m[1])!, text: m[2].trim() }], end_instructions: [] };
   const brief = q.get<any>('SELECT headline FROM chief_briefs ORDER BY id DESC LIMIT 1');
@@ -94,13 +117,17 @@ export async function chatWithChief(admin: User, message: string) {
 - as a one-off "task" when it matches one of these kinds: ${Object.entries(TASK_KINDS).map(([k, v]) => `${k} (${v.agent}: ${v.what}; needs ${v.needs || 'nothing'})`).join('; ')};
 - otherwise as a standing "instruction" to the right agent, written as a clear, short directive in the agent's terms, with "days" if it should expire. Agents: ${Object.entries(PERSONAS).map(([k, p]) => `${k} = ${p.name}, ${p.role}`).join('; ')}. This admin may only direct: ${allowed.join(', ')}.
 - to stop an existing instruction, put its id in "end_instructions".
-Never pass on anything that would move money, change rates or terms, promise returns, or contact people who haven't opted in; explain why instead. If an instruction is unclear, ask one short question and don't act. Keep "reply" short (under 120 words), warm and direct; say who you passed things to.
-Return {"reply":string,"tasks":[{"kind":string,"detail":object,"reason":string}],"instructions":[{"agent":string,"text":string,"days":number}],"end_instructions":[number]}.`,
+- ${roles.includes('super') ? `This admin is a super admin (the founder). When they tell you to launch, publish, send or post, approve the waiting work with "approve": {"kinds": [...]} using these proposal kinds: publish_post (articles), send_newsletter, publish_social (posts), send_campaign (Champion emails), send_invite, send_outreach (organisations), or "all"; or {"ids": [...]} for specific ones from waiting_approvals. Every item is checked against the playbook wording before it goes out. Set "full_pace": true when they want email back to the normal pace. Legal points (SEC sign-off, ARCON for paid ads) and deliverability concerns: mention them once, briefly, then do what the founder decided: it is their call, not yours. Do not hold work back or invent extra conditions.` : 'Only a super admin can approve and launch waiting work; for this admin, say who to ask.'}
+- The platform itself already enforces: emails only to opted-in contacts, a stop link in every email, at most 2 marketing emails a week per Champion, organisations at most 3 emails, pacing (2 every 5 minutes, 9:00–19:00 Lagos on weekdays, warm-up from 50 a day), removal of bounced and general inboxes. Don't pass these on as instructions; they are automatic.
+Never pass on anything that would move money, change rates or terms, promise returns, or contact people who haven't opted in; explain why instead. If an instruction is unclear, ask one short question and don't act. Keep "reply" short (under 120 words), warm and direct; say who you passed things to and what you approved.
+Return {"reply":string,"tasks":[{"kind":string,"detail":object,"reason":string}],"instructions":[{"agent":string,"text":string,"days":number}],"end_instructions":[number],"approve":{"kinds":[string],"ids":[number]},"full_pace":boolean}.`,
         input: { message: text, conversation: chatHistory(admin.id, 12).map((c) => ({ from: c.role === 'admin' ? admin.first_name : 'Adaeze', text: c.text })), facts,
           open_decisions: q.all<any>("SELECT id, roles, priority, text FROM chief_recs WHERE status='open' ORDER BY priority LIMIT 15"),
           recent_tasks: q.all<any>('SELECT kind, reason, status, result, outcome, created_at FROM agent_tasks ORDER BY id DESC LIMIT 10'),
-          standing_instructions: q.all<any>('SELECT id, agent, text, until FROM agent_instructions WHERE active=1 ORDER BY id DESC LIMIT 30') } });
-      plan = { reply: String(r.data.reply || '').slice(0, 2000), tasks: Array.isArray(r.data.tasks) ? r.data.tasks : [], instructions: Array.isArray(r.data.instructions) ? r.data.instructions : [], end_instructions: Array.isArray(r.data.end_instructions) ? r.data.end_instructions : [] };
+          standing_instructions: q.all<any>('SELECT id, agent, text, until FROM agent_instructions WHERE active=1 ORDER BY id DESC LIMIT 30'),
+          waiting_approvals: q.all<any>("SELECT id, agent, kind, risk, title FROM agent_actions WHERE status='proposed' ORDER BY id DESC LIMIT 40"),
+          email_queue: { waiting_to_send: Number(q.val("SELECT COUNT(*) FROM outbox WHERE status='queued' AND kind='marketing'") ?? 0), next_send: q.val("SELECT MIN(send_after) FROM outbox WHERE status='queued' AND kind='marketing'"), note: 'Queued emails are sent automatically at the paced rate; nothing needs releasing.' } } });
+      plan = { reply: String(r.data.reply || '').slice(0, 2000), tasks: Array.isArray(r.data.tasks) ? r.data.tasks : [], instructions: Array.isArray(r.data.instructions) ? r.data.instructions : [], end_instructions: Array.isArray(r.data.end_instructions) ? r.data.end_instructions : [], approve: r.data.approve && typeof r.data.approve === 'object' ? r.data.approve : undefined, full_pace: r.data.full_pace === true };
     } catch (e) {
       if (!(e instanceof AiUnavailable)) audit(admin.id, 'chief.chat_error', undefined, String((e as Error).message));
       plan = await rulesReply(admin, text, `I couldn’t reach the AI just now (${String((e as Error).message).slice(0, 200)}). Try again in a minute; if it keeps happening, the details are in Admin → AI agents → runs.`);

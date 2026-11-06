@@ -50,7 +50,9 @@ export function campaignFamily(c: string | null) {
 
 export interface HealthRow { name: string; sent: number; tracked: number; delivered: number; delayed: number; opened: number; bounced: number }
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : null);
-export const rates = (r: HealthRow) => ({ delivery: pct(r.delivered, r.tracked), open: pct(r.opened, r.delivered), bounce: pct(r.bounced, r.sent), delay: pct(r.delayed, r.tracked) });
+// Delivery is judged only on emails whose fate is known (delivered or bounced), so emails still in transit, or sent
+// before the provider's webhook was set up, don't look like failures.
+export const rates = (r: HealthRow) => ({ delivery: pct(r.delivered, r.delivered + r.bounced), open: pct(r.opened, r.delivered), bounce: pct(r.bounced, r.sent), delay: pct(r.delayed, r.tracked) });
 
 /** Marketing email over the last N days: totals, by kind of mailbox and by campaign. "Tracked" = has a provider id. */
 export function emailHealth(days = 7) {

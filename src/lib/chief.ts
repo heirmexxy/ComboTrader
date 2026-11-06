@@ -146,8 +146,8 @@ export function rulePlan(f: Facts) {
   else if (f.ai.left !== null && (f.ai.left <= 0 || (f.ai.runwayDays !== null && f.ai.runwayDays <= Number(settings().ai_credit_low_days || 7)))) recs.push({ key: 'ai_credit_low', roles: ['super'], priority: 2, text: `Claude credit is low: about ${usd(f.ai.left)} left, roughly ${f.ai.runwayDays ?? 0} days at ${usd(f.ai.perDay)} a day. Top up in the Claude Console and record the new balance in Admin → AI agents.`, link: '/admin/agents' });
   // Email health (needs the provider's webhook; at least 30 tracked emails in 7 days).
   const em = f.email;
-  if (em.tracked >= 30 && em.delivery_pct !== null && em.delivery_pct < 95) {
-    recs.push({ key: 'email_delivery', roles: ['content'], priority: 2, text: `Only ${em.delivery_pct}% of marketing emails reached the inbox server in the last 7 days (aim for 95%+). I’ve halved the sending pace for 3 days. Check the domain settings in Resend (SPF, DKIM, DMARC) and remove old lists.`, link: '/admin/audience' });
+  if (em.tracked >= 30 && em.delivery_pct !== null && em.delivery_pct < 90) {
+    recs.push({ key: 'email_delivery', roles: ['content'], priority: 2, text: `Only ${em.delivery_pct}% of marketing emails reached the inbox server in the last 7 days (aim for 95%+). I’ve halved the sending pace for 3 days; tell me “full pace” to undo it. Check the domain settings in Resend (SPF, DKIM, DMARC) and remove old lists.`, link: '/admin/audience' });
     if (!(String(settings().email_slowdown_until || '') > now()) && !recentTask('email.slow_down', '', 3)) tasks.push({ kind: 'email.slow_down', detail: { days: 3, delivery_before: em.delivery_pct }, reason: `Delivery at ${em.delivery_pct}%` });
   }
   if (em.sent >= 30 && em.bounce_pct !== null && em.bounce_pct > 2) recs.push({ key: 'email_bounces', roles: ['content'], priority: 2, text: `${em.bounce_pct}% of marketing emails bounced in the last 7 days (keep it under 2%). The bad addresses are already removed; look at which list they came from before importing more like it.`, link: '/admin/audience' });
