@@ -32,6 +32,7 @@ export const DEFAULTS = {
   ai_credit_low_days: 7, // warn when credit will run out within this many days
   email_slowdown_until: '', // set by the Chief of Staff when delivery drops: marketing goes at half pace
   email_slow_groups: '{}', // providers (gmail, yahoo…) that are delaying our mail, with when the slow-down ends
+  social_intro_series: true, // the first posts explain ComboTrader (8 topics) before any lot is promoted
   social_paused_until: '', // Chief of Staff: pause promoting new lots (e.g. when Treasury is short)
   social_boost: '', // Chief of Staff: {"topic":"how","until":"…"} favour a topic that is working
   chief_start_at: '', // day 1 of the 90-day plan (set on the first Chief of Staff run)

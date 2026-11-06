@@ -514,7 +514,7 @@ console.log('\nMarketing agents (Social + Email)');
 const mk = await import('../src/lib/marketing');
 const tracking = await import('../src/lib/tracking');
 await t('social (rules): plans a post for the newest open lot, makes a JPEG card, prepares copy-and-post when no channel is connected', async () => {
-  setSetting('agent_mode', 'rules');
+  setSetting('agent_mode', 'rules'); setSetting('social_intro_series', false); // this test is about lot posts; the intro series has its own test
   const r = await mk.runSocial(true);
   eq(r.includes('drafted'), true);
   const post = q.get<any>('SELECT * FROM social_posts ORDER BY id DESC');
@@ -1242,6 +1242,20 @@ await t('Telegram bot: invite links keep the referral, anyone can ask, Champions
   const n = await T.draftTelegramAds(null);
   eq(n >= 3, true); eq(T.telegramAds().every((a) => a.text.length <= 160 && a.code === `ad_${a.id}`), true);
   void A;
+});
+
+await t('social: the introduction series comes before lots, then a lot post needs two useful posts before it', async () => {
+  const M = await import('../src/lib/marketing');
+  q.run("DELETE FROM social_posts WHERE ref LIKE 'intro:%'"); setSetting('social_intro_series', true); setSetting('social_paused_until', '');
+  setSetting('social_intro_series', true);
+  eq(M.planNextPost().kind, 'intro'); eq(M.planNextPost().ref, 'intro:welcome');
+  for (const tp of M.INTRO_TOPICS) q.insert('social_posts', { kind: 'intro', ref: `intro:${tp}`, text: 'x', channels: '', status: 'published', created_at: now() });
+  q.insert('social_posts', { kind: 'lot', ref: 'lot:OLD', text: 'x', channels: '', status: 'published', created_at: now() });
+  eq(M.planNextPost().kind !== 'lot', true, 'no two lot posts in a row');
+  q.insert('social_posts', { kind: 'learn', ref: 'learn:a:1', text: 'x', channels: '', status: 'published', created_at: new Date(Date.now() + 1000).toISOString() });
+  q.insert('social_posts', { kind: 'learn', ref: 'learn:b:1', text: 'x', channels: '', status: 'published', created_at: new Date(Date.now() + 2000).toISOString() });
+  const hasOpenLot = !!q.get("SELECT 1 FROM lots l WHERE l.status='open' AND l.closes_at>? AND NOT EXISTS (SELECT 1 FROM social_posts s WHERE s.ref='lot:' || l.code)", now());
+  if (hasOpenLot) eq(M.planNextPost().kind, 'lot', 'after two useful posts a lot can be promoted');
 });
 
 console.log('\nEmail health');

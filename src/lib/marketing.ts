@@ -166,8 +166,31 @@ export function planForLot(code: string): Plan | null {
     card: { eyebrow: `Closes ${closes}`, headline: lot.title, lines: [`Earn ${r.rates} per annum`, `Stay ${r.periods}`, 'Signed buyer · Harvest Trail'] } };
 }
 const socialPaused = () => { const u = String(settings().social_paused_until || ''); return !!u && u > now(); };
+/** The introduction series: the first posts on every page explain who we are before any lot is promoted. */
+export const INTRO_TOPICS = ['welcome', 'how', 'kitovu', 'buyer', 'trail', 'risk', 'start', 'circles'] as const;
+const INTRO_HEAD: Record<string, [string, string[]]> = {
+  welcome: ['Meet ComboTrader', ['Fund real farm produce deals', 'Every lot has a named buyer']],
+  kitovu: ['Who is behind ComboTrader', ['Kitovu Technology, since 2016', 'Farm inputs, storage, trade']],
+  buyer: ['The buyer comes first', ['Every lot starts with a buyer order', 'Then we source the produce']],
+  start: ['How to start', ['Sign up free · verify', 'Pick a lot · follow the Trail']],
+};
+/** Educational posts since the last lot post (lot posts need at least 2 in between, so the feed stays mostly useful). */
+function learnSinceLastLot() {
+  const lastLot = String(q.val("SELECT MAX(created_at) FROM social_posts WHERE kind='lot'") || '');
+  if (!lastLot) return 99; // no lot post yet
+  return Number(q.val("SELECT COUNT(*) FROM social_posts WHERE kind IN ('learn','intro','prices','trail','milestone') AND created_at>?", lastLot) ?? 0);
+}
 export function planNextPost(): Plan {
-  const lot = socialPaused() ? null : q.get<any>("SELECT l.*, c.name AS commodity_name FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' AND l.closes_at>? AND NOT EXISTS (SELECT 1 FROM social_posts s WHERE s.ref='lot:' || l.code) ORDER BY COALESCE(l.opened_at, l.created_at) DESC", now());
+  // 1) Introduction first: until every intro topic has been posted, explain ComboTrader before promoting lots.
+  const nextIntro = INTRO_TOPICS.find((tp) => !posted(`intro:${tp}`));
+  if (nextIntro && settings().social_intro_series) {
+    const head = INTRO_HEAD[nextIntro] || ({ how: ['How ComboTrader works', ['Pick a lot with a named buyer', 'Choose 4 to 12 months', 'Follow it on the Harvest Trail']], trail: ['Follow your money', ['Sourcing · Warehouse · Delivery', 'Dated updates and photos']], risk: ['Straight talk on risk', ['Trades are not bank deposits', 'Read the risk statement']], circles: ['Back a trade together', ['Harvest Circles for groups', 'Small slots, own certificate']] } as Record<string, [string, string[]]>)[nextIntro];
+    return { kind: 'intro', ref: `intro:${nextIntro}`, key: `post:intro:${nextIntro}`, url: nextIntro === 'risk' ? '/legal/risk' : nextIntro === 'circles' ? '/circles' : nextIntro === 'kitovu' ? '/why-kitovu' : nextIntro === 'how' || nextIntro === 'buyer' ? '/how-it-works' : '/join',
+      // "about" tells the AI what this introduction post must explain (the built-in text, without the link).
+      facts: { topic: `introduction: ${nextIntro}`, about: (DEFAULT_POSTS[`post:intro:${nextIntro}`]?.[0] || '').replace('{link}', '').trim(), rate4: rateFor(4) / 100, rate12: rateFor(12) / 100 }, card: { eyebrow: 'Welcome', headline: head[0], lines: head[1] } };
+  }
+  // 2) Lots, but never two lot posts in a row: at least two useful posts between them (the Chief of Staff can still push a lot that is behind).
+  const lot = socialPaused() || learnSinceLastLot() < 2 ? null : q.get<any>("SELECT l.*, c.name AS commodity_name FROM lots l JOIN commodities c ON c.code=l.commodity WHERE l.status='open' AND l.closes_at>? AND NOT EXISTS (SELECT 1 FROM social_posts s WHERE s.ref='lot:' || l.code) ORDER BY COALESCE(l.opened_at, l.created_at) DESC", now());
   if (lot) {
     const r = rangeOf(lot);
     return { kind: 'lot', ref: `lot:${lot.code}`, key: 'post:lot', url: `/lots/${lot.code}`, facts: { title: lot.title, commodity: lot.commodity_name, region: lot.region || 'Nigeria', periods: r.periods, rates: r.rates, closes: new Date(lot.closes_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }) },
@@ -218,6 +241,14 @@ const DEFAULT_POSTS: Record<string, string[]> = {
   'post:trail': ['Harvest Trail update, {lot}: {stage}. {note} This is what your money does on ComboTrader: every step dated, with photos. {link}'],
   'post:milestone': ['{champions}+ Harvest Champions have now backed real farm trades with Kitovu, moving {tons} tons for {farmers} farmers. Thank you. Join them: {link}'],
   'post:prices': ['This week’s farm-gate prices from our field teams: {prices}. See the trends and the open Trade Lots: {link}'],
+  'post:intro:welcome': ['Welcome to ComboTrader, by Kitovu Technology. We let you fund real farm produce deals in Nigeria: your money buys crops that a named buyer has already agreed to purchase, and you can follow every lot from farm to buyer. Follow this page to learn how it works. {link}'],
+  'post:intro:how': ['How ComboTrader works, in four steps: 1) pick a Trade Lot that already has a signed buyer, 2) choose how long you stay, 4 to 12 months, 3) follow the trade on the Harvest Trail, 4) receive your money and earnings on the payout date. {link}'],
+  'post:intro:kitovu': ['Who is behind ComboTrader? Kitovu Technology Company, an agri-infrastructure company working with Nigerian farmers since 2016: farm inputs, storage and trade. ComboTrader lets you take part in that trade. {link}'],
+  'post:intro:buyer': ['Every ComboTrader lot starts with a buyer, not a guess: a processor or exporter orders the produce first, then we source it from farmers. Your money funds that order, and the buyer’s payment is what you earn from. {link}'],
+  'post:intro:trail': ['You can see exactly where your money goes. Each trade has a Harvest Trail with dated updates and photos: sourcing from farmers, the warehouse, delivery to the buyer. {link}'],
+  'post:intro:risk': ['Straight talk before you start: trades are not bank deposits and are not NDIC-insured. Read how we manage risk, and only use money you can set aside for the whole period. {link}'],
+  'post:intro:start': ['Getting started takes a few minutes: sign up free, verify your identity, add money to your wallet, then pick a Trade Lot. Questions? Ask our assistant any time. {link}'],
+  'post:intro:circles': ['Harvest Circles let a cooperative, office, church or family group back a trade together, each person from a small amount, each with their own Trade Certificate. {link}'],
   'post:learn:how': ['How ComboTrader works: 1) pick a Trade Lot that already has a signed buyer, 2) choose 4, 6, 9 or 12 months, 3) follow the trade on the Harvest Trail, 4) receive your principal and earnings on the payout date. {link}'],
   'post:learn:periods': ['The longer you stay, the more you earn: {rate4}% a year for 4 months, rising to {rate12}% a year for 12 months. You choose when you join. {link}'],
   'post:learn:trail': ['Every ComboTrader trade has a Harvest Trail: dated updates and photos from sourcing to warehouse to delivery. You always know where your money is. {link}'],
