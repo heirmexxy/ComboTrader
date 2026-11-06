@@ -173,9 +173,10 @@ post('/webhooks/email/:token', 'public', (c) => {
   try { body = JSON.parse(c.rawBody.toString()); } catch { return c.send(400, 'bad json'); }
   let n = 0;
   for (const ev of Array.isArray(body) ? body : [body]) {
-    const resend = typeof ev?.type === 'string' && /^email\.(bounced|complained|failed)$/.test(ev.type);
+    // Resend sends many kinds of events; only these say an address should not be emailed again. The rest are ignored.
+    const resend = typeof ev?.type === 'string' && /^(email\.(bounced|complained|failed|suppressed)|suppression\.added)$/.test(ev.type);
     const brevo = typeof ev?.event === 'string' && /^(hard_bounce|soft_bounce|blocked|invalid_email|spam|complaint|error)$/.test(ev.event);
-    const to: string[] = resend ? [].concat(ev.data?.to || []) : brevo ? [ev.email] : [];
+    const to: string[] = resend ? [].concat(ev.data?.to || ev.data?.email || []) : brevo ? [ev.email] : [];
     for (const e of to) if (typeof e === 'string' && e.includes('@')) { dropAddress(e, resend ? ev.type : `brevo ${ev.event}`); n++; }
   }
   if (n) audit(null, 'email.bounce_webhook', undefined, { removed: n });
