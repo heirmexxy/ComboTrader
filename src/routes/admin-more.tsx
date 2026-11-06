@@ -45,6 +45,7 @@ import { liAuth, liConfigured, liAuthUrl, liExchange, liAdminPages, liChoosePage
 import { hmac, safeEqual } from '../lib/util';
 import { HttpError, type Ctx } from '../lib/http';
 import { telegramStats, telegramAds, botLink, channelUrl, tgLive, setupTelegramBot, draftTelegramAds } from '../lib/telegram';
+import { campaignFamily } from '../lib/emailhealth';
 
 const page = (c: Ctx, title: string, body: React.ReactNode, actions?: React.ReactNode) => render(c, <AdminLayout title={title} actions={actions}>{body}</AdminLayout>);
 const pct = (r: number | null) => (r === null ? '—' : `${(r * 100).toFixed(0)}%`);
@@ -984,6 +985,36 @@ get('/admin/chief', 'admin:any', (c) => {
   </>);
 });
 get('/admin/chief/brief/:id', 'admin:any', (c) => { const b = q.get<any>('SELECT * FROM chief_briefs WHERE id=?', Number(c.params.id)); if (!b) throw new HttpError(404, 'Not found'); c.html(previewShell(`Brief ${String(b.created_at).slice(0, 10)}`, escapeHtml(b.body).replace(/&gt;/g, '>'))); });
+// ---------- Email log ----------
+get('/admin/emails', 'admin:content', (c) => {
+  const who = String(c.query.q || '').trim().toLowerCase().slice(0, 120);
+  const status = ['queued', 'sent', 'failed', 'cancelled'].includes(String(c.query.status)) ? String(c.query.status) : '';
+  const byCampaign = q.all<any>(`SELECT campaign, SUM(status='sent') sent, SUM(status='queued') queued, SUM(status='failed') failed, SUM(status='cancelled') cancelled,
+    SUM(delivered_at IS NOT NULL) delivered, SUM(opened_at IS NOT NULL) opened FROM outbox WHERE kind='marketing' GROUP BY campaign ORDER BY MAX(id) DESC LIMIT 30`);
+  const plan = q.all<any>("SELECT substr(datetime(send_after, '+1 hour'), 1, 10) day, COUNT(*) n FROM outbox WHERE kind='marketing' AND status='queued' AND send_after IS NOT NULL GROUP BY day ORDER BY day LIMIT 20");
+  const sentToday = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status='sent' AND sent_at>=?", new Date(new Date(Date.now() + 3600e3).toISOString().slice(0, 10) + 'T00:00:00+01:00').toISOString()) ?? 0);
+  const where = ["channel='email'"], args: any[] = [];
+  if (who) { where.push('lower(recipient) LIKE ?'); args.push(`%${who}%`); }
+  if (status) { where.push('status=?'); args.push(status); }
+  const rows = q.all<any>(`SELECT id, kind, campaign, recipient, subject, status, error, send_after, sent_at, delivered_at, opened_at, bounced_at, created_at FROM outbox WHERE ${where.join(' AND ')} ORDER BY COALESCE(sent_at, send_after, created_at) DESC LIMIT 100`, ...args);
+  page(c, 'Email log', <>
+    <p className="muted">Every email ComboTrader sends: marketing (sequences, newsletters, articles, invitations, outreach, Champion campaigns) and account emails (codes, receipts). Marketing goes out at the paced rate, 9:00–19:00 Lagos time on weekdays. Delivered and opened come from Resend. Health by mailbox type is on <a href="/admin/audience">Contacts &amp; sequences</a>.</p>
+    <Kpis items={[['Marketing emails sent today', sentToday], ['Waiting to send', plan.reduce((a, r) => a + r.n, 0), plan.length ? `last one ${plan[plan.length - 1].day}` : 'none waiting']]} />
+    <div className="grid-2 top">
+      <Box title="By campaign"><Table rows={byCampaign} cols={[['Campaign', (r) => campaignFamily(r.campaign) + (r.campaign && r.campaign.startsWith('nl-') ? ` #${r.campaign.split('-')[1]}${r.campaign.endsWith('-b') ? ' (subject B)' : ''}` : '')], ['Sent', (r) => r.sent], ['Waiting', (r) => r.queued], ['Delivered', (r) => r.delivered], ['Opened', (r) => r.opened], ['Failed', (r) => r.failed], ['Cancelled', (r) => <span className="muted" title="Duplicates or removed addresses">{r.cancelled}</span>]]} empty="No marketing email yet." /></Box>
+      <Box title="Schedule (waiting emails per day)"><Table rows={plan} cols={[['Day', (r) => r.day], ['Emails', (r) => r.n]]} empty="Nothing waiting." /></Box>
+    </div>
+    <Box title="Emails">
+      <form method="get" className="btn-row"><input name="q" defaultValue={who} placeholder="Search an email address" aria-label="Search" />
+        <select name="status" defaultValue={status} aria-label="Status"><option value="">Any status</option><option value="sent">Sent</option><option value="queued">Waiting</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select>
+        <button className="btn btn-ghost btn-sm">Show</button></form>
+      <Table rows={rows} cols={[['To', (m) => m.recipient], ['Subject', (m) => <span className="small">{m.subject}<br /><span className="muted">{m.kind === 'marketing' ? campaignFamily(m.campaign) : 'Account email'}</span></span>],
+        ['Status', (m) => <span className="small"><S s={m.status} />{m.delivered_at ? ' · delivered' : ''}{m.opened_at ? ' · opened' : ''}{m.bounced_at ? ' · bounced' : ''}{m.error ? <><br /><span className="muted">{String(m.error).slice(0, 80)}</span></> : null}</span>],
+        ['When', (m) => <span className="small">{m.status === 'queued' ? `goes ${String(m.send_after || '').replace('T', ' ').slice(0, 16)} UTC` : String(m.sent_at || m.created_at).replace('T', ' ').slice(0, 16) + ' UTC'}</span>]]} empty="No emails match." />
+    </Box>
+  </>);
+});
+
 // ---------- Telegram ----------
 get('/admin/telegram', 'admin:content', (c) => {
   const st = telegramStats(), ads = telegramAds(), bot = botLink(), ch = channelUrl();
