@@ -978,7 +978,7 @@ await t('chief: briefs from facts, assigns tasks for a lot that is behind, pause
 });
 
 console.log('\nEmail pacing');
-await t('marketing email goes out 2 every 5 minutes from 8:00, 50 on day one then +50% a day, and pauses if too many fail', async () => {
+await t('marketing email goes out 2 every 5 minutes from 9:00 on weekdays, 50 on day one then +50% a day, and pauses if too many fail', async () => {
   const N = await import('../src/lib/notify');
   setSetting('email_warmup_start', now()); setSetting('marketing_paused_until', ''); setSetting('email_slow_groups', '{}');
   q.run("DELETE FROM outbox WHERE kind='marketing'");
@@ -987,13 +987,18 @@ await t('marketing email goes out 2 every 5 minutes from 8:00, 50 on day one the
   N.queueEmail('otp@t.ng', 'Code', '<p>1</p>');
   const slots = q.all<any>("SELECT send_after FROM outbox WHERE kind='marketing' ORDER BY id").map((r) => Date.parse(r.send_after));
   for (let i = 1; i < 50; i++) if (new Date(slots[i] + 3600e3).getUTCDate() === new Date(slots[i - 1] + 3600e3).getUTCDate()) eq(slots[i] - slots[i - 1] >= 150e3 - 15e3 && slots[i] - slots[i - 1] <= 150e3 + 15e3, true, 'about 2½ minutes apart');
-  for (const x of slots) { const h = new Date(x + 3600e3).getUTCHours(); eq(h >= 8 && h < 19, true, 'inside 8:00-19:00 Lagos'); }
+  for (const x of slots) { const d = new Date(x + 3600e3), h = d.getUTCHours(); eq(h >= 9 && h < 19, true, 'inside 9:00-19:00 Lagos'); eq(d.getUTCDay() !== 0 && d.getUTCDay() !== 6, true, 'never on a weekend'); }
   const day = (x: number) => new Date(x + 3600e3).toISOString().slice(0, 10);
   const perDay = new Map<string, number>(); for (const x of slots) perDay.set(day(x), (perDay.get(day(x)) || 0) + 1);
   eq(Math.max(...perDay.values()) <= 50, true, 'no more than 50 on one day');
   const nextDayFirst = slots.find((x) => day(x) > day(slots[0]) && perDay.get(day(slots[0]))! >= 50);
-  if (nextDayFirst) eq(new Date(nextDayFirst + 3600e3).getUTCHours(), 8, 'the overflow starts at 8:00 the next day');
+  if (nextDayFirst) eq(new Date(nextDayFirst + 3600e3).getUTCHours(), 9, 'the overflow starts at 9:00 the next weekday');
   eq(q.val("SELECT send_after FROM outbox WHERE recipient='otp@t.ng'"), null, 'transactional email is not delayed');
+  // Inside the window a due marketing email is released; outside it, it waits (checked against the clock now).
+  q.run("UPDATE outbox SET send_after=? WHERE recipient='pace0@t.ng'", new Date(Date.now() - 60e3).toISOString());
+  await N.flushOutbox();
+  const lag = new Date(Date.now() + 3600e3), inWin = lag.getUTCDay() % 6 !== 0 && lag.getUTCHours() >= 9 && lag.getUTCHours() < 19;
+  eq(q.val("SELECT status FROM outbox WHERE recipient='pace0@t.ng'") !== 'queued', inWin, inWin ? 'sent in the window' : 'held outside the window');
   setSetting('email_warmup_start', new Date(Date.now() - 1.5 * 864e5).toISOString());
   eq(N.marketingDailyCap(), 75, 'day two');
   setSetting('email_warmup_start', new Date(Date.now() - 10 * 864e5).toISOString());

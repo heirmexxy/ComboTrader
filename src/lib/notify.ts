@@ -52,7 +52,7 @@ export function dropAddress(email: string, reason: string) {
 }
 
 // ---------- Pacing marketing email (protects the sending domain's reputation) ----------
-const WINDOW = { start: 8, end: 19 }; // Lagos time (UTC+1, no daylight saving)
+const WINDOW = { start: 9, end: 19 }; // Lagos time (UTC+1, no daylight saving), Monday to Friday only
 const LAGOS = 3600e3;
 /** Most marketing emails per day: starts at 50 and grows by half each day (warm-up) up to the set daily cap. */
 export function marketingDailyCap() {
@@ -66,12 +66,15 @@ export function marketingDailyCap() {
 }
 function fitWindow(t: number) {
   const d = new Date(t + LAGOS), h = d.getUTCHours() + d.getUTCMinutes() / 60;
-  if (h < WINDOW.start) { d.setUTCHours(WINDOW.start, 0, 0, 0); return d.getTime() - LAGOS; }
-  if (h >= WINDOW.end) { d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(WINDOW.start, 0, 0, 0); return d.getTime() - LAGOS; }
-  return t;
+  if (h >= WINDOW.end) { d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(WINDOW.start, 0, 0, 0); }
+  else if (h < WINDOW.start) d.setUTCHours(WINDOW.start, 0, 0, 0);
+  else if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) return t;
+  // Weekends: move to Monday 9:00.
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) { d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(WINDOW.start, 0, 0, 0); }
+  return d.getTime() - LAGOS;
 }
-/** The next send time for a marketing email: a steady trickle from 8:00 Lagos time (2 every 5 minutes by default),
- * at most the day's warm-up cap per day; whatever doesn't fit moves to the next morning. */
+/** The next send time for a marketing email: a steady trickle from 9:00 Lagos time, Monday to Friday (2 every 5
+ * minutes by default), at most the day's warm-up cap per day; whatever doesn't fit moves to the next weekday morning. */
 export function nextMarketingSlot(group = 'company') {
   const gap = Math.max(30, Number(settings().email_gap_seconds || 150)) * 1000;
   const cap = marketingDailyCap();
@@ -85,7 +88,7 @@ export function nextMarketingSlot(group = 'company') {
   const paused = String(settings().marketing_paused_until || '');
   if (paused && Date.parse(paused) > t) t = Date.parse(paused);
   t = fitWindow(t);
-  // Daily cap (Lagos calendar day): if today's slots are used up, start at 8:00 the next day.
+  // Daily cap (Lagos calendar day): if today's slots are used up, start at 9:00 the next weekday.
   for (let i = 0; i < 60; i++) {
     const d = new Date(t + LAGOS); d.setUTCHours(0, 0, 0, 0);
     const dayStart = d.getTime() - LAGOS, dayEnd = dayStart + 864e5;
@@ -165,7 +168,9 @@ export function escapeHtml(s: string) {
 /** Sends queued messages through the configured providers. Called by the scheduler. */
 export async function flushOutbox(limit = 50) {
   const paused = String(settings().marketing_paused_until || '');
-  const mk = paused && Date.parse(paused) > Date.now() ? 0 : 1;
+  // Marketing only goes out inside the sending window (9:00–19:00 Lagos, Monday to Friday), even if queued earlier.
+  const nowMs = Date.now();
+  const mk = (paused && Date.parse(paused) > nowMs) || fitWindow(nowMs) !== nowMs ? 0 : 1;
   const rows = q.all<any>("SELECT * FROM outbox WHERE status='queued' AND attempts < 5 AND (send_after IS NULL OR send_after<=?) AND (kind!='marketing' OR ?=1) ORDER BY COALESCE(send_after, created_at) LIMIT ?", now(), mk, limit);
   for (const m of rows) {
     try {
