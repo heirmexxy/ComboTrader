@@ -141,8 +141,8 @@ export interface ParsedContacts { rows: (ImportRow & { line: number })[]; invali
 /** Reads a pasted list or CSV. Finds the email column from the header (Email, E-mail, Email Address…) or, without a
  * header, from where the addresses are. Rows with no valid email are reported, never added. A cell like
  * "Ada Obi <ada@coop.ng>" gives ada@coop.ng; a cell with two addresses gives two contacts. */
-export function parseContactsDetailed(text: string): ParsedContacts {
-  const all = csvRows(text);
+export function parseContactsDetailed(input: string | string[][]): ParsedContacts {
+  const all = typeof input === 'string' ? csvRows(input) : input.map((r) => r.map((c) => String(c ?? '').trim())).filter((r) => r.some(Boolean));
   const res: ParsedContacts = { rows: [], invalid: [], dataRows: 0, header: null };
   if (!all.length) return res;
   const h = all[0].map((c) => c.toLowerCase().replace(/[^a-z ]/g, '').trim());
@@ -165,7 +165,8 @@ export function parseContactsDetailed(text: string): ParsedContacts {
     if (!emails.length) { res.invalid.push({ line, text: cells.join(', ').slice(0, 120) }); return; }
     let name = ix ? (pick(ix.name) || [pick(ix.first), pick(ix.last)].filter(Boolean).join(' ')) : '';
     if (!name) { const nm = /^\s*"?([^"<@]+?)"?\s*</.exec(src); name = nm ? nm[1].trim() : (ix ? '' : cells.find((c) => c && !c.includes('@') && !PHONE_RE.test(c)) || ''); }
-    const phone = ix ? pick(ix.phone) : cells.find((c) => PHONE_RE.test(c)) || '';
+    let phone = ix ? pick(ix.phone) : cells.find((c) => PHONE_RE.test(c)) || '';
+    if (/^[789]\d{9}$/.test(phone)) phone = `0${phone}`; // Excel drops the leading 0 of Nigerian numbers
     for (const email of emails) res.rows.push({ email, name: name.slice(0, 120), phone: phone.slice(0, 40), lang: ix ? pick(ix.lang) : '', line });
   });
   return res;

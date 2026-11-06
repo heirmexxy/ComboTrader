@@ -37,6 +37,10 @@ export async function scanContacts(limit = 400) {
   const rows = q.all<any>("SELECT id, email, email_tries, import_id FROM leads WHERE email IS NOT NULL AND email_check IS NULL ORDER BY id LIMIT ?", limit);
   const dup = d0.merged + d0.subs ? `${d0.merged + d0.subs} duplicates merged; ` : '';
   if (!rows.length) { finishImports(); return `${dup}nothing to check`; }
+  // Safety: if DNS on this server is not working, every domain would look dead. Check two domains that certainly take
+  // email first; if either fails, stop without changing anything and try again next hour.
+  const control = [await checkDomain('gmail.com'), await checkDomain('outlook.com')];
+  if (control.some((v) => v !== 'ok')) { audit(null, 'email.prescan_dns_down', undefined, { control }); return `${dup}DNS is not answering on this server, so nothing was checked or removed; trying again next hour`; }
   const res = { ok: 0, public: 0, removed: 0, retry: 0 };
   const seen = new Map<string, DomainVerdict>();
   for (const r of rows) {

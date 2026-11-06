@@ -31,6 +31,7 @@ import { PLAYBOOK_DOC, PROMISE, SEGMENTS, LOCATIONS, PILLARS, GUARDRAILS, SOURCE
 import { marked } from 'marked';
 import { agentLabel } from '../lib/personas';
 import { coverImage } from '../lib/covers';
+import { xlsxRows, isXlsx, isOldXls } from '../lib/xlsx';
 import { scanContacts, scanStats } from '../lib/emailcheck';
 import { emailHealth, rates, type HealthRow } from '../lib/emailhealth';
 import { marketingDailyCap, marketingQueued } from '../lib/notify';
@@ -834,7 +835,7 @@ get('/admin/audience', 'admin:content', (c) => {
         <form method="post" action="/admin/audience/import" encType="multipart/form-data" className="stack"><Csrf />
           <label className="field"><span>Paste contacts: one per line, “email” or “email, name”. A header row <code>email,name,phone,lang</code> also works.</span>
             <textarea name="text" rows={8} placeholder={'ada@example.com, Ada Obi\nbola@example.com'} /></label>
-          <label className="field"><span>…or upload a CSV file</span><input type="file" name="file" accept=".csv,text/csv,text/plain" /></label>
+          <label className="field"><span>…or upload a CSV or Excel (.xlsx) file</span><input type="file" name="file" accept=".csv,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" /></label>
           <fieldset className="field"><legend>Add them to</legend>
             <label><input type="checkbox" name="lists[]" value="sequence" defaultChecked /> An email sequence:</label>{' '}
             <select name="sequence" aria-label="Sequence">{Object.entries(SEQUENCES).map(([k, v]) => <option key={k} value={k}>{v.name} ({v.steps.length} emails)</option>)}</select><br />
@@ -863,8 +864,13 @@ get('/admin/audience/import/:id', 'admin:content', (c) => {
 post('/admin/audience/scan', 'admin:content', async (c) => { c.redirect('/admin/audience', ['ok', `Pre-scan: ${await scanContacts(5000)}.`]); });
 post('/admin/audience/import', 'admin:content', (c) => {
   const file = c.files?.file;
-  const text = `${c.str('text', 2_000_000)}\n${file?.data ? file.data.toString('utf8') : ''}`;
-  const parsed = parseContactsDetailed(text);
+  // A spreadsheet (.xlsx) is read sheet-by-cell; a CSV or pasted list as text. Old .xls files must be re-saved.
+  let parsed: ReturnType<typeof parseContactsDetailed>;
+  if (file?.data && isOldXls(file.data)) return c.redirect('/admin/audience', ['error', 'This is an old Excel .xls file. In Excel, choose File → Save As → Excel Workbook (.xlsx) or CSV, then upload that.']);
+  try {
+    if (file?.data && isXlsx(file.data)) { const fromSheet = parseContactsDetailed(xlsxRows(file.data)); const pasted = parseContactsDetailed(c.str('text', 2_000_000)); parsed = { rows: [...fromSheet.rows, ...pasted.rows], invalid: [...fromSheet.invalid, ...pasted.invalid], dataRows: fromSheet.dataRows + pasted.dataRows, header: fromSheet.header }; }
+    else parsed = parseContactsDetailed(`${c.str('text', 2_000_000)}\n${file?.data ? file.data.toString('utf8') : ''}`);
+  } catch (e: any) { return c.redirect('/admin/audience', ['error', `Could not read the file: ${e.message}`]); }
   const rows = parsed.rows, fileRows = parsed.dataRows;
   if (!rows.length) return c.redirect('/admin/audience', ['error', `No email addresses found in ${fileRows} rows. Check that the file has an “Email” column.`]);
   const lists = (Array.isArray(c.body['lists']) ? c.body['lists'] : [c.body['lists']]).filter((x: unknown) => ['sequence', 'newsletter', 'blog'].includes(String(x))) as ListName[];

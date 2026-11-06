@@ -1016,13 +1016,19 @@ await t('pre-scan: company domains are checked before sending; dead domains are 
   await E.scanContacts();
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email LIKE '%@livecoop.ng' AND email_check='ok'")), 2);
   eq(looked.filter((d) => d === 'livecoop.ng').length, 1, 'one lookup per domain');
-  eq(looked.includes('gmail.com'), false); eq(q.val("SELECT email_check FROM leads WHERE email='e@gmail.com'"), 'public');
+  eq(looked.filter((d) => d === 'gmail.com').length, 1, 'gmail looked up only as the DNS safety check'); eq(q.val("SELECT email_check FROM leads WHERE email='e@gmail.com'"), 'public');
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email IN ('c@gone-coop.ng','d@nomail.ng')")), 0, 'dead domains purged');
   eq(q.val("SELECT email_check FROM leads WHERE email='f@slow.ng'"), null, 'no answer: held, tried again later');
   await E.scanContacts(); await E.scanContacts();
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='f@slow.ng'")), 0, 'removed after 3 checks with no answer');
   L.importContacts(L.parseContacts('c@gone-coop.ng'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='c@gone-coop.ng'")), 0, 'never re-added');
+  // If the server's DNS is down, nothing is removed.
+  L.importContacts(L.parseContacts('z@realfirm.ng'), { lists: ['blog'], consent: true, source: 'test', by: 1 });
+  E._setResolver(async () => { throw Object.assign(new Error('nx'), { code: 'ENOTFOUND' }); });
+  eq((await E.scanContacts()).includes('DNS is not answering'), true);
+  eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='z@realfirm.ng'")), 1, 'kept when DNS is down');
+  E._setResolver(async (d) => [{ exchange: `mx.${d}`, priority: 10 }]); await E.scanContacts();
 });
 
 await t('duplicates: the same mailbox is never added twice, and existing copies are merged with an opt-out winning', async () => {
@@ -1064,6 +1070,17 @@ await t('CSV import: header variants, quotes, blank emails; rows without an emai
   eq(r.dupFile, 0); eq(r.added, 4);
   eq(Number(q.val("SELECT COUNT(*) FROM contact_import_rows WHERE import_id=? AND outcome LIKE 'no valid email%'", r.importId)), 27);
   eq(Number(q.val("SELECT COUNT(*) FROM leads WHERE email='' ")), 0);
+});
+
+await t('Excel import: .xlsx sheets are read (shared strings, numbers, blank cells), old .xls is recognised', async () => {
+  const X = await import('../src/lib/xlsx'); const L = await import('../src/lib/library');
+  const fs = await import('node:fs');
+  const buf = fs.readFileSync('tests/fixtures/contacts.xlsx');
+  eq(X.isXlsx(buf), true); eq(X.isOldXls(buf), false);
+  const p = L.parseContactsDetailed(X.xlsxRows(buf));
+  eq(p.dataRows, 3); eq(p.invalid.length, 1);
+  eq(p.rows.map((r) => `${r.email}|${r.name}|${r.phone}`).join(' / '), 'ada.obi@example.com|Ada Obi|08031234567 / bola@firm.ng|Bola Ade|0805 111 2222');
+  eq(X.isOldXls(Buffer.from('d0cf11e0a1b11ae1', 'hex')), true);
 });
 
 console.log('\nEmail health');
