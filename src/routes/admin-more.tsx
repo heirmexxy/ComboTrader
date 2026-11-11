@@ -37,7 +37,7 @@ import { endInstruction } from '../lib/instructions';
 import { xlsxRows, isXlsx, isOldXls } from '../lib/xlsx';
 import { scanContacts, scanStats } from '../lib/emailcheck';
 import { emailHealth, rates, type HealthRow } from '../lib/emailhealth';
-import { marketingDailyCap, marketingQueued } from '../lib/notify';
+import { marketingDailyCap, marketingQueued, quotaSummary } from '../lib/notify';
 import { decide as chiefDecide, rolesOf, runChief, triage as chiefTriage, approveSafe as chiefApproveSafe, assignTask, lotPct as chiefLotPct, TASK_KINDS, type TaskKind } from '../lib/chief';
 import { escapeHtml } from '../lib/notify';
 import { metaAuth, metaConfigured, metaAuthUrl, metaExchange, metaPages, metaChoosePage, metaDisconnect, metaRedirect, metaWhoAmI } from '../lib/meta';
@@ -853,7 +853,7 @@ get('/admin/audience', 'admin:content', (c) => {
   page(c, 'Contacts & email sequences', <>
     <p className="small muted"><b>Pre-scan:</b> before anything is sent, Chidi (the email agent) removes general company inboxes (info@, admin@, sales@, inquiries@…), merges duplicates (the same mailbox written twice, in any case, with a +tag, or Gmail with and without dots), then checks every address on a company or organisation domain: does the domain still exist and still have a mail server? Addresses that fail are removed for good. Gmail, Yahoo, Outlook and similar are not looked up. Any address the email service refuses on the first send is also removed. <Act action="/admin/audience/scan" label="Check addresses now" /></p>
     <p className="muted">Add people who <b>asked to hear from Kitovu or ComboTrader</b> (event sign-ups, partners, customers, a group’s members who agreed). They get the chosen email sequence one email at a time, the fortnightly newsletter and/or new articles. Everyone can stop with one click; people who stopped are never re-added. Champions already on the platform get their own lifecycle emails instead of a sequence.</p>
-    <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Addresses checked and cleared', sc.ok, `${sc.waiting} waiting for the pre-scan · ${sc.removed} removed (domain gone or takes no email) · ${sc.general} general company addresses removed · ${sc.duplicates} duplicates merged`], ['Marketing emails waiting for their slot', marketingQueued(), `${marketingDailyCap()} today (warm-up ${settings().email_warmup_steps}, then up to ${settings().sequence_daily_cap} a day), spread evenly 9:00–19:00, Monday to Friday; webmail addresses first${String(settings().marketing_paused_until || '') > now() ? ' · PAUSED: too many failed' : ''}`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
+    <Kpis items={[['Contacts on lists', s.contacts], ['On the new-articles list', s.blogList], ['Addresses checked and cleared', sc.ok, `${sc.waiting} waiting for the pre-scan · ${sc.removed} removed (domain gone or takes no email) · ${sc.general} general company addresses removed · ${sc.duplicates} duplicates merged`], ['Marketing emails waiting for their slot', marketingQueued(), `${marketingDailyCap()} today (warm-up ${settings().email_warmup_steps}, then up to ${settings().sequence_daily_cap} a day), spread evenly 9:00–19:00, Monday to Friday; webmail addresses first · provider limit: ${quotaSummary()}${String(settings().marketing_paused_until || '') > now() ? ' · PAUSED: too many failed' : ''}`], ['Sequences', settings().sequences_enabled ? 'on' : 'off']]} />
     <ImportsBox />
     <EmailHealthBox />
     <div className="grid-2 top">

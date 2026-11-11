@@ -978,9 +978,62 @@ await t('chief: briefs from facts, assigns tasks for a lot that is behind, pause
 });
 
 console.log('\nEmail pacing');
+await t('provider limit: all email together stays under the daily quota; account emails keep a reserve; a 429 waits instead of failing', async () => {
+  const N = await import('../src/lib/notify');
+  const { config } = await import('../src/lib/config');
+  const saved = { p: config.emailProvider, k: config.emailApiKey, f: globalThis.fetch };
+  q.run('DELETE FROM outbox'); setSetting('email_blocked_until', ''); setSetting('email_quota_seen', '{}'); setSetting('marketing_paused_until', '');
+  setSetting('email_daily_quota', 10); setSetting('email_monthly_quota', 3000); setSetting('email_reserve_pct', 30);
+  eq(N.quotaBudget().marketingDay, 7, '70% of 10 for marketing');
+  setSetting('email_warmup_start', now());
+  eq(N.marketingDailyCap(), 7, 'the planner never plans more marketing than the budget');
+  let calls = 0, refuse = false;
+  (config as any).emailProvider = 'resend'; (config as any).emailApiKey = 'test';
+  globalThis.fetch = (async () => { calls++; if (refuse) return new Response('{"message":"You have reached your daily email sending quota.","name":"daily_quota_exceeded","statusCode":429}', { status: 429 }); return new Response(JSON.stringify({ id: `p${calls}` }), { status: 200, headers: { 'x-resend-daily-quota': String(calls) } }); }) as any;
+  try {
+    // 6 marketing sent already today, 6 marketing + 3 account emails due now.
+    const past = new Date(Date.now() - 60e3).toISOString();
+    for (let i = 0; i < 6; i++) q.insert('outbox', { channel: 'email', recipient: `old${i}@t.ng`, subject: 's', body: 'b', kind: 'marketing', status: 'sent', sent_at: now(), created_at: now(), send_after: past });
+    for (let i = 0; i < 6; i++) q.insert('outbox', { channel: 'email', recipient: `mk${i}@t.ng`, subject: 's', body: 'b', kind: 'marketing', created_at: now(), send_after: past });
+    for (let i = 0; i < 3; i++) N.queueEmail(`acct${i}@t.ng`, 'Code', '<p>1</p>');
+    // Force the sending window open for this check.
+    const realNow = Date.now; const d = new Date(); d.setUTCHours(11, 0, 0, 0); while ([0, 6].includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() - 1);
+    const sent = (k: string) => Number(q.val(`SELECT COUNT(*) FROM outbox WHERE status='sent' AND recipient LIKE '${k}%'`));
+    if (utcSameDay(d)) { Date.now = () => d.getTime(); }
+    await N.flushOutbox();
+    Date.now = realNow;
+    eq(sent('acct'), 3, 'account emails go first');
+    eq(sent('mk') + sent('old'), utcSameDay(d) ? 6 : sent('mk') + 6, 'marketing stops at the budget once account emails used the room');
+    eq(N.emailUsage().usedDay <= 10, true, 'never over the daily quota');
+    // The provider says the quota is used up: nothing fails, attempts are kept, email pauses.
+    refuse = true; setSetting('email_daily_quota', 0);
+    N.queueEmail('late@t.ng', 'Receipt', '<p>1</p>');
+    await N.flushOutbox();
+    const late = q.get<any>("SELECT status, attempts FROM outbox WHERE recipient='late@t.ng'");
+    eq(late.status, 'queued', 'still queued'); eq(late.attempts, 0, 'no attempt used up');
+    eq(N.emailUsage().blockedUntil !== '', true, 'email paused until the limit resets');
+    const before = calls; await N.flushOutbox(); eq(calls, before, 'no more calls while paused');
+    eq(Number(q.val("SELECT COUNT(*) FROM outbox WHERE status='failed'")), 0, 'nothing marked failed');
+    // Old 429-held account emails get their attempts back; marketing planned for later is not a health problem.
+    q.run("UPDATE outbox SET attempts=5, error='Email 429: daily_quota_exceeded' WHERE recipient='late@t.ng'");
+    eq(N.rearmLimitedEmail().back, 1);
+    setSetting('email_blocked_until', '');
+    q.run("UPDATE outbox SET status='sent' WHERE recipient='late@t.ng'");
+    for (let i = 0; i < 5; i++) q.insert('outbox', { channel: 'email', recipient: `future${i}@t.ng`, subject: 's', body: 'b', kind: 'marketing', created_at: new Date(Date.now() - 864e5).toISOString(), send_after: new Date(Date.now() + 3 * 864e5).toISOString() });
+    const { runChecks } = await import('../src/lib/watchdog');
+    const ob = (await runChecks()).find((c) => c.key === 'outbox')!;
+    eq(ob.ok, true, 'marketing planned for later is not "not sent"'); eq(ob.detail.includes('planned in later slots'), true);
+  } finally {
+    (config as any).emailProvider = saved.p; (config as any).emailApiKey = saved.k; globalThis.fetch = saved.f;
+    q.run('DELETE FROM outbox'); setSetting('email_blocked_until', ''); setSetting('email_quota_seen', '{}'); setSetting('email_daily_quota', 100); setSetting('email_monthly_quota', 3000);
+  }
+});
+function utcSameDay(d: Date) { return new Date().toISOString().slice(0, 10) === d.toISOString().slice(0, 10); }
+
 await t('marketing email: warm-up 300, 600, 1,000 then 2,000 a weekday, spread evenly 9:00–19:00 Lagos, and pauses if too many fail', async () => {
   const N = await import('../src/lib/notify');
   setSetting('email_warmup_start', now()); setSetting('marketing_paused_until', ''); setSetting('email_slow_groups', '{}'); setSetting('email_slowdown_until', '');
+  setSetting('email_daily_quota', 0); setSetting('email_monthly_quota', 0); // a paid plan: only the warm-up limits marketing
   q.run("DELETE FROM outbox WHERE kind='marketing'");
   eq(N.marketingDailyCap(), 300);
   const plan = N.marketingPlanner();

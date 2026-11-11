@@ -32,6 +32,13 @@ export const DEFAULTS = {
   ai_credit_low_days: 7, // warn when credit will run out within this many days
   email_slowdown_until: '', // set by the Chief of Staff when delivery drops: marketing goes at half pace
   email_slow_groups: '{}', // providers (gmail, yahoo…) that are delaying our mail, with when the slow-down ends
+  // The email provider's own limits, for ALL email together (account emails, marketing, alerts, and email received).
+  // Resend's free plan: 100 a day, 3,000 a month. Set to 0 after upgrading to a plan without that limit.
+  email_daily_quota: 100,
+  email_monthly_quota: 3000,
+  email_reserve_pct: 30, // share of the quota kept for account emails (codes, receipts, payouts, alerts); marketing never uses it
+  email_blocked_until: '', // internal: the provider said a limit is used up; email waits until then (then tries again)
+  email_quota_seen: '{}', // internal: usage the provider last reported (it includes email received)
   social_intro_series: true, // the first posts explain ComboTrader (8 topics) before any lot is promoted
   social_paused_until: '', // Chief of Staff: pause promoting new lots (e.g. when Treasury is short)
   social_boost: '', // Chief of Staff: {"topic":"how","until":"…"} favour a topic that is working

@@ -1087,6 +1087,15 @@ get('/admin/settings', 'admin:super', (c) => {
         <input type="hidden" name="_group" value="rates" />
       </Form>
     </Box>
+    <Box title="Email sending limits">
+      <p className="muted small">Your email provider's limits for all email together: account emails, marketing, alerts and email received. Resend's free plan allows 100 a day and 3,000 a month; set a limit to 0 once your plan has none. Marketing only uses what is left after the reserve, so codes, receipts and payout emails always get through.</p>
+      <Form action="/admin/settings" submit="Save">
+        <F label="Daily limit (0 = none)" name="email_daily_quota" type="number" value={s.email_daily_quota} />
+        <F label="Monthly limit (0 = none)" name="email_monthly_quota" type="number" value={s.email_monthly_quota} />
+        <F label="Kept for account emails (%)" name="email_reserve_pct" type="number" value={s.email_reserve_pct} />
+        <input type="hidden" name="_group" value="email" />
+      </Form>
+    </Box>
     <Box title="Champion ranks">
       <p className="muted small">The homepage numbers (Champions, tons, payouts, farmers) are edited in <a href="/admin/figures">Homepage numbers</a>.</p>
       <Form action="/admin/settings" submit="Save">
@@ -1132,6 +1141,7 @@ const GROUPS: Record<string, SettingKey[]> = {
   agents: ['agents_enabled', 'agent_autonomy', 'agent_daily_limit'],
   ranks: ['rank_thresholds'],
   rates: ['rate_4', 'rate_6', 'rate_9', 'rate_12', 'min_commit_default'],
+  email: ['email_daily_quota', 'email_monthly_quota', 'email_reserve_pct'],
 };
 post('/admin/settings', 'admin:super', (c) => {
   const keys = GROUPS[c.str('_group')] || [];

@@ -7,7 +7,7 @@ import tls from 'node:tls';
 import { q, now } from './db';
 import { config } from './config';
 import { settings, setSetting } from './settings';
-import { queueEmail, emailShell, escapeHtml } from './notify';
+import { queueEmail, emailShell, escapeHtml, emailUsage, quotaSummary } from './notify';
 import { paystackFloat } from './paysync';
 import { liAuth } from './linkedin';
 
@@ -59,9 +59,22 @@ export async function runChecks(): Promise<Check[]> {
       out.push({ key: 'offsite', name: 'Off-server backup', ok: st === 'ok' && hours < 27, detail: st === 'ok' ? `last sent ${Math.round(hours)} hours ago: ${rest.join(' ')}` : `last attempt failed: ${rest.join(' ')}` });
     } catch { out.push({ key: 'offsite', name: 'Off-server backup', ok: true, detail: 'not set up yet (deploy/backup-offsite.sh setup)' }); }
   }
-  // Email and SMS delivery
-  const stuck = q.get<any>("SELECT COUNT(*) n, MAX(error) err FROM outbox WHERE status='queued' AND (attempts >= 3 OR created_at <= ?)", new Date(Date.now() - 30 * 60e3).toISOString());
-  out.push({ key: 'outbox', name: 'Email and SMS sending', ok: !(config.emailProvider && config.emailApiKey) || !stuck?.n, detail: stuck?.n ? `${stuck.n} messages not sent; last error: ${String(stuck.err || 'waiting').slice(0, 200)}` : 'sending normally' });
+  // Email and SMS delivery. Only messages that are due count: marketing planned for a later slot is waiting by design,
+  // and account emails held back by the provider's daily limit are reported as that, not as a sending fault.
+  const cut = new Date(Date.now() - 30 * 60e3).toISOString(), nowIso = now();
+  const stuck = q.get<any>("SELECT COUNT(*) n, MAX(error) err FROM outbox WHERE status='queued' AND kind!='marketing' AND (send_after IS NULL OR send_after<=?) AND (attempts >= 3 OR created_at <= ?)", nowIso, cut);
+  const late = Number(q.val("SELECT COUNT(*) FROM outbox WHERE status='queued' AND kind='marketing' AND send_after<=?", new Date(Date.now() - 24 * 3600e3).toISOString()) ?? 0);
+  const planned = Number(q.val("SELECT COUNT(*) FROM outbox WHERE status='queued' AND kind='marketing'") ?? 0);
+  const usage = emailUsage();
+  const live = !!(config.emailProvider && config.emailApiKey);
+  const bits: string[] = [];
+  if (stuck?.n) bits.push(`${stuck.n} account email${stuck.n === 1 ? '' : 's'}/SMS due but not sent; ${usage.blockedUntil ? `the provider's limit is used up, trying again at ${usage.blockedUntil.slice(11, 16)} UTC` : `last error: ${String(stuck.err || 'waiting').slice(0, 200)}`}`);
+  if (late) bits.push(`${late} marketing emails over a day late`);
+  out.push({ key: 'outbox', name: 'Email and SMS sending', ok: !live || (!stuck?.n && !late), detail: bits.length ? bits.join('; ') : `sending normally${planned ? ` (${planned.toLocaleString('en-NG')} marketing emails planned in later slots)` : ''}` });
+  if (live) {
+    const L = usage.limits, near = (L.day && usage.usedDay >= L.day * 0.9) || (L.month && usage.usedMonth >= L.month * 0.9);
+    out.push({ key: 'email_quota', name: 'Email provider limit', ok: !near && !usage.blockedUntil, detail: quotaSummary() });
+  }
   // Scheduled jobs
   const failed = q.all<any>("SELECT name, last_status FROM job_runs WHERE last_status LIKE 'error%' AND last_run >= ?", new Date(Date.now() - 864e5).toISOString());
   out.push({ key: 'jobs', name: 'Scheduled jobs', ok: !failed.length, detail: failed.length ? failed.map((j) => `${j.name}: ${String(j.last_status).slice(0, 120)}`).join('; ') : 'all ran without errors' });

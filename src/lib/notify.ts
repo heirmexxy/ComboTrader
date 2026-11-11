@@ -74,9 +74,62 @@ export function marketingDailyCap(at = Date.now()) {
   const startDay = Date.parse(`${lagosDayOf(Date.parse(start))}T00:00:00Z`), atDay = Date.parse(`${lagosDayOf(at)}T00:00:00Z`);
   for (let t = startDay + 864e5; t <= atDay; t += 864e5) { const wd = new Date(t).getUTCDay(); if (wd !== 0 && wd !== 6) day++; }
   const steps = String(s.email_warmup_steps || '300,600,1000,2000').split(',').map((x) => Number(x.trim())).filter((x) => x > 0);
-  const cap = Math.max(1, Math.min(Number(s.sequence_daily_cap || 2000), steps[Math.min(day, steps.length - 1)] || 300));
+  let cap = Math.max(1, Math.min(Number(s.sequence_daily_cap || 2000), steps[Math.min(day, steps.length - 1)] || 300));
+  // Never plan more marketing in a day than the provider's daily limit leaves after the account-email reserve.
+  const budget = quotaBudget().marketingDay;
+  if (Number.isFinite(budget)) cap = Math.max(1, Math.min(cap, budget));
   // Delivery trouble: the Chief of Staff halves the pace for a few days.
   return String(s.email_slowdown_until || '') > new Date(at).toISOString() ? Math.max(1, Math.ceil(cap / 2)) : cap;
+}
+
+// ---------- The provider's limits (all email together) ----------
+// Resend's free plan allows 100 emails a day and 3,000 a month, counting every email: account emails, marketing,
+// alerts and email received. Marketing may only use the quota minus a reserve, so account emails always get through.
+const utcDay = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
+const utcMonth = (t = Date.now()) => new Date(t).toISOString().slice(0, 7);
+/** The limits from Settings: totals, and how much of each marketing may use (Infinity = no limit). */
+export function quotaBudget() {
+  const s = settings();
+  const day = Math.max(0, Number(s.email_daily_quota) || 0), month = Math.max(0, Number(s.email_monthly_quota) || 0);
+  const keep = Math.min(90, Math.max(0, Number(s.email_reserve_pct ?? 30))) / 100;
+  return { day, month, marketingDay: day ? Math.floor(day * (1 - keep)) : Infinity, marketingMonth: month ? Math.floor(month * (1 - keep)) : Infinity };
+}
+function quotaSeen(): { day?: string; used?: number; month?: string; mused?: number } {
+  try { return JSON.parse(String(settings().email_quota_seen || '{}')) || {}; } catch { return {}; }
+}
+/** Email used today (UTC day, as the provider counts it) and this month: what we sent, or what the provider reports
+ * if that is higher (it also counts email received). */
+export function emailUsage() {
+  const d0 = `${utcDay()}T00:00:00.000Z`, m0 = `${utcMonth()}-01T00:00:00.000Z`;
+  const n = (sql: string, ...a: string[]) => Number(q.val(sql, ...a) ?? 0);
+  const seen = quotaSeen();
+  const usedDay = Math.max(n("SELECT COUNT(*) FROM outbox WHERE channel='email' AND status='sent' AND sent_at>=?", d0), seen.day === utcDay() ? Number(seen.used) || 0 : 0);
+  const usedMonth = Math.max(n("SELECT COUNT(*) FROM outbox WHERE channel='email' AND status='sent' AND sent_at>=?", m0), seen.month === utcMonth() ? Number(seen.mused) || 0 : 0);
+  const b = String(settings().email_blocked_until || '');
+  return { usedDay, usedMonth, limits: quotaBudget(), blockedUntil: Date.parse(b) > Date.now() ? b : '' };
+}
+/** One line for the admin and the health check, e.g. "62 of 100 today (marketing up to 70) · 900 of 3,000 this month". */
+export function quotaSummary() {
+  const u = emailUsage(), L = u.limits, f = (x: number) => x.toLocaleString('en-NG');
+  const parts = [L.day ? `${f(u.usedDay)} of ${f(L.day)} today (marketing up to ${f(L.marketingDay)})` : `${f(u.usedDay)} today (no daily limit)`];
+  parts.push(L.month ? `${f(u.usedMonth)} of ${f(L.month)} this month` : `${f(u.usedMonth)} this month`);
+  return parts.join(' · ') + (u.blockedUntil ? ` · provider limit reached, trying again at ${u.blockedUntil.slice(11, 16)} UTC` : '');
+}
+/** The provider said a limit is used up: email waits (nothing is counted as failed) and is tried again later. */
+class EmailLimit extends Error { constructor(msg: string, public kind: 'daily' | 'monthly' | 'rate') { super(msg); } }
+function blockEmail(kind: EmailLimit['kind']) {
+  const t = Date.now();
+  const nextUtcMidnight = Date.parse(`${utcDay(t + 864e5)}T00:00:00.000Z`);
+  // Daily: try again at the next UTC midnight or in an hour, whichever is sooner (a refused try costs nothing).
+  const until = kind === 'rate' ? t + 60e3 : kind === 'daily' ? Math.min(nextUtcMidnight, t + 3600e3) : t + 6 * 3600e3;
+  setSetting('email_blocked_until', new Date(until).toISOString());
+  audit(null, 'email.quota_reached', kind, { until: new Date(until).toISOString() });
+}
+function recordProviderUsage(res: Response) {
+  const d = Number(res.headers.get('x-resend-daily-quota')), m = Number(res.headers.get('x-resend-monthly-quota'));
+  if (!(d > 0) && !(m > 0)) return;
+  const seen = quotaSeen();
+  setSetting('email_quota_seen', JSON.stringify({ ...seen, ...(d > 0 ? { day: utcDay(), used: d } : {}), ...(m > 0 ? { month: utcMonth(), mused: m } : {}) }));
 }
 function fitWindow(t: number) {
   const d = new Date(t + LAGOS), h = d.getUTCHours() + d.getUTCMinutes() / 60;
@@ -150,7 +203,8 @@ function guardMarketing() {
   }
   if (changed) setSetting('email_slow_groups', JSON.stringify(slow));
   const tried = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND attempts>0 AND send_after>=?", since) ?? 0);
-  const failed = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status='failed' AND send_after>=?", since) ?? 0);
+  // Only refused addresses count: a provider limit (429) or outage (5xx) says nothing about the list.
+  const failed = Number(q.val("SELECT COUNT(*) FROM outbox WHERE kind='marketing' AND status='failed' AND send_after>=? AND COALESCE(error,'') NOT LIKE 'Email 429%' AND COALESCE(error,'') NOT LIKE 'Email 5%'", since) ?? 0);
   const paused = String(settings().marketing_paused_until || '');
   if (tried < 20 || failed / tried <= 0.05 || (paused && Date.parse(paused) > Date.now())) return;
   const until = new Date(Date.now() + 48 * 3600e3).toISOString();
@@ -205,23 +259,47 @@ export function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));
 }
 
-/** Sends queued messages through the configured providers. Called by the scheduler. */
+/** Sends queued messages through the configured providers. Called by the scheduler (every minute).
+ * Email stays inside the provider's limits: account emails may use the whole daily and monthly quota, marketing only
+ * what is left after the reserve. When the provider says a limit is reached, email simply waits and is tried again
+ * later; nothing is marked failed and no attempts are used up. */
 export async function flushOutbox(limit = 50) {
   const paused = String(settings().marketing_paused_until || '');
   // Marketing only goes out inside the sending window (9:00–19:00 Lagos, Monday to Friday), even if queued earlier.
   const nowMs = Date.now();
   const mk = (paused && Date.parse(paused) > nowMs) || fitWindow(nowMs) !== nowMs ? 0 : 1;
-  const rows = q.all<any>("SELECT * FROM outbox WHERE status='queued' AND attempts < 5 AND (send_after IS NULL OR send_after<=?) AND (kind!='marketing' OR ?=1) ORDER BY COALESCE(send_after, created_at) LIMIT ?", now(), mk, limit);
+  const rows = q.all<any>("SELECT * FROM outbox WHERE status='queued' AND attempts < 5 AND (send_after IS NULL OR send_after<=?) AND (kind!='marketing' OR ?=1) ORDER BY (kind='marketing'), COALESCE(send_after, created_at) LIMIT ?", now(), mk, limit);
+  const live = !!(config.emailProvider && config.emailApiKey);
+  const u = emailUsage(), L = u.limits;
+  let usedDay = u.usedDay, usedMonth = u.usedMonth, emailOff = !!u.blockedUntil, calls = 0;
+  const roomFor = (marketing: boolean) => {
+    if (emailOff) return false;
+    if (marketing) return usedDay < L.marketingDay && usedMonth < L.marketingMonth;
+    return (!L.day || usedDay < L.day) && (!L.month || usedMonth < L.month);
+  };
   for (const m of rows) {
+    const isEmail = m.channel === 'email';
+    // Over the limit: leave it queued (untouched) for later. Marketing is re-planned into a later slot every hour.
+    if (isEmail && live && !roomFor(m.kind === 'marketing')) continue;
     try {
       let sent = false;
       let pid: string | null = null;
-      if (m.channel === 'email' && config.emailProvider && config.emailApiKey) { pid = await sendEmail(m.recipient, m.subject, m.body); sent = true; }
+      if (isEmail && live) {
+        // Stay well under the provider's requests-per-second limit.
+        if (calls++) await new Promise((r) => setTimeout(r, 600));
+        pid = await sendEmail(m.recipient, m.subject, m.body); sent = true; usedDay++; usedMonth++;
+      }
       else if ((m.channel === 'sms' || m.channel === 'whatsapp') && config.termiiKey) { await sendTermii(m.recipient, m.body, m.channel); sent = true; }
       if (sent) q.run("UPDATE outbox SET status='sent', sent_at=?, attempts=attempts+1, provider_id=? WHERE id=?", now(), pid, m.id);
       else q.run("UPDATE outbox SET status='held', error='No provider configured (demo mode)' WHERE id=?", m.id);
     } catch (e: any) {
       const err = String(e?.message || e).slice(0, 500);
+      if (e instanceof EmailLimit) {
+        // Not this message's fault: keep it queued with its attempts unchanged, and stop all email until the limit resets.
+        q.run('UPDATE outbox SET error=? WHERE id=?', err, m.id);
+        blockEmail(e.kind); emailOff = true;
+        continue;
+      }
       if (m.kind === 'marketing') {
         // Marketing email is tried once. If the address itself was refused, it is removed everywhere.
         q.run("UPDATE outbox SET status='failed', attempts=attempts+1, error=? WHERE id=?", err, m.id);
@@ -230,6 +308,15 @@ export async function flushOutbox(limit = 50) {
     }
   }
   guardMarketing();
+}
+
+/** Emails that were held back only because a provider limit was reached (before limits were handled) are given their
+ * attempts back. Account emails from the last 3 days go out again; older ones are closed, as they are out of date. */
+export function rearmLimitedEmail() {
+  const cut = new Date(Date.now() - 3 * 864e5).toISOString();
+  const back = q.run("UPDATE outbox SET attempts=0 WHERE channel='email' AND status='queued' AND kind!='marketing' AND error LIKE 'Email 429%' AND created_at>=?", cut).changes;
+  const closed = q.run("UPDATE outbox SET status='failed', error='Not sent: the provider limit was used up and this email is now out of date' WHERE channel='email' AND status='queued' AND kind!='marketing' AND error LIKE 'Email 429%' AND created_at<?", cut).changes;
+  return { back, closed };
 }
 
 export async function sendEmail(to: string, subject: string, html: string) {
@@ -247,7 +334,12 @@ export async function sendEmail(to: string, subject: string, html: string) {
       body: JSON.stringify({ sender: { name: (m?.[1] || 'ComboTrader').trim(), email: (m?.[2] || from).trim() }, to: [{ email: to }], subject, htmlContent: html }),
     });
   } else throw new Error(`Unknown EMAIL_PROVIDER ${config.emailProvider}`);
-  if (!res.ok) throw new Error(`Email ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (config.emailProvider === 'resend') recordProviderUsage(res);
+  if (!res.ok) {
+    const text = (await res.text()).slice(0, 200), msg = `Email ${res.status}: ${text}`;
+    if (res.status === 429) throw new EmailLimit(msg, /daily_quota/.test(text) ? 'daily' : /monthly_quota/.test(text) ? 'monthly' : 'rate');
+    throw new Error(msg);
+  }
   // The provider's id for this email, so delivery, delay, open and bounce reports can be matched to it.
   try { const j: any = await res.json(); return String(j?.id || j?.messageId || '') || null; } catch { return null; }
 }
