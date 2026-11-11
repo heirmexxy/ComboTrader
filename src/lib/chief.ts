@@ -315,7 +315,9 @@ export function syncDecisions(recs: Rec[], briefId: number) {
   for (const r of recs) {
     const open = q.get<any>("SELECT id FROM chief_recs WHERE key=? AND status='open'", r.key);
     if (open) { q.run('UPDATE chief_recs SET text=?, priority=?, link=?, roles=?, seen=seen+1, brief_id=?, updated_at=? WHERE id=?', r.text, r.priority, r.link || null, r.roles.join(','), briefId, now(), open.id); kept.push(r); continue; }
-    if (r.priority > 1 && q.get("SELECT 1 FROM chief_recs WHERE key=? AND status='dismissed' AND decided_at>=?", r.key, ago(7))) continue;
+    // A person chose "not now", or marked it done: don't raise it again for 7 days unless it is urgent. (Many signals are
+    // 7-day figures, such as the bounce rate, which stay high for a week after the fix.)
+    if (r.priority > 1 && q.get("SELECT 1 FROM chief_recs WHERE key=? AND status IN ('dismissed','done') AND decided_at>=?", r.key, ago(7))) continue;
     q.insert('chief_recs', { key: r.key, roles: r.roles.join(','), priority: r.priority, text: r.text, link: r.link || null, status: 'open', seen: 1, brief_id: briefId, created_at: now(), updated_at: now() });
     kept.push(r);
   }

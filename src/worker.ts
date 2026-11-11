@@ -4,7 +4,7 @@ import { openDb, now } from './lib/db';
 import { bootstrap } from './lib/bootstrap';
 import { seedLibrary } from './lib/library';
 import { startScheduler } from './lib/jobs';
-import { replanMarketingQueue } from './lib/notify';
+import { replanMarketingQueue, rearmLimitedEmail } from './lib/notify';
 import { backfillCovers } from './lib/covers';
 import { setSetting } from './lib/settings';
 import { startStallGuard } from './lib/stallguard';
@@ -13,6 +13,7 @@ import { setupTelegramBot } from './lib/telegram';
 openDb();
 bootstrap();
 try { seedLibrary(); } catch (e) { console.error('library seed failed', e); }
+try { const r = rearmLimitedEmail(); if (r.back || r.closed) console.log(`email: ${r.back} held account emails re-armed, ${r.closed} out-of-date ones closed`); } catch (e) { console.error('email re-arm failed', e); }
 try { replanMarketingQueue(); } catch (e) { console.error('email re-plan failed', e); }
 setTimeout(() => void backfillCovers(30).catch((e) => console.error('covers failed', e)), 60_000);
 // Heartbeat: the website shows a warning (and emails super admins) if this stops for 10 minutes.
